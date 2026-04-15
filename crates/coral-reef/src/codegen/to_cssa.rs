@@ -321,7 +321,7 @@ impl Function {
             let block_instrs = std::mem::take(&mut self.blocks[bi].instrs);
 
             let mut instrs = Vec::new();
-            for mut instr in block_instrs.into_iter() {
+            for mut instr in block_instrs {
                 match &mut instr.op {
                     Op::PhiDsts(phi) => {
                         let mut pcopy = OpParCopy::new();

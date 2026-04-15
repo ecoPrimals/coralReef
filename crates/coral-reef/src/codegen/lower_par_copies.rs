@@ -226,9 +226,8 @@ fn lower_par_copy(pc: OpParCopy, sm: &dyn ShaderModel) -> MappedInstrs {
                 if i == k {
                     // This was our last swap
                     break;
-                } else {
-                    graph.add_edge(i, k);
                 }
+                graph.add_edge(i, k);
             }
         } else {
             let pc_tmp = pc.tmp.expect("This copy needs a temporary");

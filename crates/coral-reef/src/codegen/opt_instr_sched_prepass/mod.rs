@@ -130,7 +130,7 @@ impl Function {
                 };
 
                 // First use the live set before the instr
-                if !starts_block && unit.live_in_count == None {
+                if !starts_block && unit.live_in_count.is_none() {
                     unit.live_in_count = Some(PerRegFile::new_with(|f| live_set.count(f)));
                 }
                 if ends_block {

@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: April 12, 2026  
-**Phase**: 10 — Iteration 80 (Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt)
+**Last updated**: April 15, 2026  
+**Phase**: 10 — Iteration 81 (Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery)
 
 ---
 
@@ -41,7 +41,21 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 80** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 81** |
+
+### Iteration 81: Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery (Apr 15, 2026)
+
+**Theme**: Comprehensive deep debt resolution across all crates. Codegen modernization: removed 14 suppressed clippy lint categories and fixed ~60 style issues across 30 codegen files (elidable lifetimes, redundant closures, `let...else`, `if let`, `.is_empty()`, method references, tail expressions). File split: `codegen_coverage_saturation.rs` (982→572+441) below 1000-line policy. Production `.ok()` silent error discarding replaced with `tracing::warn!`/`tracing::debug!` in shutdown and discovery paths. All `unsafe` blocks in test files annotated with `// SAFETY:` comments. Showcase code evolved from hardcoded primal names to capability-based discovery (`discover_provider("gpu.orchestrate")` / `"gpu.dispatch"` via ecosystem directory scan). SSA `dummy` → `placeholder` rename. Specs and docs synced to Iteration 81.
+
+| Area | Change |
+|------|--------|
+| Codegen clippy | Removed 14 suppressed `#![allow(clippy::...)]` categories from `codegen/mod.rs`; fixed ~60 instances across ~30 files (lifetime elision, `let...else`, `if let`, method refs, `.is_empty()`, redundant closures/returns, `?` operator) |
+| File split | `codegen_coverage_saturation.rs` (982L) → `codegen_coverage_saturation.rs` (572L, data ops) + `codegen_coverage_saturation_compute.rs` (441L, workgroup/kernel/edge/legacy) |
+| Shutdown observability | `coralreef-core/main.rs`: `.ok()` on task join handles replaced with `tracing::warn!` on `Err`; `discovery_dir().ok()` replaced with `tracing::debug!` |
+| SAFETY comments | Added `// SAFETY:` to all `unsafe {}` blocks in `config_env.rs`, `config_and_paths.rs`, `unix_jsonrpc_default_socket_path_env.rs` |
+| Capability-based showcase | `02-full-compute-triangle`: `ecosystem_socket("toadstool.jsonrpc")` → `discover_provider("gpu.orchestrate")` scanning discovery directory by capability |
+| Identifier quality | `dummy` → `placeholder` in `naga_translate/expr.rs`; verified zero `todo!()`, zero `unimplemented!()`, `MockWritesMutexPoisoned` is `#[cfg(test)]` |
+| Specs sync | `CORALREEF_SPECIFICATION.md` v0.7.0, `SOVEREIGN_MULTI_GPU_EVOLUTION.md` v0.3.0 — iteration/date aligned |
 
 ### Iteration 80: Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt (Apr 12, 2026)
 

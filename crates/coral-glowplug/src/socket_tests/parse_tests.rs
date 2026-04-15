@@ -142,13 +142,16 @@ fn test_health_info_serialization_roundtrip() {
 #[test]
 fn test_health_check_response_format() {
     let response = serde_json::json!({
-        "alive": true,
         "name": "coral-glowplug",
+        "version": env!("CARGO_PKG_VERSION"),
+        "healthy": false,
+        "status": "degraded",
         "device_count": 0,
         "healthy_count": 0
     });
-    assert_eq!(response["alive"], true);
+    assert!(response["healthy"].is_boolean());
     assert_eq!(response["name"], "coral-glowplug");
     assert_eq!(response["device_count"], 0);
     assert_eq!(response["healthy_count"], 0);
+    assert!(response["status"].is_string());
 }

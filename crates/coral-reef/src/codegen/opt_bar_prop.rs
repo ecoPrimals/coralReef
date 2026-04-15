@@ -46,10 +46,7 @@ impl PhiMap {
 
     fn phi_srcs(&self, idx: &Phi) -> &[SSAValue] {
         static EMPTY: [SSAValue; 0] = [];
-        self.phi_ssa
-            .get(idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(&EMPTY)
+        self.phi_ssa.get(idx).map_or(&EMPTY, Vec::as_slice)
     }
 }
 
@@ -193,7 +190,7 @@ impl BarPropPass {
             }
         }
 
-        for (phi, ssa) in phis_want_bar.into_iter() {
+        for (phi, ssa) in phis_want_bar {
             self.try_add_phi(&mut f.ssa_alloc, &phi_map, phi, ssa);
         }
 

@@ -5,7 +5,7 @@ use super::func::{FuncTranslator, LoopContext};
 use crate::error::CompileError;
 use naga::Handle;
 
-impl<'a, 'b> FuncTranslator<'a, 'b> {
+impl FuncTranslator<'_, '_> {
     pub(super) fn translate_if(
         &mut self,
         condition: Handle<naga::Expression>,

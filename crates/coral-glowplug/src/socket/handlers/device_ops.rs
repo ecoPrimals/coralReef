@@ -52,12 +52,20 @@ pub(crate) fn dispatch(
         "device.reclaim" => handle_reclaim(params, devices),
         "device.resurrect" => handle_resurrect(params, devices),
         "device.reset" => handle_reset(params, devices),
-        "health.check" | "health.liveness" => Ok(serde_json::json!({
-            "alive": true,
+        "health.check" => Ok(serde_json::json!({
             "name": env!("CARGO_PKG_NAME"),
             "version": env!("CARGO_PKG_VERSION"),
+            "healthy": devices.iter().any(|d| d.health.vram_alive),
+            "status": if devices.iter().any(|d| d.health.vram_alive) { "operational" } else { "degraded" },
             "device_count": devices.len(),
             "healthy_count": devices.iter().filter(|d| d.health.vram_alive).count(),
+        })),
+        "health.liveness" => Ok(serde_json::json!({
+            "alive": true,
+        })),
+        "health.readiness" => Ok(serde_json::json!({
+            "ready": !devices.is_empty(),
+            "name": env!("CARGO_PKG_NAME"),
         })),
         "daemon.status" => Ok(serde_json::json!({
             "uptime_secs": started_at.elapsed().as_secs(),

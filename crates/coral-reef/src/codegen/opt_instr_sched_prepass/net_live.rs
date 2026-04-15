@@ -42,13 +42,11 @@ impl NetLive {
             .map(|(instr_idx, instr)| {
                 use_set.clear();
                 for ssa in instr.ssa_uses() {
-                    if !live_out.contains(ssa) {
-                        if use_set.insert(*ssa) {
-                            ssa_to_instr
-                                .entry(*ssa)
-                                .or_insert_with(Vec::new)
-                                .push(instr_idx);
-                        }
+                    if !live_out.contains(ssa) && use_set.insert(*ssa) {
+                        ssa_to_instr
+                            .entry(*ssa)
+                            .or_insert_with(Vec::new)
+                            .push(instr_idx);
                     }
                 }
 

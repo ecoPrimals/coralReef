@@ -96,9 +96,8 @@ impl<'a> CopyPropPass<'a> {
 
     fn prop_to_pred(&self, pred: &mut Pred) {
         loop {
-            let src_ssa = match &pred.predicate {
-                PredRef::SSA(ssa) => ssa,
-                _ => return,
+            let PredRef::SSA(src_ssa) = &pred.predicate else {
+                return;
             };
 
             let Some(CopyPropEntry::Copy(entry)) = self.get_copy(src_ssa) else {
@@ -160,13 +159,12 @@ impl<'a> CopyPropPass<'a> {
     }
 
     fn prop_to_cbuf_ref(&self, cbuf: &mut CBufRef) {
-        match cbuf.buf {
-            CBuf::BindlessSSA(ref mut ssa_values) => loop {
+        if let CBuf::BindlessSSA(ref mut ssa_values) = cbuf.buf {
+            loop {
                 if !self.prop_to_ssa_values(&mut ssa_values[..], true) {
                     break;
                 }
-            },
-            _ => (),
+            }
         }
     }
 
@@ -212,15 +210,13 @@ impl<'a> CopyPropPass<'a> {
 
     fn prop_to_scalar_src(&self, src_type: SrcType, cbuf_rule: &CBufRule, src: &mut Src) {
         loop {
-            let src_ssa = match &src.reference {
-                SrcRef::SSA(ssa) => ssa,
-                _ => return,
+            let SrcRef::SSA(src_ssa) = &src.reference else {
+                return;
             };
 
             assert!(src_ssa.comps() == 1);
-            let entry = match self.get_copy(&src_ssa[0]) {
-                Some(e) => e,
-                None => return,
+            let Some(entry) = self.get_copy(&src_ssa[0]) else {
+                return;
             };
 
             match entry {
@@ -320,9 +316,8 @@ impl<'a> CopyPropPass<'a> {
 
     fn prop_to_f64_src(&self, cbuf_rule: &CBufRule, src: &mut Src) {
         loop {
-            let src_ssa = match &mut src.reference {
-                SrcRef::SSA(ssa) => ssa,
-                _ => return,
+            let SrcRef::SSA(src_ssa) = &mut src.reference else {
+                return;
             };
 
             if src_ssa.comps() != 2 {
@@ -436,11 +431,8 @@ impl<'a> CopyPropPass<'a> {
             SrcType::Carry | SrcType::Bar => (),
         }
 
-        match &mut src.reference {
-            SrcRef::CBuf(cbuf) => {
-                self.prop_to_cbuf_ref(cbuf);
-            }
-            _ => (),
+        if let SrcRef::CBuf(cbuf) = &mut src.reference {
+            self.prop_to_cbuf_ref(cbuf);
         }
     }
 

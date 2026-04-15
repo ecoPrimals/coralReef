@@ -80,8 +80,48 @@ impl BtspOutcome {
     }
 }
 
-/// Per-connection BTSP guard for the glowplug accept loop.
+/// First byte indicating plain JSON-RPC (bearDog `ProtocolDetector` convention).
+const PLAIN_JSONRPC_MARKER: u8 = b'{';
+
+/// BTSP decision from a peeked first byte — preferred over [`guard_connection`].
+///
+/// Call sites peek the stream (`TcpStream::peek` or `BufReader::fill_buf`)
+/// and pass the result here. `Some(b'{')` means plain JSON-RPC (biomeOS), skip BTSP.
+pub async fn guard_from_first_byte(first_byte: Option<u8>) -> BtspOutcome {
+    let mode = btsp_mode();
+    if matches!(mode, BtspMode::Development) {
+        return BtspOutcome::DevMode;
+    }
+
+    match first_byte {
+        Some(PLAIN_JSONRPC_MARKER) => {
+            tracing::debug!("first byte is '{{' — plain JSON-RPC, BTSP skipped");
+            BtspOutcome::DevMode
+        }
+        Some(b) => {
+            tracing::debug!(first_byte = b, "non-JSON first byte — BTSP handshake path");
+            guard_connection_inner().await
+        }
+        None => {
+            let reason = "first-byte peek failed or timed out — accepting in degraded mode";
+            tracing::warn!("{reason}");
+            BtspOutcome::Degraded {
+                reason: reason.into(),
+            }
+        }
+    }
+}
+
+/// Out-of-band BTSP guard — legacy fallback for accept loops without stream access.
+#[allow(
+    dead_code,
+    reason = "retained for future BTSP-on-stream evolution and tests"
+)]
 pub async fn guard_connection() -> BtspOutcome {
+    guard_connection_inner().await
+}
+
+async fn guard_connection_inner() -> BtspOutcome {
     let mode = btsp_mode();
     let family_id = match mode {
         BtspMode::Development => return BtspOutcome::DevMode,

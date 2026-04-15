@@ -63,31 +63,29 @@ pub trait Builder {
                     op,
                 });
             }
+        } else if is_predicate {
+            let mut x = x;
+            let cmp_op = match op {
+                LogicOp2::And => PredSetOp::And,
+                LogicOp2::Or => PredSetOp::Or,
+                LogicOp2::Xor => PredSetOp::Xor,
+                LogicOp2::PassB => {
+                    // Pass through B by AND with PT
+                    x = true.into();
+                    PredSetOp::And
+                }
+            };
+            self.push_op(OpPSetP {
+                dsts: [dst, Dst::None],
+                ops: [cmp_op, PredSetOp::And],
+                srcs: [x, y, true.into()],
+            });
         } else {
-            if is_predicate {
-                let mut x = x;
-                let cmp_op = match op {
-                    LogicOp2::And => PredSetOp::And,
-                    LogicOp2::Or => PredSetOp::Or,
-                    LogicOp2::Xor => PredSetOp::Xor,
-                    LogicOp2::PassB => {
-                        // Pass through B by AND with PT
-                        x = true.into();
-                        PredSetOp::And
-                    }
-                };
-                self.push_op(OpPSetP {
-                    dsts: [dst, Dst::None],
-                    ops: [cmp_op, PredSetOp::And],
-                    srcs: [x, y, true.into()],
-                });
-            } else {
-                self.push_op(OpLop2 {
-                    dst,
-                    srcs: [x, y],
-                    op,
-                });
-            }
+            self.push_op(OpLop2 {
+                dst,
+                srcs: [x, y],
+                op,
+            });
         }
     }
 

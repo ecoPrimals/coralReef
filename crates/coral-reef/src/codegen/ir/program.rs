@@ -208,7 +208,7 @@ impl fmt::Display for Function {
             }
             write!(f, "] -> {{\n")?;
 
-            for (pred, dsts, op, deps, is_annotation) in b.into_iter() {
+            for (pred, dsts, op, deps, is_annotation) in b {
                 let eq_sym = if dsts.is_empty() { " " } else { "=" };
                 if is_annotation {
                     write!(f, "\n{op}\n")?;

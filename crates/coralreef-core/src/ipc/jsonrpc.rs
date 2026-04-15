@@ -101,15 +101,26 @@ impl CoralReefRpcServer for RpcImpl {
         &self,
         request: service::CompileRequest,
     ) -> Result<service::CompileResponse, ErrorObjectOwned> {
-        // handle_compile converts spirv_words to Bytes at the boundary (JSON-RPC wire format unchanged).
-        service::handle_compile(&request).map_err(|e| compile_error_to_rpc(&e))
+        tokio::task::spawn_blocking(move || {
+            service::handle_compile(&request).map_err(|e| compile_error_to_rpc(&e))
+        })
+        .await
+        .map_err(|e| {
+            ErrorObjectOwned::owned(-32603, format!("compile task panicked: {e}"), None::<()>)
+        })?
     }
 
     async fn shader_compile_wgsl(
         &self,
         request: service::CompileWgslRequest,
     ) -> Result<service::CompileResponse, ErrorObjectOwned> {
-        service::handle_compile_wgsl(&request).map_err(|e| compile_error_to_rpc(&e))
+        tokio::task::spawn_blocking(move || {
+            service::handle_compile_wgsl(&request).map_err(|e| compile_error_to_rpc(&e))
+        })
+        .await
+        .map_err(|e| {
+            ErrorObjectOwned::owned(-32603, format!("compile task panicked: {e}"), None::<()>)
+        })?
     }
 
     async fn shader_compile_status(&self) -> Result<service::HealthResponse, ErrorObjectOwned> {
@@ -126,7 +137,13 @@ impl CoralReefRpcServer for RpcImpl {
         &self,
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, ErrorObjectOwned> {
-        service::handle_compile_wgsl_multi(request).map_err(|e| compile_error_to_rpc(&e))
+        tokio::task::spawn_blocking(move || {
+            service::handle_compile_wgsl_multi(request).map_err(|e| compile_error_to_rpc(&e))
+        })
+        .await
+        .map_err(|e| {
+            ErrorObjectOwned::owned(-32603, format!("compile task panicked: {e}"), None::<()>)
+        })?
     }
 
     async fn health_check(&self) -> Result<service::HealthCheckResponse, ErrorObjectOwned> {

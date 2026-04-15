@@ -85,7 +85,10 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
             assert!(!blocks.is_loop_header(b_idx));
             assert!(preds[0] < b_idx);
             let p_w = &ssa_state_out[preds[0]].w;
-            LiveSet::from_iter(p_w.iter().filter(|ssa| bl.is_live_in(ssa)).copied())
+            p_w.iter()
+                .filter(|ssa| bl.is_live_in(ssa))
+                .copied()
+                .collect::<LiveSet>()
         } else if !blocks[b_idx].uniform && file.is_uniform() {
             // If this is a non-uniform block, then we can't spill or fill any
             // uniform registers.  The good news is that none of our non-uniform
@@ -101,7 +104,7 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
             debug_assert!(w.count(file) <= limit);
             w
         } else if blocks.is_loop_header(b_idx) {
-            let mut i_b: FxHashSet<SSAValue> = FxHashSet::from_iter(bl.iter_live_in().copied());
+            let mut i_b: FxHashSet<SSAValue> = bl.iter_live_in().copied().collect();
 
             if let Some(phi) = blocks[b_idx].phi_dsts() {
                 for (_, dst) in phi.dsts.iter() {
@@ -216,7 +219,10 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
             FxHashSet::default()
         } else if preds.len() == 1 {
             let p_s = &ssa_state_out[preds[0]].s;
-            FxHashSet::from_iter(p_s.iter().filter(|ssa| bl.is_live_in(ssa)).copied())
+            p_s.iter()
+                .filter(|ssa| bl.is_live_in(ssa))
+                .copied()
+                .collect::<FxHashSet<_>>()
         } else {
             let mut s: FxHashSet<_> = FxHashSet::default();
             for p_idx in &preds {
@@ -548,10 +554,8 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
                         spills.push(*ssa);
                     }
                     *src = spill.get_spill(*ssa).into();
-                } else {
-                    if !p_out.w.contains(ssa) {
-                        fills.push(*ssa);
-                    }
+                } else if !p_out.w.contains(ssa) {
+                    fills.push(*ssa);
                 }
             }
         }
@@ -578,8 +582,8 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
         }
 
         // Sort to ensure stability of the algorithm
-        spills.sort_by_key(|ssa| ssa.idx());
-        fills.sort_by_key(|ssa| ssa.idx());
+        spills.sort_by_key(SSAValue::idx);
+        fills.sort_by_key(SSAValue::idx);
 
         let mut instrs = Vec::new();
         for ssa in spills {

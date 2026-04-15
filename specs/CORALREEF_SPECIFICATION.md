@@ -2,9 +2,9 @@
 
 # coralReef — Specification
 
-**Version**: 0.6.0
-**Date**: March 21, 2026
-**Status**: Phase 10 — Iteration 78 (Deep Debt Evolution: Typed Errors + Smart Refactoring)
+**Version**: 0.7.0
+**Date**: April 15, 2026
+**Status**: Phase 10 — Iteration 81 (Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery)
 
 ---
 
@@ -195,5 +195,5 @@ plan, pass definitions, and dependency tracking.
 
 ---
 
-**Date**: March 21, 2026
-**Version**: 0.6.0
+**Date**: April 15, 2026
+**Version**: 0.7.0

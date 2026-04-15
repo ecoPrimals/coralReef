@@ -5,7 +5,7 @@ use super::func::FuncTranslator;
 use crate::error::CompileError;
 use naga::Handle;
 
-impl<'a, 'b> FuncTranslator<'a, 'b> {
+impl FuncTranslator<'_, '_> {
     pub(super) fn translate_binary(
         &mut self,
         op: naga::BinaryOperator,

@@ -5,7 +5,7 @@ use crate::error::CompileError;
 
 use super::sys_regs;
 
-impl<'a, 'b> FuncTranslator<'a, 'b> {
+impl FuncTranslator<'_, '_> {
     pub(super) fn read_sys_reg(&mut self, idx: u8) -> SSAValue {
         let dst = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpS2R {

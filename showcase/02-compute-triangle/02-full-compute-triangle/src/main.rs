@@ -26,12 +26,41 @@ fn main() {
 }
 "#;
 
-fn ecosystem_socket(capability: &str) -> PathBuf {
-    let base = std::env::var("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir());
-    base.join(coralreef_core::config::ECOSYSTEM_NAMESPACE)
-        .join(format!("{capability}.sock"))
+/// Scan the ecosystem discovery directory for a provider advertising `capability_id`,
+/// returning its endpoint (socket path) if found. No hardcoded primal names.
+fn discover_provider(capability_id: &str) -> Option<PathBuf> {
+    let dir = coralreef_core::config::discovery_dir().ok()?;
+    let entries = std::fs::read_dir(&dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let data = std::fs::read_to_string(&path).ok()?;
+        let val: serde_json::Value = serde_json::from_str(&data).ok()?;
+        let has_capability = val
+            .get("provides")
+            .and_then(|p| p.as_array())
+            .map(|arr| {
+                arr.iter().any(|c| {
+                    c.as_str() == Some(capability_id)
+                        || c.get("id").and_then(|i| i.as_str()) == Some(capability_id)
+                })
+            })
+            .unwrap_or(false)
+            || val
+                .get("capabilities")
+                .and_then(|p| p.as_array())
+                .map(|arr| arr.iter().any(|c| c.as_str() == Some(capability_id)))
+                .unwrap_or(false);
+
+        if has_capability {
+            if let Some(endpoint) = val.get("endpoint").and_then(|e| e.as_str()) {
+                return Some(PathBuf::from(endpoint));
+            }
+        }
+    }
+    None
 }
 
 fn jsonrpc_call(socket: &PathBuf, method: &str, params: serde_json::Value) -> Option<serde_json::Value> {
@@ -68,8 +97,8 @@ fn jsonrpc_call(socket: &PathBuf, method: &str, params: serde_json::Value) -> Op
 fn main() {
     println!("╔══════════════════════════════════════════════════════════╗");
     println!("║          coralReef — Full Compute Triangle              ║");
-    println!("║  compile (coralReef) → orchestrate (toadStool)          ║");
-    println!("║                     → execute (barraCuda)               ║");
+    println!("║  compile (shader.compile) → orchestrate (gpu.orchestrate)║");
+    println!("║                          → execute (gpu.dispatch)       ║");
     println!("╚══════════════════════════════════════════════════════════╝");
     println!();
 
@@ -108,19 +137,19 @@ fn main() {
         println!();
     }
 
-    // ── Layer 2: Orchestration (toadStool, when available) ───────────
+    // ── Layer 2: Orchestration (discovered by "gpu.orchestrate" capability) ──
 
-    println!("Layer 2: Orchestration (toadStool)");
+    println!("Layer 2: Orchestration (capability: gpu.orchestrate)");
     println!();
 
-    let toadstool_sock = ecosystem_socket("toadstool.jsonrpc");
-    let toadstool_available = toadstool_sock.exists();
+    let orchestrator = discover_provider("gpu.orchestrate");
+    let orchestrator_available = orchestrator.is_some();
 
-    if toadstool_available {
-        println!("  toadStool: AVAILABLE at {}", toadstool_sock.display());
+    if let Some(ref sock) = orchestrator {
+        println!("  Orchestrator: AVAILABLE at {}", sock.display());
 
         if let Some(resp) = jsonrpc_call(
-            &toadstool_sock,
+            sock,
             "science.gpu.capabilities",
             serde_json::json!({}),
         ) {
@@ -137,25 +166,24 @@ fn main() {
             }
         }
     } else {
-        println!("  toadStool: not found at {}", toadstool_sock.display());
+        println!("  No gpu.orchestrate provider discovered.");
         println!("  Operating in standalone mode — coralReef compiles independently.");
-        println!("  Start toadStool to enable orchestrated compute dispatch.");
     }
     println!();
 
-    // ── Layer 3: Execution (barraCuda or local dispatch) ─────────────
+    // ── Layer 3: Execution (discovered by "gpu.dispatch" capability) ─────────
 
-    println!("Layer 3: Execution");
+    println!("Layer 3: Execution (capability: gpu.dispatch)");
     println!();
 
-    let compute_sock = ecosystem_socket("compute");
-    let barracuda_available = compute_sock.exists();
+    let executor = discover_provider("gpu.dispatch");
+    let executor_available = executor.is_some();
 
-    if barracuda_available {
-        println!("  barraCuda: AVAILABLE at {}", compute_sock.display());
+    if let Some(ref sock) = executor {
+        println!("  GPU dispatch provider: AVAILABLE at {}", sock.display());
 
         if let Some(resp) = jsonrpc_call(
-            &compute_sock,
+            sock,
             "compute.submit",
             serde_json::json!({
                 "shader_wgsl": STORE_42_SHADER,
@@ -171,7 +199,7 @@ fn main() {
             }
         }
     } else {
-        println!("  barraCuda: not found at {}", compute_sock.display());
+        println!("  No gpu.dispatch provider discovered.");
         println!();
 
         #[cfg(target_os = "linux")]
@@ -217,14 +245,14 @@ fn main() {
     println!();
     println!("Summary:");
     println!();
-    println!("  coralReef  (compile)     — ALWAYS available (pure Rust compiler)");
+    println!("  shader.compile   (coralReef)       — ALWAYS available (pure Rust compiler)");
     println!(
-        "  toadStool  (orchestrate) — {}",
-        if toadstool_available { "CONNECTED" } else { "not running (standalone OK)" }
+        "  gpu.orchestrate  (capability scan) — {}",
+        if orchestrator_available { "CONNECTED" } else { "not discovered (standalone OK)" }
     );
     println!(
-        "  barraCuda  (execute)     — {}",
-        if barracuda_available { "CONNECTED" } else { "not running (local dispatch OK)" }
+        "  gpu.dispatch     (capability scan) — {}",
+        if executor_available { "CONNECTED" } else { "not discovered (local dispatch OK)" }
     );
     println!();
     println!("  The compute triangle degrades gracefully.");

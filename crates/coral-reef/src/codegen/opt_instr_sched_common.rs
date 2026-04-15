@@ -52,7 +52,7 @@ pub mod graph {
                 .collect();
 
             for (tail_idx, edges) in old_edges.into_iter().enumerate() {
-                for e in edges.into_iter() {
+                for e in edges {
                     self.add_edge(e.head_idx, tail_idx, e.label);
                 }
             }
@@ -427,9 +427,10 @@ pub fn save_graphviz(instrs: &[Box<Instr>], g: &DepGraph) -> std::io::Result<()>
     use std::fs::File;
     use std::io::{BufWriter, Write};
 
-    let path = std::env::var("CORAL_DEP_GRAPH_PATH")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("instr_dep_graph.dot"));
+    let path = std::env::var("CORAL_DEP_GRAPH_PATH").map_or_else(
+        |_| std::env::temp_dir().join("instr_dep_graph.dot"),
+        std::path::PathBuf::from,
+    );
     let file = File::create(&path)?;
     let mut w = BufWriter::new(file);
 

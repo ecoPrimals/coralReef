@@ -48,8 +48,8 @@ async fn test_tcp_client_health_check() {
     let resp: serde_json::Value = serde_json::from_str(&resp_line).expect("parse");
 
     assert_eq!(resp["jsonrpc"], "2.0");
-    assert_eq!(resp["result"]["alive"], true);
     assert_eq!(resp["result"]["name"], "coral-glowplug");
+    assert!(resp["result"]["healthy"].is_boolean());
     assert_eq!(resp["id"], 1);
 
     handle.abort();

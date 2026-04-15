@@ -531,7 +531,7 @@ impl RegLatencySM70 {
                 Decoupled => 1,
                 _ => {
                     warn!("SM70 pred WAW: illegal writer1 for CoupledDisp/Alu/FMA/IMADLo");
-                    return DEFAULT_LATENCY;
+                    DEFAULT_LATENCY
                 }
             },
             IMADWideUpper | IMADWideLower => match writer1 {
@@ -543,7 +543,7 @@ impl RegLatencySM70 {
                 Decoupled => 1,
                 _ => {
                     warn!("SM70 pred WAW: illegal writer1 for IMADWide");
-                    return DEFAULT_LATENCY;
+                    DEFAULT_LATENCY
                 }
             },
             RedirectedFP64 => match writer1 {
@@ -555,7 +555,7 @@ impl RegLatencySM70 {
                 Decoupled => 1,
                 _ => {
                     warn!("SM70 pred WAW: illegal writer1 for RedirectedFP64");
-                    return DEFAULT_LATENCY;
+                    DEFAULT_LATENCY
                 }
             },
             RedirectedFP16 => match writer1 {
@@ -567,7 +567,7 @@ impl RegLatencySM70 {
                 Decoupled => 1,
                 _ => {
                     warn!("SM70 pred WAW: illegal writer1 for RedirectedFP16");
-                    return DEFAULT_LATENCY;
+                    DEFAULT_LATENCY
                 }
             },
             Decoupled => match writer1 {
@@ -576,7 +576,7 @@ impl RegLatencySM70 {
                 Decoupled => 1,
                 _ => {
                     warn!("SM70 pred WAW: illegal writer1 for Decoupled");
-                    return DEFAULT_LATENCY;
+                    DEFAULT_LATENCY
                 }
             },
             _ => {

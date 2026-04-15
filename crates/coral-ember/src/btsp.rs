@@ -58,9 +58,50 @@ impl BtspOutcome {
     }
 }
 
-/// Per-connection BTSP guard (blocking — for `std::thread` accept loops).
+/// First byte indicating plain JSON-RPC (bearDog `ProtocolDetector` convention).
+const PLAIN_JSONRPC_MARKER: u8 = b'{';
+
+/// Blocking BTSP decision from a peeked first byte — preferred over [`guard_connection`].
+///
+/// Call sites peek the stream (`UnixStream::peek` or `TcpStream::peek`)
+/// and pass the result. `Some(b'{')` means plain JSON-RPC, BTSP skipped.
 #[must_use]
+pub(crate) fn guard_from_first_byte(first_byte: Option<u8>) -> BtspOutcome {
+    let mode = btsp_mode();
+    if matches!(mode, BtspMode::Development) {
+        return BtspOutcome::DevMode;
+    }
+
+    match first_byte {
+        Some(PLAIN_JSONRPC_MARKER) => {
+            tracing::debug!("first byte is '{{' — plain JSON-RPC, BTSP skipped");
+            BtspOutcome::DevMode
+        }
+        Some(b) => {
+            tracing::debug!(first_byte = b, "non-JSON first byte — BTSP handshake path");
+            guard_connection_inner()
+        }
+        None => {
+            let reason = "first-byte peek failed or timed out — accepting in degraded mode";
+            tracing::warn!("{reason}");
+            BtspOutcome::Degraded {
+                reason: reason.into(),
+            }
+        }
+    }
+}
+
+/// Out-of-band BTSP guard (blocking) — legacy fallback.
+#[must_use]
+#[allow(
+    dead_code,
+    reason = "retained for tests and future BTSP-on-stream evolution"
+)]
 pub(crate) fn guard_connection() -> BtspOutcome {
+    guard_connection_inner()
+}
+
+fn guard_connection_inner() -> BtspOutcome {
     let mode = btsp_mode();
     let family_id = match mode {
         BtspMode::Development => return BtspOutcome::DevMode,
@@ -263,6 +304,21 @@ mod tests {
         if btsp_mode() == &BtspMode::Development {
             let outcome = guard_connection();
             assert!(matches!(outcome, BtspOutcome::DevMode));
+        }
+    }
+
+    #[test]
+    fn guard_from_first_byte_json_marker_skips_btsp() {
+        let outcome = guard_from_first_byte(Some(b'{'));
+        assert!(outcome.should_accept());
+    }
+
+    #[test]
+    fn guard_from_first_byte_none_degrades_in_prod() {
+        if btsp_mode() != &BtspMode::Development {
+            let outcome = guard_from_first_byte(None);
+            assert!(outcome.should_accept());
+            assert!(matches!(outcome, BtspOutcome::Degraded { .. }));
         }
     }
 }

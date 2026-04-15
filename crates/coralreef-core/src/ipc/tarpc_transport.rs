@@ -48,6 +48,12 @@ pub trait ShaderCompileTarpc {
 
     /// Ready to accept work (`health.readiness`).
     async fn health_readiness() -> service::ReadinessResponse;
+
+    /// Self-description for ecosystem discovery (`identity.get`).
+    async fn identity_get() -> service::IdentityGetResponse;
+
+    /// Wire Standard L2 capability/method inventory (`capability.list`).
+    async fn capability_list() -> service::CapabilityListResponse;
 }
 
 /// tarpc server implementation.
@@ -60,13 +66,21 @@ impl ShaderCompileTarpc for TarpcServer {
         _ctx: tarpc::context::Context,
         request: service::CompileSpirvRequestTarpc,
     ) -> Result<service::CompileResponse, TarpcCompileError> {
-        service::handle_compile_spirv(
-            &request.spirv,
-            request.arch,
-            request.opt_level,
-            request.fp64_software,
-        )
-        .map_err(service::TarpcCompileError::from_error)
+        tokio::task::spawn_blocking(move || {
+            service::handle_compile_spirv(
+                &request.spirv,
+                request.arch,
+                request.opt_level,
+                request.fp64_software,
+            )
+            .map_err(service::TarpcCompileError::from_error)
+        })
+        .await
+        .unwrap_or_else(|e| {
+            Err(TarpcCompileError {
+                message: format!("compile task panicked: {e}"),
+            })
+        })
     }
 
     async fn wgsl(
@@ -74,7 +88,15 @@ impl ShaderCompileTarpc for TarpcServer {
         _ctx: tarpc::context::Context,
         request: service::CompileWgslRequest,
     ) -> Result<service::CompileResponse, TarpcCompileError> {
-        service::handle_compile_wgsl(&request).map_err(service::TarpcCompileError::from_error)
+        tokio::task::spawn_blocking(move || {
+            service::handle_compile_wgsl(&request).map_err(service::TarpcCompileError::from_error)
+        })
+        .await
+        .unwrap_or_else(|e| {
+            Err(TarpcCompileError {
+                message: format!("compile task panicked: {e}"),
+            })
+        })
     }
 
     async fn status(self, _ctx: tarpc::context::Context) -> service::HealthResponse {
@@ -90,7 +112,16 @@ impl ShaderCompileTarpc for TarpcServer {
         _ctx: tarpc::context::Context,
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, TarpcCompileError> {
-        service::handle_compile_wgsl_multi(request).map_err(service::TarpcCompileError::from_error)
+        tokio::task::spawn_blocking(move || {
+            service::handle_compile_wgsl_multi(request)
+                .map_err(service::TarpcCompileError::from_error)
+        })
+        .await
+        .unwrap_or_else(|e| {
+            Err(TarpcCompileError {
+                message: format!("compile task panicked: {e}"),
+            })
+        })
     }
 
     async fn health_check(self, _ctx: tarpc::context::Context) -> service::HealthCheckResponse {
@@ -103,6 +134,17 @@ impl ShaderCompileTarpc for TarpcServer {
 
     async fn health_readiness(self, _ctx: tarpc::context::Context) -> service::ReadinessResponse {
         service::handle_health_readiness()
+    }
+
+    async fn identity_get(self, _ctx: tarpc::context::Context) -> service::IdentityGetResponse {
+        service::handle_identity_get()
+    }
+
+    async fn capability_list(
+        self,
+        _ctx: tarpc::context::Context,
+    ) -> service::CapabilityListResponse {
+        service::handle_capability_list()
     }
 }
 

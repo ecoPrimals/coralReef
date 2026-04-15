@@ -22,7 +22,7 @@
 //! use primal_rpc_client::RpcClient;
 //! use std::net::SocketAddr;
 //!
-//! let addr: SocketAddr = "127.0.0.1:9090".parse().unwrap();
+//! let addr: SocketAddr = "127.0.0.1:9090".parse().expect("valid socket addr");
 //! let client = RpcClient::tcp(addr);
 //!
 //! let result: String = client.request("shader.compile.status", ()).await?;
@@ -49,7 +49,7 @@
 //! use primal_rpc_client::RpcClient;
 //! use std::net::SocketAddr;
 //!
-//! let proxy: SocketAddr = "127.0.0.1:8443".parse().unwrap();
+//! let proxy: SocketAddr = "127.0.0.1:8443".parse().expect("valid proxy addr");
 //! let client = RpcClient::delegated_tls_proxy(proxy, "reef.example.com");
 //! client.notify("telemetry.heartbeat", serde_json::json!({ "ok": true })).await?;
 //! # Ok(())

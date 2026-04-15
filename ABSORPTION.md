@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: April 12, 2026 (Iteration 80: 4506 tests, ~153 ignored)
+**Last updated**: April 15, 2026 (Iteration 81: 4506 tests, ~153 ignored)
 
 ---
 
@@ -220,7 +220,7 @@ Status (Iteration 15):
 | groundSpring CORALREEF_SOVEREIGN_COMPILATION | "672 tests", "coralDriver: Not started" | 1556 tests passing, 64% coverage, both drivers complete, AMD E2E verified |
 | airSpring ABSORPTION_MANIFEST | "coralDriver: #1 blocker" | AMD E2E verified on hardware; nouveau fully wired (all DRM ops + fence) |
 | wateringHole SOVEREIGN_TITAN_V_PIPELINE_GAPS | "coralDriver: Not started" | AMD E2E verified, nouveau fully wired incl. fence wait (gem_cpu_prep) |
-| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 80 — AMD E2E proven, multi-language frontends, 20 math functions, zero DEBT, zero direct libc (transitive via tokio/mio), FMA contraction enforcement, multi-device compile |
+| Multiple Spring handoffs | "Phase 6 active" | All phases (1–9) complete, Phase 10 Iteration 81 — AMD E2E proven, multi-language frontends, 20 math functions, zero DEBT, zero direct libc (transitive via tokio/mio), FMA contraction enforcement, multi-device compile |
 | hotSpring V0619 BARRACUDA_REWIRE | "coralDriver: Blocker" | Nouveau DRM operational; all P0 resolved (Iteration 9) |
 | barraCuda EVOLUTION_GUIDANCE | "P0 f64 emission, P0 coralDriver, P1 uniform bindings, P1 BAR.SYNC" | All P0/P1/P2 resolved. Pred→GPR fixed (iter 18). Back-edge RA + SSA dominance fixed (iter 19-20). Acos/Asin/Atan2 + Complex64 preamble complete (iter 25). |
 
@@ -295,5 +295,5 @@ Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorp
 VFIO sovereign dispatch with PFIFO channel init, V2 MMU page tables, RAMUSERD correction.
 Firmware probing: glowPlug mailbox + multi-ring, ember ring-keeper persistence.
 Wire contract documented (SHADER\_COMPILE\_WIRE\_CONTRACT.md). CompilationInfo in IPC responses.
-Iteration 80: quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC, deny.toml enforced).
+Iteration 81: quality gates green (fmt, clippy pedantic+nursery zero warnings, doc, all files <1000 LOC, deny.toml enforced). Codegen modernized: 14 suppressed lint categories resolved, 60 fixes applied.
 Next: Titan V hardware validation with PFIFO channel, coverage ~65%→90%, RDNA3/RDNA4 backend.*

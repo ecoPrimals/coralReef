@@ -14,7 +14,7 @@ use super::func::FuncTranslator;
 use crate::error::CompileError;
 use naga::Handle;
 
-impl<'a, 'b> FuncTranslator<'a, 'b> {
+impl FuncTranslator<'_, '_> {
     pub(super) fn ensure_expr(
         &mut self,
         handle: Handle<naga::Expression>,
@@ -218,9 +218,11 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     let field_offset = self.uniform_field_byte_offset(base, index)?;
                     let total_offset = base_offset + field_offset;
                     self.uniform_refs.insert(handle, (addr, total_offset));
-                    let dummy = self.alloc_ssa(RegFile::GPR);
-                    self.push_instr(Instr::new(OpUndef { dst: dummy.into() }));
-                    Ok(dummy.into())
+                    let placeholder = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpUndef {
+                        dst: placeholder.into(),
+                    }));
+                    Ok(placeholder.into())
                 } else if let Some(var_ref) = self.expr_to_var.get(&base).copied() {
                     let sub_ref = match var_ref {
                         super::func::VarRef::Full(slot) => {
@@ -248,7 +250,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     .iter()
                     .map(|&h| self.ensure_expr(h))
                     .collect::<Result<_, _>>()?;
-                let total_comps: u8 = comps.iter().map(|r| r.comps()).sum();
+                let total_comps: u8 = comps.iter().map(SSARef::comps).sum();
                 let dst = self.alloc_ssa_vec(RegFile::GPR, total_comps);
                 let mut idx = 0usize;
                 for comp in &comps {
@@ -368,7 +370,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     .iter()
                     .map(|&h| self.translate_global_expr(h))
                     .collect::<Result<_, _>>()?;
-                let total_comps: u8 = comps.iter().map(|r| r.comps()).sum();
+                let total_comps: u8 = comps.iter().map(SSARef::comps).sum();
                 let dst = self.alloc_ssa_vec(RegFile::GPR, total_comps);
                 let mut idx = 0usize;
                 for comp in &comps {

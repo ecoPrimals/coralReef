@@ -54,25 +54,7 @@
     clippy::range_plus_one,                     // loop patterns
     clippy::absurd_extreme_comparisons,         // use_count comparison
     clippy::unnecessary_wraps,                  // pipeline returns Result for API
-    // Style: fixable but need manual review (100 instances across 129 files)
-    clippy::redundant_closure_for_method_calls,
-    clippy::elidable_lifetime_names,
-    clippy::explicit_into_iter_loop,
-    clippy::manual_let_else,
-    clippy::len_zero,
-    clippy::from_iter_instead_of_collect,
-    clippy::collapsible_else_if,
-    clippy::collapsible_if,
-    clippy::single_match,
-    clippy::redundant_else,
-    clippy::needless_return,
-    clippy::map_unwrap_or,
-    clippy::redundant_closure,
-    clippy::useless_conversion,
-    clippy::partialeq_to_none,
-    clippy::question_mark,
-    clippy::borrow_deref_ref,
-    // Pedantic/nursery: fix incrementally
+    // Pedantic/nursery: deferred for incremental fix
     clippy::missing_const_for_fn,
     clippy::option_if_let_else,
     clippy::derive_partial_eq_without_eq,

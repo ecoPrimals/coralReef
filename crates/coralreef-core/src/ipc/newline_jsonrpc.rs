@@ -179,6 +179,10 @@ pub fn dispatch(
 }
 
 /// Read/write JSON-RPC lines on a stream (Unix socket or TCP).
+///
+/// Compile methods (`shader.compile.*`) are dispatched on a blocking thread
+/// pool via `spawn_blocking` to prevent CPU-heavy compilation from starving
+/// the async executor — a requirement for composition graph timing budgets.
 pub async fn process_newline_reader_writer<R, W>(reader: R, mut writer: W)
 where
     R: AsyncRead + Unpin,
@@ -193,7 +197,7 @@ where
         let resp = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
             Ok(req) => {
                 if req.jsonrpc == "2.0" {
-                    let result = dispatch_jsonrpc(&req.method, req.params);
+                    let result = dispatch_maybe_blocking(&req.method, req.params).await;
                     make_response(req.id, result)
                 } else {
                     make_response(
@@ -215,6 +219,22 @@ where
         {
             break;
         }
+        let _ = writer.flush().await;
+    }
+}
+
+/// Dispatch a JSON-RPC method, offloading CPU-heavy compile work to the blocking pool.
+async fn dispatch_maybe_blocking(
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, IpcServiceError> {
+    if method.starts_with("shader.compile.") {
+        let method = method.to_owned();
+        tokio::task::spawn_blocking(move || dispatch_jsonrpc(&method, params))
+            .await
+            .map_err(|e| IpcServiceError::internal(format!("compile task panicked: {e}")))?
+    } else {
+        dispatch_jsonrpc(method, params)
     }
 }
 
@@ -242,7 +262,19 @@ pub async fn start_newline_tcp_jsonrpc(
                 accept = listener.accept() => {
                     match accept {
                         Ok((stream, _peer)) => {
-                            let outcome = btsp::guard_connection().await;
+                            let first_byte = {
+                                let mut buf = [0u8; 1];
+                                match tokio::time::timeout(
+                                    std::time::Duration::from_secs(5),
+                                    stream.peek(&mut buf),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(n)) if n > 0 => Some(buf[0]),
+                                    _ => None,
+                                }
+                            };
+                            let outcome = btsp::guard_from_first_byte(first_byte).await;
                             if !outcome.should_accept() {
                                 tracing::warn!(?outcome, "BTSP rejected TCP connection");
                                 drop(stream);

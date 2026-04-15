@@ -225,7 +225,13 @@ impl NvDevice {
         );
 
         let exec_syncobj = if new_uapi {
-            ioctl::syncobj_create(drm.fd()).ok()
+            match ioctl::syncobj_create(drm.fd()) {
+                Ok(handle) => Some(handle),
+                Err(e) => {
+                    tracing::debug!(error = %e, "syncobj_create unavailable — falling back to legacy exec");
+                    None
+                }
+            }
         } else {
             None
         };

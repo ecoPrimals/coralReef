@@ -4,11 +4,40 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 80
+**Current status**: Phase 10 — Iteration 81
 
 ---
 
 ## [Unreleased]
+
+### Iteration 81 — Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery (2026-04-15)
+
+#### Codegen Modernization (60 Fixes Across 30 Files)
+- Removed 14 suppressed `#![allow(clippy::...)]` categories from `codegen/mod.rs` — largest lint debt in the workspace
+- Fixed ~60 clippy style issues: elidable lifetimes, redundant closures/returns, `let...else`, `if let`, `.is_empty()`, method references, tail expressions, `?` operator, direct iteration
+- Only 3 pedantic defers remain (`missing_const_for_fn`, `option_if_let_else`, `derive_partial_eq_without_eq`)
+
+#### File Split (1000-Line Policy)
+- `codegen_coverage_saturation.rs` (982L) → `codegen_coverage_saturation.rs` (572L, data ops sections 1–30) + `codegen_coverage_saturation_compute.rs` (441L, workgroup/kernel/edge/legacy sections 31+)
+
+#### Production Observability
+- `coralreef-core/main.rs` shutdown: replaced `.ok()` on task join handles with `tracing::warn!` on `Err` (newline JSON-RPC, tarpc, Unix JSON-RPC)
+- `remove_discovery_file()`: replaced `discovery_dir().ok()` with `tracing::debug!` when directory unavailable
+
+#### SAFETY Annotation Completeness
+- Added `// SAFETY:` comments to all `unsafe {}` blocks in `config_env.rs`, `config_and_paths.rs`, `unix_jsonrpc_default_socket_path_env.rs`
+
+#### Capability-Based Discovery (Showcase Evolution)
+- `02-full-compute-triangle`: replaced `ecosystem_socket("toadstool.jsonrpc")` (primal-name-based) with `discover_provider("gpu.orchestrate")` / `"gpu.dispatch"` (capability-based directory scan)
+- All showcase display text updated: primal names replaced with capability identifiers
+- `01-toadstool-discovery`, `04-hardware-discovery`: display text evolved to capability language
+
+#### Identifier Quality
+- `dummy` → `placeholder` in `naga_translate/expr.rs` (SSA placeholder for uniform buffer access)
+
+#### Docs Sync
+- `CORALREEF_SPECIFICATION.md` v0.7.0, `SOVEREIGN_MULTI_GPU_EVOLUTION.md` v0.3.0 — iteration 81, April 2026
+- `STATUS.md`, `WHATS_NEXT.md` synced to Iteration 81
 
 ### Iteration 80 — Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt (2026-04-12)
 

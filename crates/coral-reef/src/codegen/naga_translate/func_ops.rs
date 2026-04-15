@@ -6,7 +6,7 @@ use crate::error::CompileError;
 use coral_reef_stubs::fxhash::FxHashMap;
 use naga::Handle;
 
-impl<'a, 'b> FuncTranslator<'a, 'b> {
+impl FuncTranslator<'_, '_> {
     pub(super) fn emit_componentwise(
         &mut self,
         comps: u8,

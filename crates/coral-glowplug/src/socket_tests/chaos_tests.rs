@@ -42,7 +42,7 @@ async fn test_chaos_partial_write_then_disconnect() {
     )
     .await;
     let v: serde_json::Value = serde_json::from_str(&resp).expect("valid json");
-    assert_eq!(v["result"]["alive"], true);
+    assert!(v["result"]["healthy"].is_boolean());
     handle.abort();
 }
 

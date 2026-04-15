@@ -47,13 +47,13 @@ fn main() {
         println!();
     }
 
-    println!("Layer 2: Ecosystem Discovery (toadStool)");
+    println!("Layer 2: Ecosystem Discovery (capability: gpu.dispatch)");
     println!();
 
     let devices = coralreef_core::discovery::discover_gpu_devices();
     if devices.is_empty() {
         println!("  No ecosystem capability files found.");
-        println!("  toadStool is not running or has not published gpu.dispatch capabilities.");
+        println!("  No gpu.dispatch provider is running or has published capabilities.");
         println!("  coralReef falls back to direct DRM scan (Layer 1).");
     } else {
         println!("  Discovered {} device(s) via ecosystem:", devices.len());

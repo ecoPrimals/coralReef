@@ -523,7 +523,7 @@ impl TexQueueSimulationState {
             src_refs
                 .chain(dst_refs)
                 .filter_map(|reg_ref| self.flush(*reg_ref))
-                .reduce(|a, b| a.min(b))
+                .reduce(u8::min)
         } else {
             // The queue is empty, no need to check the instruction
             None

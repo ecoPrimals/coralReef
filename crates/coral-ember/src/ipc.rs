@@ -27,6 +27,21 @@ use jsonrpc::write_jsonrpc_error;
 
 const MAX_REQUEST_SIZE: usize = 4096;
 
+fn health_check_response(
+    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
+    started_at: std::time::Instant,
+) -> serde_json::Value {
+    let device_count = held.read().map(|m| m.len()).unwrap_or(0);
+    serde_json::json!({
+        "name": env!("CARGO_PKG_NAME"),
+        "version": env!("CARGO_PKG_VERSION"),
+        "healthy": device_count > 0,
+        "status": if device_count > 0 { "operational" } else { "degraded" },
+        "device_count": device_count,
+        "uptime_secs": started_at.elapsed().as_secs(),
+    })
+}
+
 /// Handle one JSON-RPC request on `stream` (read one line, dispatch, write response).
 ///
 /// For `ember.vfio_fds`, sends the JSON line first, then passes fds via `SCM_RIGHTS`.
@@ -49,6 +64,12 @@ pub fn handle_client(
     let mut buf = [0u8; MAX_REQUEST_SIZE];
     let n = stream.read(&mut buf).map_err(EmberIpcError::from)?;
     if n == 0 {
+        return Ok(());
+    }
+
+    let outcome = crate::btsp::guard_from_first_byte(Some(buf[0]));
+    if !outcome.should_accept() {
+        tracing::warn!(?outcome, "BTSP rejected Unix connection");
         return Ok(());
     }
 
@@ -120,6 +141,26 @@ pub fn handle_client(
         "ember.ring_meta.set" => {
             handlers_device::ring_meta_set(stream, held, id, params)?;
         }
+        "health.check" => {
+            let resp = health_check_response(held, started_at);
+            jsonrpc::write_jsonrpc_ok(stream, id, resp).map_err(EmberIpcError::from)?;
+        }
+        "health.liveness" => {
+            jsonrpc::write_jsonrpc_ok(stream, id, serde_json::json!({ "alive": true }))
+                .map_err(EmberIpcError::from)?;
+        }
+        "health.readiness" => {
+            let device_count = held.read().map(|m| m.len()).unwrap_or(0);
+            jsonrpc::write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({
+                    "ready": device_count > 0,
+                    "name": env!("CARGO_PKG_NAME"),
+                }),
+            )
+            .map_err(EmberIpcError::from)?;
+        }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))
                 .map_err(EmberIpcError::from)?;
@@ -148,6 +189,12 @@ pub fn handle_client_tcp(
     let mut buf = [0u8; MAX_REQUEST_SIZE];
     let n = stream.read(&mut buf).map_err(EmberIpcError::from)?;
     if n == 0 {
+        return Ok(());
+    }
+
+    let outcome = crate::btsp::guard_from_first_byte(Some(buf[0]));
+    if !outcome.should_accept() {
+        tracing::warn!(?outcome, "BTSP rejected TCP connection");
         return Ok(());
     }
 
@@ -218,6 +265,26 @@ pub fn handle_client_tcp(
         }
         "ember.ring_meta.set" => {
             handlers_device::ring_meta_set(stream, held, id, params)?;
+        }
+        "health.check" => {
+            let resp = health_check_response(held, started_at);
+            jsonrpc::write_jsonrpc_ok(stream, id, resp).map_err(EmberIpcError::from)?;
+        }
+        "health.liveness" => {
+            jsonrpc::write_jsonrpc_ok(stream, id, serde_json::json!({ "alive": true }))
+                .map_err(EmberIpcError::from)?;
+        }
+        "health.readiness" => {
+            let device_count = held.read().map(|m| m.len()).unwrap_or(0);
+            jsonrpc::write_jsonrpc_ok(
+                stream,
+                id,
+                serde_json::json!({
+                    "ready": device_count > 0,
+                    "name": env!("CARGO_PKG_NAME"),
+                }),
+            )
+            .map_err(EmberIpcError::from)?;
         }
         other => {
             write_jsonrpc_error(stream, id, -32601, &format!("method not found: {other}"))

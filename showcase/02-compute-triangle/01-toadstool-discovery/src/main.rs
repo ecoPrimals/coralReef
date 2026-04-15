@@ -54,7 +54,7 @@ fn main() {
     let devices = coralreef_core::discovery::discover_gpu_devices();
     if devices.is_empty() {
         println!("  No GPU devices discovered via ecosystem capabilities.");
-        println!("  This is expected when toadStool is not running.");
+        println!("  This is expected when no gpu.dispatch provider is running.");
         println!("  coralReef falls back to direct DRM render node scan.");
     } else {
         println!("  Discovered {} GPU device(s):", devices.len());
@@ -115,12 +115,11 @@ fn main() {
     println!("  Context creation requires Linux. Compile-only mode on this platform.");
 
     println!();
-    println!("The Compute Triangle:");
+    println!("The Compute Triangle (capability-based, no hardcoded primal names):");
     println!();
-    println!("  coralReef          toadStool         barraCuda");
-    println!("  (compile)    -->   (orchestrate) --> (execute)");
-    println!("  shader.compile     gpu.dispatch      compute.submit");
+    println!("  shader.compile  -->  gpu.orchestrate  -->  gpu.dispatch");
+    println!("  (this primal)        (discovered)          (discovered)");
     println!();
-    println!("  coralReef discovers gpu.dispatch providers at runtime.");
+    println!("  coralReef discovers providers by capability at runtime.");
     println!("  It never knows WHO provides them — only WHAT it needs.");
 }

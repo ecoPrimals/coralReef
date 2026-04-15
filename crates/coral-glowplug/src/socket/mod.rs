@@ -252,12 +252,6 @@ impl SocketServer {
             tokio::select! {
                 accepted = accept_fut => {
                     if let Some(stream) = accepted {
-                        let outcome = btsp::guard_connection().await;
-                        if !outcome.should_accept() {
-                            tracing::warn!(?outcome, "BTSP rejected connection");
-                            drop(stream);
-                            continue;
-                        }
                         let Ok(permit) = semaphore.clone().try_acquire_owned() else {
                             tracing::warn!("max concurrent clients reached ({MAX_CONCURRENT_CLIENTS}), rejecting");
                             continue;
@@ -293,6 +287,9 @@ enum ClientStream {
     Tcp(TcpStream),
 }
 
+/// Peek timeout for first-byte BTSP protocol detection.
+const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 async fn handle_client(
     stream: ClientStream,
     devices: Arc<Mutex<Vec<coral_glowplug::device::DeviceSlot>>>,
@@ -307,6 +304,11 @@ async fn handle_client(
 
 /// Generic JSON-RPC handler — identical logic for Unix and TCP (ecoBin).
 ///
+/// Performs first-byte BTSP protocol detection via `BufReader::fill_buf`
+/// (non-consuming peek) before reading JSON-RPC lines. Plain JSON-RPC
+/// connections (first byte `{`) bypass BTSP — required for biomeOS
+/// compatibility per wateringHole `BTSP_PROTOCOL_STANDARD` v1.0.
+///
 /// Hardened against:
 /// - Unbounded line length (capped at `MAX_REQUEST_LINE_BYTES`)
 /// - Idle connections (disconnected after `CLIENT_IDLE_TIMEOUT`)
@@ -320,7 +322,21 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let (reader, mut writer) = tokio::io::split(stream);
-    let mut lines = BufReader::with_capacity(INITIAL_BUF_CAPACITY, reader).lines();
+    let mut buf_reader = BufReader::with_capacity(INITIAL_BUF_CAPACITY, reader);
+
+    let first_byte = {
+        match tokio::time::timeout(PEEK_TIMEOUT, buf_reader.fill_buf()).await {
+            Ok(Ok(buf)) => buf.first().copied(),
+            _ => None,
+        }
+    };
+    let outcome = btsp::guard_from_first_byte(first_byte).await;
+    if !outcome.should_accept() {
+        tracing::warn!(?outcome, "BTSP rejected connection");
+        return Ok(());
+    }
+
+    let mut lines = buf_reader.lines();
 
     loop {
         let line = match tokio::time::timeout(CLIENT_IDLE_TIMEOUT, lines.next_line()).await {

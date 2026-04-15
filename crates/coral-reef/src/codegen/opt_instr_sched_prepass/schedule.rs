@@ -9,10 +9,10 @@ struct InstructionOrder {
 }
 
 impl InstructionOrder {
-    fn apply<'a>(&'a self, instrs: Vec<Instr>) -> impl 'a + Iterator<Item = Instr> {
+    fn apply(&self, instrs: Vec<Instr>) -> impl Iterator<Item = Instr> + use<'_> {
         assert_eq!(self.order.len(), instrs.len());
 
-        let mut instrs: Vec<Option<Instr>> = instrs.into_iter().map(|instr| Some(instr)).collect();
+        let mut instrs: Vec<Option<Instr>> = instrs.into_iter().map(Some).collect();
 
         self.order
             .iter()
@@ -139,7 +139,7 @@ impl ScheduleUnit {
         instrs.extend(self.phi_dsts);
         match self.new_order {
             Some(order) => instrs.extend(order.apply(self.instrs)),
-            None => instrs.extend(self.instrs.into_iter()),
+            None => instrs.extend(self.instrs),
         }
         instrs.extend(self.phi_srcs);
         instrs.extend(self.branch);
@@ -211,5 +211,5 @@ pub(super) fn get_schedule_types(
     if max_gpr_target > max_reg_count[RegFile::GPR] {
         out.push(ScheduleType::Spill);
     }
-    return out;
+    out
 }

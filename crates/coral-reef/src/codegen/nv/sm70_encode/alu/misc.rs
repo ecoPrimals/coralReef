@@ -341,7 +341,7 @@ impl SM70Op for OpPLop3 {
             if self.srcs[2]
                 .reference
                 .as_reg()
-                .is_some_and(|r| r.is_uniform())
+                .is_some_and(RegRef::is_uniform)
             {
                 e.set_upred_src(68..71, 71, &self.srcs[2]);
                 e.set_bit(67, true);

@@ -29,11 +29,11 @@ impl Shader<'_> {
                         instr.deps.add_wt_bar_mask(0x3f);
                     } else {
                         instr.deps.add_wt_bar_mask(wt);
-                        if instr.dsts().len() > 0 {
+                        if !instr.dsts().is_empty() {
                             instr.deps.set_wr_bar(0);
                             wt |= 1 << 0;
                         }
-                        if !instr.pred.predicate.is_none() || instr.srcs().len() > 0 {
+                        if !instr.pred.predicate.is_none() || !instr.srcs().is_empty() {
                             instr.deps.set_rd_bar(1);
                             wt |= 1 << 1;
                         }

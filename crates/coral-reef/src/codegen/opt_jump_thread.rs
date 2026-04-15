@@ -83,10 +83,8 @@ fn jump_thread(func: &mut Function) -> bool {
                 // Our successor might be trivial, so we need to
                 // apply the rewrite map to uphold invariant 2
                 let target_label = func.blocks[i + 1].label;
-                let replacement = replacements
-                    .get(&target_label)
-                    .map(clone_branch)
-                    .unwrap_or_else(|| {
+                let replacement = replacements.get(&target_label).map_or_else(
+                    || {
                         Op::Bra(
                             OpBra {
                                 target: target_label,
@@ -94,7 +92,9 @@ fn jump_thread(func: &mut Function) -> bool {
                             }
                             .into(),
                         )
-                    });
+                    },
+                    clone_branch,
+                );
                 replacements.insert(block_label, replacement);
             }
             _ => (),

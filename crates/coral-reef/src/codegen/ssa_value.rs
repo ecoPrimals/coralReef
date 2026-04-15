@@ -88,7 +88,7 @@ impl<const SIZE: usize> SSAValueArray<SIZE> {
     /// greater than `SIZE`.
     #[inline]
     fn new(comps: &[SSAValue]) -> Self {
-        assert!(comps.len() > 0 && comps.len() <= SIZE);
+        assert!(!comps.is_empty() && comps.len() <= SIZE);
         let mut r = Self {
             v: [SSAValue {
                 packed: NonZeroU32::MAX,
@@ -250,7 +250,7 @@ impl TryFrom<&[SSAValue]> for SSARef {
     type Error = &'static str;
 
     fn try_from(comps: &[SSAValue]) -> Result<Self, Self::Error> {
-        if comps.len() == 0 {
+        if comps.is_empty() {
             Err("Empty vector")
         } else if comps.len() > Self::LARGE_SIZE {
             Err("Too many vector components")

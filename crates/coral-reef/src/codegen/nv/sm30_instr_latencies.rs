@@ -113,9 +113,7 @@ where
     };
     filling_instr.deps.set_delay(1);
     let mut sched_chunk_gen = || {
-        if instr_iter.peek().is_none() {
-            return None;
-        }
+        instr_iter.peek()?;
         Some([0; 7].map(|_| instr_iter.next().unwrap_or(&filling_instr)))
     };
 

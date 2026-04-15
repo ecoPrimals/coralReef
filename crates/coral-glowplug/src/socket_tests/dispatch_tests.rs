@@ -94,9 +94,10 @@ fn test_dispatch_health_check() {
         started,
     );
     let val = result.expect("health.check should succeed");
-    assert_eq!(val["alive"], true);
     assert_eq!(val["name"], "coral-glowplug");
     assert_eq!(val["device_count"], 0);
+    assert!(val["healthy"].is_boolean());
+    assert!(val["status"].is_string());
 }
 
 #[test]
@@ -111,6 +112,21 @@ fn test_dispatch_health_liveness() {
     );
     let val = result.expect("health.liveness should succeed");
     assert_eq!(val["alive"], true);
+}
+
+#[test]
+fn test_dispatch_health_readiness() {
+    let mut devices: Vec<coral_glowplug::device::DeviceSlot> = Vec::new();
+    let started = std::time::Instant::now();
+    let result = dispatch(
+        "health.readiness",
+        &serde_json::json!({}),
+        &mut devices,
+        started,
+    );
+    let val = result.expect("health.readiness should succeed");
+    assert_eq!(val["name"], "coral-glowplug");
+    assert!(val["ready"].is_boolean());
 }
 
 #[test]

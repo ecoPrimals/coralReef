@@ -2,9 +2,9 @@
 
 # Sovereign Multi-GPU Evolution — Pure Rust Pipeline
 
-**Version**: 0.2.0
-**Date**: March 18, 2026
-**Status**: Phase 10 — Iteration 78 (Deep Debt Evolution: Typed Errors + Smart Refactoring)
+**Version**: 0.3.0
+**Date**: April 15, 2026
+**Status**: Phase 10 — Iteration 81 (Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery)
 **Hardware**: NVIDIA Titan V ×2 (GV100/SM70) + NVIDIA RTX 5060 (AD107/SM89)
 
 ---

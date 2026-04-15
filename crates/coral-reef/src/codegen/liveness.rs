@@ -594,7 +594,7 @@ fn next_use_transfer(
 ) -> bool {
     let instr_count = live_in.instr_count;
     let mut changed = false;
-    for (&ssa, &first_use_ip) in &*live_out {
+    for (&ssa, &first_use_ip) in live_out {
         changed |= live_in
             .entry_mut(ssa)
             .add_successor_use(instr_count, first_use_ip);

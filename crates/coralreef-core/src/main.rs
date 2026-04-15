@@ -354,12 +354,18 @@ async fn cmd_server(
     let shutdown_result = tokio::time::timeout(join_timeout, async move {
         rpc_stopped.await;
         if let Some(h) = newline_handle {
-            h.await.ok();
+            if let Err(e) = h.await {
+                tracing::warn!(error = %e, "newline JSON-RPC task join failed during shutdown");
+            }
         }
-        tarpc_handle.await.ok();
+        if let Err(e) = tarpc_handle.await {
+            tracing::warn!(error = %e, "tarpc task join failed during shutdown");
+        }
         #[cfg(unix)]
         if let Some(h) = unix_jsonrpc_handle {
-            h.await.ok();
+            if let Err(e) = h.await {
+                tracing::warn!(error = %e, "Unix JSON-RPC task join failed during shutdown");
+            }
         }
     })
     .await;
@@ -441,7 +447,10 @@ async fn write_discovery_file_to(
 
 /// Remove the discovery file on shutdown.
 async fn remove_discovery_file() {
-    remove_discovery_file_from(discovery_dir().ok().as_deref()).await;
+    match discovery_dir() {
+        Ok(dir) => remove_discovery_file_from(Some(dir.as_path())).await,
+        Err(e) => tracing::debug!(error = %e, "discovery dir unavailable, skipping file removal"),
+    }
 }
 
 /// Remove a discovery file from an explicit directory.

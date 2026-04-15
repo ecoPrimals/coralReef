@@ -143,14 +143,12 @@ impl DeadCodePass {
 
         if is_live {
             MappedInstrs::One(instr)
+        } else if DEBUG.annotate() {
+            MappedInstrs::One(Instr::new(OpAnnotate {
+                annotation: "killed by dce".into(),
+            }))
         } else {
-            if DEBUG.annotate() {
-                MappedInstrs::One(Instr::new(OpAnnotate {
-                    annotation: "killed by dce".into(),
-                }))
-            } else {
-                MappedInstrs::None
-            }
+            MappedInstrs::None
         }
     }
 

@@ -51,9 +51,8 @@ fn get_ssa_or_phi(
             worklist.pop();
             if worklist.is_empty() {
                 return Ok(b_ssa);
-            } else {
-                continue;
             }
+            continue;
         }
 
         let mut pushed_pred = false;

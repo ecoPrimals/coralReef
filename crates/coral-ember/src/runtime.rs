@@ -265,7 +265,15 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                 for stream in tcp_listener.incoming() {
                     match stream {
                         Ok(mut stream) => {
-                            let outcome = crate::btsp::guard_connection();
+                            let first_byte = {
+                                let mut buf = [0u8; 1];
+                                stream
+                                    .peek(&mut buf)
+                                    .ok()
+                                    .filter(|&n| n > 0)
+                                    .map(|_| buf[0])
+                            };
+                            let outcome = crate::btsp::guard_from_first_byte(first_byte);
                             if !outcome.should_accept() {
                                 tracing::warn!(?outcome, "BTSP rejected TCP connection");
                                 drop(stream);
@@ -298,12 +306,6 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                let outcome = crate::btsp::guard_connection();
-                if !outcome.should_accept() {
-                    tracing::warn!(?outcome, "BTSP rejected connection");
-                    drop(stream);
-                    continue;
-                }
                 let held = Arc::clone(&held);
                 let managed = Arc::clone(&managed_bdfs);
                 let journal = Arc::clone(&journal);

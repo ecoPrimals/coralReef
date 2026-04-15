@@ -12,7 +12,7 @@ use super::super::ir::*;
 use super::func::FuncTranslator;
 use crate::error::CompileError;
 
-impl<'a, 'b> FuncTranslator<'a, 'b> {
+impl FuncTranslator<'_, '_> {
     /// f64 round-to-nearest-even using the 2^52 magic number technique.
     ///
     /// `result = (x + copysign(MAGIC, x)) - copysign(MAGIC, x)`

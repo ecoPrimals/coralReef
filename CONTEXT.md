@@ -19,7 +19,7 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
-## Project status (Iteration 80)
+## Project status (Iteration 81)
 
 - **Tests**: 4506 workspace tests, 0 failed, ~153 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
 - **Compliance (Iter 80)**: Wire contract documented (`SHADER_COMPILE_WIRE_CONTRACT.md`); `CompilationInfo` in IPC responses; crypto socket discovery aligned; ecoBin v3 `deny.toml` C/FFI bans; zero hardcoded primal names; all mocks test-isolated. Details in `CHANGELOG.md` and `STATUS.md`.

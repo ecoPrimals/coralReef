@@ -120,7 +120,7 @@ pub(super) fn instr_assign_regs_file(
     }
 
     vec_dsts.sort_by_key(|v| v.comps);
-    killed_vecs.sort_by_key(|v| v.comps());
+    killed_vecs.sort_by_key(SSARef::comps);
 
     let mut next_dst_reg = 0;
     let mut vec_dsts_map_to_killed_srcs = true;

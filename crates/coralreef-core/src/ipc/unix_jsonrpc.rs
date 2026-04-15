@@ -22,8 +22,13 @@ mod inner {
     use tokio::sync::watch;
     use tokio::task::JoinHandle;
 
+    use tokio::io::AsyncBufReadExt;
+
     use super::super::newline_jsonrpc::process_newline_reader_writer;
     use crate::ipc::btsp;
+
+    /// Peek timeout for first-byte BTSP protocol detection.
+    const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
     /// `true` when the bound socket path uses the shared ecosystem directory segment.
     fn path_in_ecosystem_namespace(socket_path: &Path) -> bool {
@@ -115,15 +120,24 @@ mod inner {
                     accept = listener.accept() => {
                         match accept {
                             Ok((stream, _addr)) => {
-                                let outcome = btsp::guard_connection().await;
+                                let (reader, writer) = stream.into_split();
+                                let mut peeker = tokio::io::BufReader::new(reader);
+                                let first_byte = match tokio::time::timeout(
+                                    PEEK_TIMEOUT,
+                                    peeker.fill_buf(),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(buf)) => buf.first().copied(),
+                                    _ => None,
+                                };
+                                let outcome = btsp::guard_from_first_byte(first_byte).await;
                                 if !outcome.should_accept() {
                                     tracing::warn!(?outcome, "BTSP rejected connection");
-                                    drop(stream);
                                     continue;
                                 }
                                 tokio::spawn(async move {
-                                    let (reader, writer) = stream.into_split();
-                                    process_newline_reader_writer(reader, writer).await;
+                                    process_newline_reader_writer(peeker, writer).await;
                                 });
                             }
                             Err(e) => {

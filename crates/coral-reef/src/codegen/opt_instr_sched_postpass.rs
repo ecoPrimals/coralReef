@@ -180,7 +180,7 @@ fn generate_order(g: &mut DepGraph, init_ready_list: Vec<usize>) -> (Vec<usize>,
         current_cycle += g.nodes[next_idx].label.exec_latency;
 
         let outgoing_edges = std::mem::take(&mut g.nodes[next_idx].outgoing_edges);
-        for edge in outgoing_edges.into_iter() {
+        for edge in outgoing_edges {
             let dep_instr = &mut g.nodes[edge.head_idx].label;
             dep_instr.ready_cycle = max(dep_instr.ready_cycle, current_cycle + edge.label.latency);
             dep_instr.use_count -= 1;

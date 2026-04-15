@@ -2,7 +2,7 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: April 12, 2026 (Phase 10 — Iteration 80)
+**Last updated**: April 15, 2026 (Phase 10 — Iteration 81)
 **Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity & primalSpring / compliance evolution
 
 ---
@@ -464,7 +464,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 80: 4506 tests passing, 153 ignored. ~65% line coverage (8 crates above 90%).
+Iteration 81: 4506 tests passing, 153 ignored. ~65% line coverage (8 crates above 90%). Codegen modernized (60 clippy fixes, 14 lint categories resolved).
 
 Zero clippy warnings (default + all-features). Zero doc warnings. Zero files over 1000 LOC.
 Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).

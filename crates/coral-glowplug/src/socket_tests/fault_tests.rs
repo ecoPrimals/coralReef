@@ -145,7 +145,7 @@ async fn test_fuzz_negative_id() {
     .await;
     let v: serde_json::Value = serde_json::from_str(&resp).expect("valid json");
     assert_eq!(v["id"], -999);
-    assert!(v["result"]["alive"].as_bool().unwrap_or(false));
+    assert!(v["result"]["healthy"].is_boolean());
     handle.abort();
 }
 

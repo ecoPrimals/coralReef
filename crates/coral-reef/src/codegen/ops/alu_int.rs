@@ -80,12 +80,10 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpIMnMx {
             } else {
                 isa::vop2::V_MAX_I32
             }
+        } else if is_min {
+            isa::vop2::V_MIN_U32
         } else {
-            if is_min {
-                isa::vop2::V_MIN_U32
-            } else {
-                isa::vop2::V_MAX_U32
-            }
+            isa::vop2::V_MAX_U32
         };
         encode_vop2_from_srcs(opcode, &self.dst, self.src_a(), self.src_b(), e)
     }

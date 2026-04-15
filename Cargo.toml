@@ -31,9 +31,10 @@ rust-version = "1.85"
 [workspace.dependencies]
 # Async runtime
 # EVOLUTION(pure-rust-tokio): tokio → mio → libc (epoll), socket2 → libc,
-# signal-hook-registry → libc. Tracked upstream: mio#1735 (rustix migration).
-# When mio switches to rustix on Linux, tokio's libc chain drops to zero.
-# rustix already uses the linux_raw backend (not libc) on our targets.
+# signal-hook-registry → libc. mio#1735 (rustix migration) was DECLINED by
+# maintainers — transitive libc through tokio/mio is permanent in the tokio
+# ecosystem. All coralReef direct code uses rustix (linux_raw backend on our
+# targets). The residual libc is purely transitive through third-party async I/O.
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "signal", "time"] }
 
 # CLI (uniBin)

@@ -5,7 +5,7 @@ use super::func::{FuncTranslator, VarRef};
 use crate::error::CompileError;
 use naga::Handle;
 
-impl<'a, 'b> FuncTranslator<'a, 'b> {
+impl FuncTranslator<'_, '_> {
     pub(super) fn emit_store(
         &mut self,
         pointer: Handle<naga::Expression>,

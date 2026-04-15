@@ -13,7 +13,7 @@
 
 mod socket;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use config::Config;
 use coral_driver::linux_paths;
 use coral_glowplug::{config, device, ember, health, pci_ids, personality, sysfs};
@@ -29,17 +29,30 @@ use tokio::sync::{Mutex, watch};
 #[derive(Parser)]
 #[command(name = "coral-glowplug", version, about)]
 struct Cli {
-    /// Path to TOML config file.
-    #[arg(short, long)]
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Path to TOML config file (legacy; prefer `server --config`).
+    #[arg(short, long, global = true)]
     config: Option<String>,
 
     /// PCI BDF address(es) to manage (e.g. 0000:4a:00.0 or 0000:4a:00.0:nouveau).
-    #[arg(long)]
+    #[arg(long, global = true)]
     bdf: Vec<String>,
 
     /// Auto-discover GPUs on the PCI bus.
-    #[arg(long)]
+    #[arg(long, global = true)]
     auto: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Start the device broker daemon (JSON-RPC 2.0 Unix socket + optional TCP).
+    Server {
+        /// TCP port for newline-delimited JSON-RPC (UniBin v1.1).
+        #[arg(long)]
+        port: Option<u16>,
+    },
 }
 
 fn parse_bdf_arg(arg: &str) -> config::DeviceConfig {
@@ -165,6 +178,11 @@ async fn main() {
     }
 
     let cli = Cli::parse();
+
+    let tcp_port = match &cli.command {
+        Some(Commands::Server { port }) => *port,
+        None => None,
+    };
 
     let config = if let Some(ref path) = cli.config {
         match Config::load(path) {
@@ -340,6 +358,22 @@ async fn main() {
         }
     };
 
+    let tcp_server = if let Some(port) = tcp_port {
+        let tcp_addr = format!("127.0.0.1:{port}");
+        match socket::SocketServer::bind(&tcp_addr).await {
+            Ok(s) => {
+                tracing::info!(addr = %s.bound_addr(), "TCP JSON-RPC server listening (UniBin --port)");
+                Some(s)
+            }
+            Err(e) => {
+                tracing::error!(addr = %tcp_addr, error = %e, "failed to bind TCP --port");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
     {
         let device_lines: Vec<String> = {
             let devs = devices.lock().await;
@@ -365,6 +399,9 @@ async fn main() {
         }
         tracing::info!("╠══════════════════════════════════════════════════════════╣");
         tracing::info!("║ Socket: {}", server.bound_addr());
+        if let Some(ref tcp) = tcp_server {
+            tracing::info!("║ TCP:    {}", tcp.bound_addr());
+        }
         tracing::info!("║ Log level: {}", config.daemon.log_level);
         tracing::info!(
             "║ Health check: every {}ms",
@@ -387,6 +424,16 @@ async fn main() {
             .await;
     });
 
+    let tcp_accept_handle = if let Some(tcp_srv) = tcp_server {
+        let tcp_devices = devices.clone();
+        let mut tcp_shutdown = shutdown_rx.clone();
+        Some(tokio::spawn(async move {
+            tcp_srv.accept_loop(tcp_devices, &mut tcp_shutdown).await;
+        }))
+    } else {
+        None
+    };
+
     let Ok(mut sigterm) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
     else {
         tracing::error!("failed to register SIGTERM handler");
@@ -406,8 +453,10 @@ async fn main() {
     tracing::info!("shutting down — signalling background tasks to stop");
     let _ = shutdown_tx.send(true);
 
-    // Give background tasks up to 2s to release the mutex gracefully
     accept_handle.abort();
+    if let Some(h) = tcp_accept_handle {
+        h.abort();
+    }
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     let shutdown_timeout = std::time::Duration::from_secs(5);

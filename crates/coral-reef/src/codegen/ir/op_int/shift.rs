@@ -215,12 +215,10 @@ impl Foldable for OpShf {
             } else {
                 x.checked_shl(shift).unwrap_or(0)
             }
+        } else if self.right {
+            x.checked_shr(shift).unwrap_or(0)
         } else {
-            if self.right {
-                x.checked_shr(shift).unwrap_or(0)
-            } else {
-                x.checked_shl(shift).unwrap_or(0)
-            }
+            x.checked_shl(shift).unwrap_or(0)
         };
 
         let dst = if (sm.sm() < 70 && !self.right) || self.dst_high {

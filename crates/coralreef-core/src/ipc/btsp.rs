@@ -110,13 +110,59 @@ impl BtspOutcome {
     }
 }
 
-/// Per-connection BTSP guard — the primary API for accept loops.
+/// First byte that indicates plain JSON-RPC (no BTSP handshake expected).
 ///
-/// In `Development` mode, returns immediately (`DevMode`).
-/// In `Production` mode, discovers the security provider and attempts
-/// `btsp.session.create`. Falls back to `Degraded` if the provider
-/// is unavailable.
+/// Per bearDog `ProtocolDetector` convention: a leading `{` means the peer
+/// is sending newline-delimited JSON-RPC directly (e.g. biomeOS capability.call
+/// forwarding). Any other leading byte triggers BTSP handshake.
+const PLAIN_JSONRPC_MARKER: u8 = b'{';
+
+/// BTSP decision from a peeked first byte — the core protocol detection logic.
+///
+/// Call sites peek the stream using transport-appropriate methods
+/// (`TcpStream::peek`, `BufReader::fill_buf`) and pass the result here.
+///
+/// - `Some(b'{')` → plain JSON-RPC (biomeOS compatibility), BTSP skipped
+/// - `Some(_)` → non-JSON first byte, BTSP handshake required
+/// - `None` → peek failed/timed out, accept in degraded mode
+pub async fn guard_from_first_byte(first_byte: Option<u8>) -> BtspOutcome {
+    let mode = btsp_mode();
+    if matches!(mode, BtspMode::Development) {
+        return BtspOutcome::DevMode;
+    }
+
+    match first_byte {
+        Some(PLAIN_JSONRPC_MARKER) => {
+            tracing::debug!("first byte is '{{' — plain JSON-RPC, BTSP skipped");
+            BtspOutcome::DevMode
+        }
+        Some(b) => {
+            tracing::debug!(first_byte = b, "non-JSON first byte — BTSP handshake path");
+            guard_connection_inner().await
+        }
+        None => {
+            let reason = "first-byte peek failed or timed out — accepting in degraded mode";
+            tracing::warn!("{reason}");
+            BtspOutcome::Degraded {
+                reason: reason.into(),
+            }
+        }
+    }
+}
+
+/// Out-of-band BTSP guard — legacy API for accept loops without stream access.
+///
+/// Prefer [`guard_from_first_byte`] which inspects the actual stream and avoids
+/// BTSP rejection of plain JSON-RPC peers (e.g. biomeOS).
+#[allow(
+    dead_code,
+    reason = "retained for tarpc/HTTP paths that lack stream peek access"
+)]
 pub async fn guard_connection() -> BtspOutcome {
+    guard_connection_inner().await
+}
+
+async fn guard_connection_inner() -> BtspOutcome {
     let mode = btsp_mode();
     let family_id = match mode {
         BtspMode::Development => return BtspOutcome::DevMode,
@@ -364,5 +410,21 @@ mod tests {
         }
         let outcome = guard_connection().await;
         assert!(matches!(outcome, BtspOutcome::DevMode));
+    }
+
+    #[tokio::test]
+    async fn guard_from_first_byte_json_marker_skips_btsp() {
+        let outcome = guard_from_first_byte(Some(b'{')).await;
+        assert!(outcome.should_accept());
+    }
+
+    #[tokio::test]
+    async fn guard_from_first_byte_none_degrades() {
+        if !btsp_mode().requires_handshake() {
+            return;
+        }
+        let outcome = guard_from_first_byte(None).await;
+        assert!(outcome.should_accept());
+        assert!(matches!(outcome, BtspOutcome::Degraded { .. }));
     }
 }

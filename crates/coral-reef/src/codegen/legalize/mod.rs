@@ -52,7 +52,7 @@ impl<'a> LegalizeBuilder<'a> {
     }
 }
 
-impl<'a> Builder for LegalizeBuilder<'a> {
+impl Builder for LegalizeBuilder<'_> {
     fn push_instr(&mut self, instr: Instr) -> &mut Instr {
         self.b.push_instr(instr)
     }
@@ -73,7 +73,7 @@ impl<'a> Builder for LegalizeBuilder<'a> {
     }
 }
 
-impl<'a> SSABuilder for LegalizeBuilder<'a> {
+impl SSABuilder for LegalizeBuilder<'_> {
     fn alloc_ssa(&mut self, file: RegFile) -> SSAValue {
         self.b.alloc_ssa(file)
     }

@@ -95,7 +95,7 @@ impl Shader<'_> {
             return;
         }
         for func in &mut self.functions {
-            func.map_instrs(|instr, alloc| lower_fma_instr(instr, alloc));
+            func.map_instrs(lower_fma_instr);
         }
     }
 }
