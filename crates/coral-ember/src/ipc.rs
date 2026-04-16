@@ -4,6 +4,9 @@
 mod fd;
 mod handlers_device;
 mod handlers_journal;
+mod handlers_devinit;
+mod handlers_mmio;
+mod handlers_sovereign;
 mod helpers;
 mod jsonrpc;
 
@@ -141,6 +144,36 @@ pub fn handle_client(
         "ember.ring_meta.set" => {
             handlers_device::ring_meta_set(stream, held, id, params)?;
         }
+        "mmio.read32" => {
+            handlers_mmio::read32(stream, held, id, params)?;
+        }
+        "mmio.write32" => {
+            handlers_mmio::write32(stream, held, id, params)?;
+        }
+        "mmio.batch" => {
+            handlers_mmio::batch(stream, held, id, params)?;
+        }
+        "mmio.pramin.read32" => {
+            handlers_mmio::pramin_read32(stream, held, id, params)?;
+        }
+        "mmio.bar0.probe" => {
+            handlers_mmio::bar0_probe(stream, held, id, params)?;
+        }
+        "mmio.falcon.status" => {
+            handlers_mmio::falcon_status(stream, held, id, params)?;
+        }
+        "ember.sovereign.init" => {
+            handlers_sovereign::sovereign_init(stream, held, id, params)?;
+        }
+        "ember.devinit.status" => {
+            handlers_devinit::devinit_status(stream, held, id, params)?;
+        }
+        "ember.devinit.execute" => {
+            handlers_devinit::devinit_execute(stream, held, id, params)?;
+        }
+        "ember.vbios.read" => {
+            handlers_devinit::vbios_read(stream, held, id, params)?;
+        }
         "health.check" => {
             let resp = health_check_response(held, started_at);
             jsonrpc::write_jsonrpc_ok(stream, id, resp).map_err(EmberIpcError::from)?;
@@ -265,6 +298,36 @@ pub fn handle_client_tcp(
         }
         "ember.ring_meta.set" => {
             handlers_device::ring_meta_set(stream, held, id, params)?;
+        }
+        "mmio.read32" => {
+            handlers_mmio::read32(stream, held, id, params)?;
+        }
+        "mmio.write32" => {
+            handlers_mmio::write32(stream, held, id, params)?;
+        }
+        "mmio.batch" => {
+            handlers_mmio::batch(stream, held, id, params)?;
+        }
+        "mmio.pramin.read32" => {
+            handlers_mmio::pramin_read32(stream, held, id, params)?;
+        }
+        "mmio.bar0.probe" => {
+            handlers_mmio::bar0_probe(stream, held, id, params)?;
+        }
+        "mmio.falcon.status" => {
+            handlers_mmio::falcon_status(stream, held, id, params)?;
+        }
+        "ember.sovereign.init" => {
+            handlers_sovereign::sovereign_init(stream, held, id, params)?;
+        }
+        "ember.devinit.status" => {
+            handlers_devinit::devinit_status(stream, held, id, params)?;
+        }
+        "ember.devinit.execute" => {
+            handlers_devinit::devinit_execute(stream, held, id, params)?;
+        }
+        "ember.vbios.read" => {
+            handlers_devinit::vbios_read(stream, held, id, params)?;
         }
         "health.check" => {
             let resp = health_check_response(held, started_at);

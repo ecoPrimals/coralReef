@@ -190,12 +190,19 @@ pub fn handle_swap_device_with_journal(
 
     // Unbind current driver.
     if let Some(ref drv) = current {
-        tracing::info!(bdf, driver = %drv, "swap_device: unbinding current driver");
-        sysfs::sysfs_write(
-            &linux_paths::sysfs_pci_device_file(bdf, "driver/unbind"),
-            bdf,
-        )?;
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        if lifecycle.skip_sysfs_unbind() {
+            tracing::info!(
+                bdf, driver = %drv,
+                "swap_device: skipping sysfs unbind (vendor lifecycle) — bind phase handles teardown via PCI rescan"
+            );
+        } else {
+            tracing::info!(bdf, driver = %drv, "swap_device: unbinding current driver");
+            sysfs::sysfs_write(
+                &linux_paths::sysfs_pci_device_file(bdf, "driver/unbind"),
+                bdf,
+            )?;
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
         sysfs::pin_power(bdf);
     }
     let unbind_ms = unbind_start.elapsed().as_millis() as u64;

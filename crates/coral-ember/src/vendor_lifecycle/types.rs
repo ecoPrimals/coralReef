@@ -78,6 +78,18 @@ pub trait VendorLifecycle: Send + Sync + fmt::Debug {
     /// Should verify the device is actually functional (temp sensors, VRAM, etc.)
     fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), SwapError>;
 
+    /// Whether to skip the direct `driver/unbind` sysfs write during swap.
+    ///
+    /// When true, the swap orchestrator will NOT write to `driver/unbind`.
+    /// Instead, the bind phase handles teardown via PCI remove+rescan,
+    /// which atomically unbinds the old driver during re-enumeration.
+    ///
+    /// Required for hardware (e.g. Volta/Turing GPUs) where sysfs unbind
+    /// triggers kernel D-state hangs in the DRM subsystem.
+    fn skip_sysfs_unbind(&self) -> bool {
+        false
+    }
+
     /// Which reset methods are safe/available for this hardware, in priority order.
     /// The caller should try methods in order and stop at the first success.
     ///

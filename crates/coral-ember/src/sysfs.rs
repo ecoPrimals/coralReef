@@ -511,17 +511,35 @@ fn pci_remove_rescan_inner(bdf: &str, target_driver: Option<&str>) -> Result<(),
                 sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
 
             if let Some(driver) = target_driver {
-                tracing::info!(
-                    bdf,
-                    driver,
-                    "setting driver_override before probe (autoprobe disabled)"
-                );
-                let _ = sysfs_write_direct(
-                    &linux_paths::sysfs_pci_device_file(bdf, "driver_override"),
-                    driver,
-                );
-                tracing::info!(bdf, "triggering manual drivers_probe");
-                let _ = sysfs_write(&linux_paths::sysfs_pci_drivers_probe(), bdf);
+                let current = read_current_driver(bdf);
+                if current.as_deref() == Some(driver) {
+                    tracing::info!(
+                        bdf, driver,
+                        "target driver already bound after rescan — nothing to do"
+                    );
+                } else {
+                    if let Some(ref cur) = current {
+                        tracing::info!(
+                            bdf, current = %cur, target = driver,
+                            "wrong driver bound after rescan (likely vfio-pci.ids cmdline) — unbinding"
+                        );
+                        let _ = sysfs_write(
+                            &linux_paths::sysfs_pci_device_file(bdf, "driver/unbind"),
+                            bdf,
+                        );
+                        std::thread::sleep(Duration::from_millis(500));
+                    }
+                    tracing::info!(
+                        bdf, driver,
+                        "setting driver_override before probe (autoprobe disabled)"
+                    );
+                    let _ = sysfs_write_direct(
+                        &linux_paths::sysfs_pci_device_file(bdf, "driver_override"),
+                        driver,
+                    );
+                    tracing::info!(bdf, "triggering manual drivers_probe");
+                    let _ = sysfs_write(&linux_paths::sysfs_pci_drivers_probe(), bdf);
+                }
             }
 
             return Ok(());

@@ -78,11 +78,18 @@ fn kepler_stabilize_and_verify_best_effort() {
 }
 
 #[test]
-fn nvidia_uses_simple_bind() {
+fn nvidia_uses_rescan_for_drm_simple_for_vfio() {
     let lc = NvidiaLifecycle { device_id: 0x1d81 };
-    assert_eq!(lc.rebind_strategy("nouveau"), RebindStrategy::SimpleBind);
-    assert_eq!(lc.rebind_strategy("nvidia"), RebindStrategy::SimpleBind);
+    assert_eq!(
+        lc.rebind_strategy("nouveau"),
+        RebindStrategy::SimpleWithRescanFallback
+    );
+    assert_eq!(
+        lc.rebind_strategy("nvidia"),
+        RebindStrategy::SimpleWithRescanFallback
+    );
     assert_eq!(lc.rebind_strategy("vfio-pci"), RebindStrategy::SimpleBind);
+    assert!(lc.skip_sysfs_unbind());
 }
 
 #[test]
@@ -101,7 +108,7 @@ fn nvidia_open_lifecycle_description_and_settle() {
 #[test]
 fn nvidia_nouveau_gets_longer_settle() {
     let lc = NvidiaLifecycle { device_id: 0x1d81 };
-    assert_eq!(lc.settle_secs("nouveau"), 10);
+    assert_eq!(lc.settle_secs("nouveau"), 15);
     assert_eq!(lc.settle_secs("nvidia"), 5);
 }
 
@@ -138,10 +145,10 @@ fn nvidia_description() {
 #[test]
 fn nvidia_prepare_for_unbind_clears_reset_method() {
     let lc = NvidiaLifecycle { device_id: 0x1d81 };
-    let err = lc
-        .prepare_for_unbind("not-a-bdf", "nouveau")
-        .expect_err("should fail on fake BDF (sysfs path absent)");
-    assert!(!err.to_string().is_empty());
+    // reset_method write is best-effort (let _ = ...), so this succeeds
+    // even when sysfs path is absent
+    lc.prepare_for_unbind("not-a-bdf", "nouveau")
+        .expect("best-effort reset_method should not fail on missing sysfs");
 }
 
 #[test]

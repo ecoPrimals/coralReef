@@ -15,7 +15,7 @@ impl NvVfioComputeDevice {
     /// Parses `sw_bundle_init.bin` etc. from `/lib/firmware/nvidia/{chip}/gr/`,
     /// builds the init sequence, then applies the BAR0-targeted writes
     /// (PMC engine enable, FIFO enable, PGRAPH register programming).
-    pub(super) fn apply_gr_bar0_init(bar0: &MappedBar, sm_version: u32) {
+    pub(crate) fn apply_gr_bar0_init(bar0: &MappedBar, sm_version: u32) {
         let chip = sm_to_chip(sm_version);
         let blobs = match GrFirmwareBlobs::parse(chip) {
             Ok(b) => b,

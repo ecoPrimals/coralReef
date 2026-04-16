@@ -178,6 +178,10 @@ impl VendorLifecycle for AdaptiveLifecycle {
         self.inner.verify_health(bdf, target_driver)
     }
 
+    fn skip_sysfs_unbind(&self) -> bool {
+        self.inner.skip_sysfs_unbind()
+    }
+
     fn available_reset_methods(&self) -> Vec<ResetMethod> {
         let static_methods = self.inner.available_reset_methods();
         let historical = self.historical_reset_success_rates();
@@ -389,5 +393,52 @@ mod tests {
         adaptive.prepare_for_unbind("x", "vfio").unwrap();
         adaptive.stabilize_after_bind("x", "vfio");
         adaptive.verify_health("x", "vfio").unwrap();
+    }
+
+    #[test]
+    fn delegates_skip_sysfs_unbind_false_by_default() {
+        let (_dir, journal) = test_journal();
+        let adaptive =
+            AdaptiveLifecycle::new(Box::new(StubLifecycle), journal, "0000:03:00.0".into());
+        assert!(!adaptive.skip_sysfs_unbind());
+    }
+
+    #[derive(Debug)]
+    struct VoltaStubLifecycle;
+
+    impl VendorLifecycle for VoltaStubLifecycle {
+        fn description(&self) -> &str {
+            "Volta Stub"
+        }
+        fn prepare_for_unbind(&self, _bdf: &str, _driver: &str) -> Result<(), SwapError> {
+            Ok(())
+        }
+        fn rebind_strategy(&self, _target: &str) -> RebindStrategy {
+            RebindStrategy::SimpleWithRescanFallback
+        }
+        fn settle_secs(&self, _target: &str) -> u64 {
+            15
+        }
+        fn stabilize_after_bind(&self, _bdf: &str, _target: &str) {}
+        fn verify_health(&self, _bdf: &str, _target: &str) -> Result<(), SwapError> {
+            Ok(())
+        }
+        fn skip_sysfs_unbind(&self) -> bool {
+            true
+        }
+        fn available_reset_methods(&self) -> Vec<ResetMethod> {
+            vec![]
+        }
+    }
+
+    #[test]
+    fn delegates_skip_sysfs_unbind_from_inner() {
+        let (_dir, journal) = test_journal();
+        let adaptive =
+            AdaptiveLifecycle::new(Box::new(VoltaStubLifecycle), journal, "0000:03:00.0".into());
+        assert!(
+            adaptive.skip_sysfs_unbind(),
+            "AdaptiveLifecycle must forward skip_sysfs_unbind from inner lifecycle"
+        );
     }
 }

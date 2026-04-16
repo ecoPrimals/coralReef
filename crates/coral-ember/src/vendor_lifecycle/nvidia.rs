@@ -107,15 +107,10 @@ pub struct NvidiaLifecycle {
 
 impl VendorLifecycle for NvidiaLifecycle {
     fn description(&self) -> &str {
-        "NVIDIA (bus reset kills HBM2 — reset_method disabled)"
+        "NVIDIA Volta+ (bus reset kills HBM2 — reset_method disabled, PCI rescan for DRM unbind)"
     }
 
     fn available_reset_methods(&self) -> Vec<ResetMethod> {
-        // GV100 (Titan V / V100) does not support FLR — VFIO_DEVICE_RESET
-        // returns EINVAL. Device-level SBR fails when bound to VFIO.
-        // Bridge-level SBR is the reliable path — writes to the parent
-        // bridge's reset file, which triggers a true bus reset.
-        // Remove+rescan is the nuclear fallback.
         vec![
             ResetMethod::BridgeSbr,
             ResetMethod::SysfsSbr,
@@ -125,23 +120,36 @@ impl VendorLifecycle for NvidiaLifecycle {
 
     fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), SwapError> {
         sysfs::pin_power(bdf);
+        sysfs::pin_bridge_power(bdf);
 
-        tracing::info!(
-            bdf,
-            "NVIDIA: disabling reset_method (bus reset destroys HBM2 training)"
-        );
-        sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "")?;
+        let reset_path = linux_paths::sysfs_pci_device_file(bdf, "reset_method");
+        let _ = sysfs::sysfs_write_direct(&reset_path, "");
 
         Ok(())
     }
 
-    fn rebind_strategy(&self, _target_driver: &str) -> RebindStrategy {
-        RebindStrategy::SimpleBind
+    fn skip_sysfs_unbind(&self) -> bool {
+        // Volta+ (GV100/Titan V) goes D-state on sysfs driver/unbind for
+        // both nouveau and vfio-pci. PCI remove+rescan handles teardown
+        // during re-enumeration, bypassing the blocking sysfs write.
+        true
+    }
+
+    fn rebind_strategy(&self, target_driver: &str) -> RebindStrategy {
+        match target_driver {
+            // vfio-pci bind after DRM driver never D-states — simple bind is safe
+            // when the old driver has already been torn down by PCI rescan.
+            "vfio" | "vfio-pci" => RebindStrategy::SimpleBind,
+            // DRM drivers (nouveau, nvidia) trigger kernel DRM subsystem
+            // teardown on unbind which D-states on Volta/Turing GPUs.
+            // PCI remove+rescan bypasses the sysfs unbind entirely.
+            _ => RebindStrategy::SimpleWithRescanFallback,
+        }
     }
 
     fn settle_secs(&self, target_driver: &str) -> u64 {
         match target_driver {
-            "nouveau" => 10,
+            "nouveau" => 15,
             _ => 5,
         }
     }

@@ -79,6 +79,43 @@ impl MappedBar {
     pub const fn base_ptr(&self) -> *mut u8 {
         self.region.as_ptr()
     }
+
+    /// Fork-isolated 32-bit MMIO read.  See [`crate::vfio::isolation`].
+    pub fn isolated_read_u32(
+        &self,
+        offset: u32,
+        timeout: std::time::Duration,
+    ) -> crate::vfio::isolation::IsolationResult<u32> {
+        unsafe { crate::vfio::isolation::fork_isolated_mmio_read(self.base_ptr(), offset, timeout) }
+    }
+
+    /// Fork-isolated 32-bit MMIO write.  See [`crate::vfio::isolation`].
+    pub fn isolated_write_u32(
+        &self,
+        offset: u32,
+        value: u32,
+        timeout: std::time::Duration,
+    ) -> crate::vfio::isolation::IsolationResult<()> {
+        unsafe {
+            crate::vfio::isolation::fork_isolated_mmio_write(
+                self.base_ptr(),
+                offset,
+                value,
+                timeout,
+            )
+        }
+    }
+
+    /// Fork-isolated batch of reads/writes.  See [`crate::vfio::isolation`].
+    pub fn isolated_batch(
+        &self,
+        ops: &[(u32, Option<u32>)],
+        timeout: std::time::Duration,
+    ) -> crate::vfio::isolation::IsolationResult<Vec<u32>> {
+        unsafe {
+            crate::vfio::isolation::fork_isolated_mmio_batch(self.base_ptr(), ops, timeout)
+        }
+    }
 }
 
 impl RegisterAccess for MappedBar {

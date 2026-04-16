@@ -16,15 +16,31 @@ pub(super) fn bind_vfio(
     lifecycle: &dyn vendor_lifecycle::VendorLifecycle,
 ) -> Result<String, SwapError> {
     let group_id = sysfs::read_iommu_group(bdf);
+    let current_driver = sysfs::read_current_driver(bdf);
 
-    sysfs::sysfs_write(
-        &linux_paths::sysfs_pci_device_file(bdf, "driver_override"),
-        "vfio-pci",
-    )?;
+    // When skip_sysfs_unbind is true, the old driver may still be bound.
+    // PCI remove+rescan tears down the old driver during re-enumeration
+    // and re-probes with driver_override already set to vfio-pci.
+    if lifecycle.skip_sysfs_unbind() && current_driver.is_some() {
+        tracing::info!(
+            bdf,
+            driver = ?current_driver,
+            "bind_vfio: old driver still bound (skip_sysfs_unbind), using PCI remove+rescan"
+        );
+        sysfs::sysfs_write(
+            &linux_paths::sysfs_pci_device_file(bdf, "driver_override"),
+            "vfio-pci",
+        )?;
+        pci_remove_rescan(bdf, Some("vfio-pci"))?;
+    } else {
+        sysfs::sysfs_write(
+            &linux_paths::sysfs_pci_device_file(bdf, "driver_override"),
+            "vfio-pci",
+        )?;
 
-    sysfs::bind_iommu_group_to_vfio(bdf, group_id);
-
-    let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), bdf);
+        sysfs::bind_iommu_group_to_vfio(bdf, group_id);
+        let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind("vfio-pci"), bdf);
+    }
 
     let reset_path = linux_paths::sysfs_pci_device_file(bdf, "reset_method");
     if let Err(e) = sysfs::sysfs_write_direct(&reset_path, "") {
@@ -141,20 +157,34 @@ pub(super) fn bind_native(
 
     ensure_module_loaded(target);
 
+    // When skip_sysfs_unbind is true, the old driver is still bound —
+    // simple bind will always fail, so skip straight to PCI rescan.
+    let skip_unbind = lifecycle.skip_sysfs_unbind();
+
     match strategy {
         RebindStrategy::SimpleBind => {
-            let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
+            if skip_unbind && sysfs::read_current_driver(bdf).is_some() {
+                tracing::info!(bdf, target, "skip_sysfs_unbind + old driver bound — PCI rescan for SimpleBind");
+                pci_remove_rescan(bdf, Some(target))?;
+            } else {
+                let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
+            }
         }
         RebindStrategy::SimpleWithRescanFallback => {
-            let bind_result = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
-
-            if bind_result.is_err() {
-                tracing::warn!(
-                    bdf,
-                    target,
-                    "simple bind failed — falling back to PCI remove + rescan"
-                );
+            if skip_unbind && sysfs::read_current_driver(bdf).is_some() {
+                tracing::info!(bdf, target, "skip_sysfs_unbind + old driver bound — direct PCI rescan");
                 pci_remove_rescan(bdf, Some(target))?;
+            } else {
+                let bind_result = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
+
+                if bind_result.is_err() {
+                    tracing::warn!(
+                        bdf,
+                        target,
+                        "simple bind failed — falling back to PCI remove + rescan"
+                    );
+                    pci_remove_rescan(bdf, Some(target))?;
+                }
             }
         }
         RebindStrategy::PciRescan => {
