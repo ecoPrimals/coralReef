@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: April 15, 2026  
-**Phase**: 10 — Iteration 81 (Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery)
+**Last updated**: April 16, 2026  
+**Phase**: 10 — Iteration 82 (Large File Refactoring, Hardcoding Dedup, Dependency Coexistence Documentation)
 
 ---
 
@@ -1160,8 +1160,8 @@
 |-----------|--------|--------|
 | `rustix` backend | `linux_raw` | Confirmed: depends on `linux-raw-sys`, zero `libc` |
 | `ring` | **Eliminated** | `jsonrpsee[client]` removed; `primal-rpc-client` crate for tests + production |
-| `libc` (transitive) | Tracked | `tokio`→`mio`→`libc` (mio#1735), `socket2`→`libc`, `signal-hook-registry`→`libc`, `getrandom`→`libc`, `parking_lot_core`→`libc` |
-| `libc` canary | Tracked | `libc` is transitive only (tokio→mio, tracing, etc.) — zero direct imports in coralReef. Ban deferred until upstream `mio`→`rustix` migration (mio#1735) |
+| `libc` (transitive) | Tracked | `tokio`→`mio`→`libc` (mio#1735), `socket2`→`libc`, `signal-hook-registry`→`libc`, `getrandom`→`libc`, `parking_lot_core`→`libc`. Both coexist: Tokio uses mio (libc), coral-driver/ember/glowplug use rustix directly (linux_raw) |
+| `libc` canary | Tracked | `libc` is transitive only — zero direct imports in coralReef. mio#1735 (rustix migration) DECLINED upstream; permanent coexistence documented |
 | Our code → `libc` | **Zero** | No workspace crate has direct `libc` dependency |
 
 ### Phase 10 Remaining / Phase 11 Roadmap

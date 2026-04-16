@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 81.
+**Current position**: Phase 10 — Iteration 82.
 
-**Last completed**: Codegen modernization (60 clippy fixes across 30 files, 14 suppressed lint categories removed); file split (`codegen_coverage_saturation.rs` 982→572+441); production shutdown observability (`.ok()` → `tracing::warn!`); SAFETY comment completeness; showcase capability-based discovery evolution; specs synced to Iter 81.
+**Last completed**: Large file refactoring (nvidia_headers 839→460, firmware_parser 806→318, registers 822→725); ecosystem namespace constant deduplication across coral-glowplug/coral-ember; comprehensive deep audit (zero `.unwrap()` in library code, all `.ok()` calls justified, BTSP dead_code allows verified, zero mocks in production); transitive libc coexistence documented (tokio/mio + rustix dual-stack permanent).
 
 **Tests**: 4506 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: musl-static verification; coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 15, 2026 (Phase 10 — Iteration 81 — codegen modernization, deep debt resolution, capability-based discovery.)
+**Last updated**: April 16, 2026 (Phase 10 — Iteration 82 — large file refactoring, hardcoding dedup, audit cleanup.)
 
 ---
 
@@ -30,7 +30,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 
-**Approaching 1000 (monitor):** `tests_unix_edge.rs` (935, test), `nv_metal.rs` (882), `vfio/memory.rs` (874). `codegen_coverage_saturation.rs` (was 982) split into 572 + 441 (Iter 81). Former monolithic files now directories: `shader_header` → 5 submodules (Iter 77); `personality` → 2 submodules (Iter 77); `sysmem_impl` → orchestrator + 5 submodules (Iter 76); `sec2_hal` → 9-file directory (Iter 76); `identity` → 7-file directory (Iter 76); `uvm_compute` → 5 submodules (Iter 74); `pci_discovery` → 7 submodules (Iter 74).
+**Approaching 1000 (monitor):** `tests_unix_edge.rs` (935, test), `nv_metal.rs` (882), `vfio/memory.rs` (874). Iter 82 extracted tests: `nvidia_headers.rs` (839→460), `firmware_parser.rs` (806→318), `registers.rs` (822→725). `codegen_coverage_saturation.rs` (was 982) split into 572 + 441 (Iter 81). Former monolithic files now directories: `shader_header` → 5 submodules (Iter 77); `personality` → 2 submodules (Iter 77); `sysmem_impl` → orchestrator + 5 submodules (Iter 76); `sec2_hal` → 9-file directory (Iter 76); `identity` → 7-file directory (Iter 76); `uvm_compute` → 5 submodules (Iter 74); `pci_discovery` → 7 submodules (Iter 74).
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 

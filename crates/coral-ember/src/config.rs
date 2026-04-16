@@ -87,12 +87,15 @@ pub(crate) fn family_id() -> String {
     std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
 }
 
+/// Default ecosystem namespace per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
+const ECOSYSTEM_NAMESPACE: &str = "biomeos";
+
 /// Ecosystem namespace for shared directories (sockets, discovery).
 pub(crate) fn ecosystem_namespace() -> &'static str {
     use std::sync::OnceLock;
     static NS: OnceLock<String> = OnceLock::new();
     NS.get_or_init(|| {
-        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into())
+        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| ECOSYSTEM_NAMESPACE.into())
     })
 }
 

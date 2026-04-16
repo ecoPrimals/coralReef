@@ -238,15 +238,18 @@ pub fn default_tcp_fallback() -> String {
     std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
 }
 
+/// Default ecosystem namespace per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
+const ECOSYSTEM_NAMESPACE: &str = "biomeos";
+
 /// Runtime filesystem segment for IPC socket layout per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
 ///
-/// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default `"biomeos"`).
+/// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default [`ECOSYSTEM_NAMESPACE`]).
 /// This is a protocol-defined path component, not a capability registry or primal lookup key.
 pub fn ecosystem_namespace() -> &'static str {
     use std::sync::OnceLock;
     static NS: OnceLock<String> = OnceLock::new();
     NS.get_or_init(|| {
-        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into())
+        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| ECOSYSTEM_NAMESPACE.into())
     })
 }
 

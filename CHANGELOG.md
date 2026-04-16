@@ -4,11 +4,31 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 81
+**Current status**: Phase 10 — Iteration 82
 
 ---
 
 ## [Unreleased]
+
+### Iteration 82 — Large File Refactoring, Hardcoding Dedup, Audit Cleanup (2026-04-16)
+
+#### Smart File Refactoring (>800L → Cohesive Modules)
+- Extracted `nvidia_headers.rs` tests (839→460L) into `nvidia_headers_tests.rs`
+- Extracted `firmware_parser.rs` tests (806→318L) into `firmware_parser_tests.rs`
+- Extracted `registers.rs` tests (822→725L) into `registers_tests.rs`
+- Assessed remaining >800L files: `runner.rs` (802L, monolithic diagnostic), `sm20/tex.rs` (854L), `sm75_instr_latencies/gpr.rs` (814L) — dense hardware tables, splitting would reduce cohesion
+
+#### Hardcoding Deduplication
+- Added `ECOSYSTEM_NAMESPACE` constants to `coral-glowplug` and `coral-ember` config modules, matching `coralreef-core` pattern (no cross-crate imports per primal self-knowledge rule)
+
+#### Deep Audit — All Clear
+- `.unwrap()` in library code: zero instances (all in `#[cfg(test)]`)
+- `.ok()` calls: all production uses in diagnostic/teardown/best-effort paths — justified
+- `#[allow(dead_code)]` on BTSP types: justified (used in tests, Debug formatting, future evolution)
+- Hardcoded primal names: only `biomeos` ecosystem namespace (self-knowledge, env-overridable)
+- Mocks in production: none (all `#[cfg(test)]` gated)
+- `unsafe` code: all in `coral-driver` with `// SAFETY:` comments on every block
+- Transitive `libc`: documented permanent coexistence — tokio/mio (libc) alongside coral-driver/ember/glowplug (rustix/linux_raw)
 
 ### Iteration 81 — Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery (2026-04-15)
 
