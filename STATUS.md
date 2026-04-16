@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: April 16, 2026  
-**Phase**: 10 — Iteration 82 (Large File Refactoring, Hardcoding Dedup, Dependency Coexistence Documentation)
+**Phase**: 10 — Iteration 83 (Drop jsonrpsee — Pure serde_json JSON-RPC, Ecosystem Standard)
 
 ---
 
@@ -12,7 +12,7 @@
 | Category | Grade | Notes |
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
-| UniBin compliance | A | All 3 binaries: clap + --port + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard |
+| UniBin compliance | A | All 3 binaries: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef`: `--rpc-bind` (NDJSON primary); `coral-ember`/`coral-glowplug`: `--port` |
 | IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 complete (mode detection, `guard_connection()`, BearDog delegation, `BtspOutcome`) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
@@ -1159,8 +1159,10 @@
 | Component | Status | Detail |
 |-----------|--------|--------|
 | `rustix` backend | `linux_raw` | Confirmed: depends on `linux-raw-sys`, zero `libc` |
-| `ring` | **Eliminated** | `jsonrpsee[client]` removed; `primal-rpc-client` crate for tests + production |
-| `libc` (transitive) | Tracked | `tokio`→`mio`→`libc` (mio#1735), `socket2`→`libc`, `signal-hook-registry`→`libc`, `getrandom`→`libc`, `parking_lot_core`→`libc`. Both coexist: Tokio uses mio (libc), coral-driver/ember/glowplug use rustix directly (linux_raw) |
+| `ring` | **Eliminated** | `jsonrpsee` fully removed (Iter 83); `primal-rpc-client` pure Rust for tests + production |
+| `jsonrpsee` | **Eliminated** | Iter 83: replaced with pure `serde_json` NDJSON dispatch (ecosystem standard) |
+| `async-trait` | **Eliminated** | Was transitive via `jsonrpsee`; removed with it |
+| `libc` (transitive) | Tracked | `tokio`→`mio`→`libc` (mio#1735), `socket2`→`libc`, `signal-hook-registry`→`libc`, `getrandom`→`libc`. Both coexist: Tokio uses mio (libc), coral-driver/ember/glowplug use rustix directly (linux_raw) |
 | `libc` canary | Tracked | `libc` is transitive only — zero direct imports in coralReef. mio#1735 (rustix migration) DECLINED upstream; permanent coexistence documented |
 | Our code → `libc` | **Zero** | No workspace crate has direct `libc` dependency |
 

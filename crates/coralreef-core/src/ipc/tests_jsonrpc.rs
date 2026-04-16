@@ -1,22 +1,34 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! JSON-RPC (HTTP over TCP) endpoint tests.
+//! JSON-RPC (newline-delimited over TCP) endpoint tests.
 //!
 //! Uses `primal-rpc-client` — the ecosystem's pure Rust JSON-RPC client.
 
 use super::*;
 use crate::service;
 use primal_rpc_client::{RpcClient, no_params};
+use tokio::sync::watch;
+
+fn start_server() -> (
+    watch::Sender<()>,
+    impl std::future::Future<Output = (std::net::SocketAddr, tokio::task::JoinHandle<()>)>,
+) {
+    let (tx, rx) = test_helpers::test_shutdown_channel();
+    let fut = start_newline_tcp_jsonrpc("127.0.0.1:0", rx);
+    (tx, async { fut.await.unwrap() })
+}
 
 #[tokio::test]
 async fn test_jsonrpc_server_starts() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
     assert_ne!(addr.port(), 0);
 }
 
 #[tokio::test]
 async fn test_jsonrpc_health_endpoint() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let response: service::HealthResponse = client
         .request("shader.compile.status", no_params())
@@ -29,8 +41,9 @@ async fn test_jsonrpc_health_endpoint() {
 
 #[tokio::test]
 async fn test_jsonrpc_identity_get() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let response: service::IdentityGetResponse =
         client.request("identity.get", no_params()).await.unwrap();
@@ -42,8 +55,9 @@ async fn test_jsonrpc_identity_get() {
 
 #[tokio::test]
 async fn test_jsonrpc_supported_archs_endpoint() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let caps: crate::service::CompileCapabilitiesResponse = client
         .request("shader.compile.capabilities", no_params())
@@ -57,8 +71,9 @@ async fn test_jsonrpc_supported_archs_endpoint() {
 
 #[tokio::test]
 async fn test_jsonrpc_compile_empty_spirv() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let req = service::CompileRequest {
         spirv_words: vec![],
@@ -75,8 +90,9 @@ async fn test_jsonrpc_compile_empty_spirv() {
 
 #[tokio::test]
 async fn test_jsonrpc_compile_valid_shader() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let spirv = test_helpers::valid_spirv_minimal_compute();
     let req = service::CompileRequest {
@@ -109,8 +125,9 @@ async fn test_jsonrpc_compile_valid_shader() {
 
 #[tokio::test]
 async fn test_jsonrpc_compile_wgsl_shader() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let req = service::CompileWgslRequest {
         wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
@@ -144,8 +161,9 @@ async fn test_jsonrpc_compile_wgsl_shader() {
 
 #[tokio::test]
 async fn test_jsonrpc_compile_error_propagation() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let req_bad_arch = service::CompileRequest {
         spirv_words: test_helpers::valid_spirv_minimal_compute(),
@@ -178,8 +196,9 @@ async fn test_jsonrpc_compile_error_propagation() {
 
 #[tokio::test]
 async fn test_jsonrpc_error_code_invalid_input() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let req = service::CompileRequest {
         spirv_words: vec![0xDEAD_BEEF],
@@ -202,8 +221,9 @@ async fn test_jsonrpc_error_code_invalid_input() {
 
 #[tokio::test]
 async fn test_jsonrpc_error_code_unsupported_arch() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let spirv = test_helpers::valid_spirv_minimal_compute();
     let req = service::CompileRequest {
@@ -229,8 +249,9 @@ async fn test_jsonrpc_error_code_unsupported_arch() {
 
 #[tokio::test]
 async fn test_jsonrpc_status_returns_health() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let response: service::HealthResponse = client
         .request("shader.compile.status", no_params())
@@ -244,8 +265,9 @@ async fn test_jsonrpc_status_returns_health() {
 
 #[tokio::test]
 async fn test_jsonrpc_capabilities_endpoint() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let caps: crate::service::CompileCapabilitiesResponse = client
         .request("shader.compile.capabilities", no_params())
@@ -260,8 +282,9 @@ async fn test_jsonrpc_capabilities_endpoint() {
 
 #[tokio::test]
 async fn test_jsonrpc_health_check() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let response: service::HealthCheckResponse =
         client.request("health.check", no_params()).await.unwrap();
@@ -275,8 +298,9 @@ async fn test_jsonrpc_health_check() {
 
 #[tokio::test]
 async fn test_jsonrpc_health_liveness() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let response: service::LivenessResponse = client
         .request("health.liveness", no_params())
@@ -288,8 +312,9 @@ async fn test_jsonrpc_health_liveness() {
 
 #[tokio::test]
 async fn test_jsonrpc_health_readiness() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, fut) = start_server();
+    let (addr, _handle) = fut.await;
+    let client = RpcClient::tcp_line(addr);
 
     let response: service::ReadinessResponse = client
         .request("health.readiness", no_params())

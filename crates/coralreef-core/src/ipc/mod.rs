@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! IPC transports — JSON-RPC 2.0 and tarpc servers.
+//! IPC transports — JSON-RPC 2.0 (newline-delimited) and tarpc servers.
 //!
 //! Follows wateringHole `UNIVERSAL_IPC_STANDARD_V3.md`:
-//! - JSON-RPC 2.0 as primary protocol (TCP/HTTP — external, debuggable)
 //! - JSON-RPC 2.0 over TCP newline-delimited (mandatory inter-primal framing per v3.1)
 //! - JSON-RPC 2.0 over Unix socket (newline-delimited — ecosystem-compatible)
 //! - tarpc as optional high-performance channel (TCP or Unix socket — internal)
 //! - Semantic method names: `shader.compile.{spirv,wgsl,status,capabilities}`
 //!
+//! ## Architecture
+//!
+//! JSON-RPC dispatch is pure `serde_json` — no jsonrpsee, no `async-trait`, no hyper.
+//! Matches ecosystem standard (songBird `TowerAtomic`, bearDog `HandlerRegistry`).
+//!
 //! ## Platform-agnostic transport (ecoBin compliance)
 //!
 //! On Unix platforms, tarpc and JSON-RPC both support Unix domain sockets
-//! for local primal-to-primal communication. JSON-RPC also serves over TCP
-//! (HTTP) for external access. On non-Unix platforms, all protocols use TCP.
+//! for local primal-to-primal communication. On non-Unix platforms, all
+//! protocols use TCP.
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -20,9 +24,6 @@ use std::net::SocketAddr;
 use crate::config;
 
 pub mod error;
-
-mod jsonrpc;
-pub use jsonrpc::start_jsonrpc_server;
 
 mod tarpc_transport;
 pub use tarpc_transport::start_tarpc_server;

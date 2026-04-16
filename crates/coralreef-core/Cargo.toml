@@ -38,7 +38,6 @@ tokio = { workspace = true, features = ["process", "fs", "net", "io-util", "time
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-jsonrpsee = { workspace = true }
 tarpc = { workspace = true }
 tokio-serde = { workspace = true }
 futures = { workspace = true }
@@ -60,5 +59,3 @@ required-features = ["e2e"]
 naga = { version = "28", features = ["wgsl-in", "spv-out"] }
 primal-rpc-client = { path = "../primal-rpc-client" }
 tempfile.workspace = true
-jsonrpsee-http-client = { version = "0.26", default-features = false }
-jsonrpsee-core = { version = "0.26", default-features = false, features = ["client", "http-helpers"] }

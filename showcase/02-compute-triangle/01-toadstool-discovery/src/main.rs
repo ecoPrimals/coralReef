@@ -37,7 +37,7 @@ fn main() {
 
     println!("  Transports: (bound at runtime, empty until server starts)");
     if desc.transports.is_empty() {
-        println!("    (none — call start_jsonrpc_server / start_tarpc_server)");
+        println!("    (none — call start_newline_tcp_jsonrpc / start_tarpc_server)");
     }
     println!();
 

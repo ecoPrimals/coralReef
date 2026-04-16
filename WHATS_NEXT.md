@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 82.
+**Current position**: Phase 10 — Iteration 83.
 
-**Last completed**: Large file refactoring (nvidia_headers 839→460, firmware_parser 806→318, registers 822→725); ecosystem namespace constant deduplication across coral-glowplug/coral-ember; comprehensive deep audit (zero `.unwrap()` in library code, all `.ok()` calls justified, BTSP dead_code allows verified, zero mocks in production); transitive libc coexistence documented (tokio/mio + rustix dual-stack permanent).
+**Last completed**: Dropped jsonrpsee entirely — JSON-RPC is now pure `serde_json` manual dispatch (newline-delimited TCP/Unix), matching songBird and bearDog ecosystem standard. Added `TcpLine`/`UnixLine` NDJSON transports to `primal-rpc-client`. Eliminated transitive `async-trait`, `hyper`, `http`, `tower` from dep tree. Migrated ~30 tests + e2e from HTTP to NDJSON.
 
-**Tests**: 4506 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4509 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: musl-static verification; coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 16, 2026 (Phase 10 — Iteration 82 — large file refactoring, hardcoding dedup, audit cleanup.)
+**Last updated**: April 16, 2026 (Phase 10 — Iteration 83 — drop jsonrpsee, ecosystem-standard NDJSON JSON-RPC.)
 
 ---
 

@@ -4,11 +4,37 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 82
+**Current status**: Phase 10 — Iteration 83
 
 ---
 
 ## [Unreleased]
+
+### Iteration 83 — Drop jsonrpsee, Pure serde_json JSON-RPC (2026-04-16)
+
+#### jsonrpsee Removal (Ecosystem Standard Migration)
+- Deleted `jsonrpc.rs` — the jsonrpsee HTTP JSON-RPC server (195 lines, `#[rpc(server)]` proc macro)
+- Promoted newline-delimited TCP as the sole JSON-RPC transport (was secondary, now primary)
+- Removed `jsonrpsee`, `jsonrpsee-http-client`, `jsonrpsee-core` from all Cargo.toml
+- Drops transitive `async-trait`, `hyper`, `http`, `tower`, `pin-project-lite` from dep tree
+- JSON-RPC dispatch is now pure `serde_json` manual match — matches songBird (`TowerAtomic`) and bearDog (`HandlerRegistry`) patterns
+
+#### primal-rpc-client: NDJSON Transport
+- Added `Transport::TcpLine` and `Transport::UnixLine` for newline-delimited JSON-RPC
+- New constructors: `RpcClient::tcp_line(addr)`, `RpcClient::unix_line(path)`
+- Ecosystem-standard wire framing (wateringHole v3.1)
+
+#### Server Simplification
+- `cmd_server` takes 2 args (removed `--port`, `--bind` flags — newline TCP is the primary)
+- Discovery file format simplified (single `jsonrpc` transport key)
+- Shutdown uses `watch::Receiver` only (no more `ServerHandle`)
+
+#### Test Migration
+- Migrated ~30 tests from jsonrpsee HTTP to newline TCP + `RpcClient::tcp_line`
+- Migrated e2e tests from `jsonrpsee-http-client` to `primal-rpc-client`
+- Replaced `raw_http_post` helpers with `raw_newline_rpc`
+- Empty/whitespace payload tests adapted for NDJSON semantics (empty lines are no-ops)
+- 4509 passing, 0 failed, 153 ignored
 
 ### Iteration 82 — Large File Refactoring, Hardcoding Dedup, Audit Cleanup (2026-04-16)
 

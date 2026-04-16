@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Cross-primal end-to-end test: spawn the real `coralreef` binary in `server` mode,
-//! exercise JSON-RPC over TCP via [`jsonrpsee_http_client`] (TLS disabled — plain HTTP to the
-//! `jsonrpsee` server, no `ring`), SPIR-V compilation, optional tarpc, and graceful shutdown.
+//! exercise JSON-RPC over newline-delimited TCP via [`primal_rpc_client::RpcClient`],
+//! SPIR-V compilation, optional tarpc, and graceful shutdown.
 //!
 //! Transport addresses are read from the discovery file written by the server (avoids relying
 //! on piped `stderr`, which may be block-buffered when not attached to a TTY).
@@ -18,9 +18,7 @@ use std::time::Duration;
 use coralreef_core::config;
 use coralreef_core::ipc::ShaderCompileTarpcClient;
 use coralreef_core::service;
-use jsonrpsee_core::client::{ClientT, Error as JsonRpcClientError};
-use jsonrpsee_core::rpc_params;
-use jsonrpsee_http_client::HttpClientBuilder;
+use primal_rpc_client::{RpcClient, no_params};
 use serde_json::Value;
 use tokio_serde::formats::Bincode;
 
@@ -96,9 +94,7 @@ fn send_sigterm(pid: u32) {
 }
 
 #[cfg(not(unix))]
-fn send_sigterm(_pid: u32) {
-    // Non-Unix: graceful SIGTERM not wired in this test harness.
-}
+fn send_sigterm(_pid: u32) {}
 
 #[tokio::test]
 #[ignore = "requires built coralreef binary (cargo build -p coralreef-core --bin coralreef)"]
@@ -107,8 +103,6 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
     let mut child = tokio::process::Command::new(bin)
         .args([
             "server",
-            "--port",
-            "0",
             "--rpc-bind",
             "127.0.0.1:0",
             "--tarpc-bind",
@@ -132,11 +126,7 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
         }
     };
 
-    let http_url = format!("http://{rpc_addr}/");
-    let jsonrpc = HttpClientBuilder::default()
-        .request_timeout(Duration::from_secs(120))
-        .build(http_url)
-        .expect("jsonrpsee HTTP client for loopback JSON-RPC");
+    let jsonrpc = RpcClient::tcp_line(rpc_addr);
     let wgsl_req = service::CompileWgslRequest {
         wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
         arch: coral_reef::GpuArch::default().to_string(),
@@ -146,9 +136,8 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
         fma_policy: None,
     };
 
-    let wgsl_outcome: Result<service::CompileResponse, JsonRpcClientError> = jsonrpc
-        .request("shader.compile.wgsl", rpc_params![wgsl_req])
-        .await;
+    let wgsl_outcome: Result<service::CompileResponse, _> =
+        jsonrpc.request("shader.compile.wgsl", [wgsl_req]).await;
 
     match wgsl_outcome {
         Ok(resp) => {
@@ -170,9 +159,8 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
         fp64_software: true,
     };
 
-    let spirv_outcome: Result<service::CompileResponse, JsonRpcClientError> = jsonrpc
-        .request("shader.compile.spirv", rpc_params![spirv_req])
-        .await;
+    let spirv_outcome: Result<service::CompileResponse, _> =
+        jsonrpc.request("shader.compile.spirv", [spirv_req]).await;
 
     match spirv_outcome {
         Ok(resp) => {
@@ -186,6 +174,12 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
             eprintln!("shader.compile.spirv returned error (NVVM/driver may be unavailable): {e}");
         }
     }
+
+    // Verify health via NDJSON
+    let _health: service::HealthResponse = jsonrpc
+        .request("shader.compile.status", no_params())
+        .await
+        .expect("health check should succeed");
 
     let transport = tarpc::serde_transport::tcp::connect(tarpc_addr, Bincode::default)
         .await

@@ -2,15 +2,18 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! Pure Rust JSON-RPC 2.0 HTTP client for ecoPrimals.
+//! Pure Rust JSON-RPC 2.0 client for ecoPrimals.
 //!
 //! Provides inter-primal and external communication with zero C dependencies.
 //!
 //! # Transport modes
 //!
-//! - **TCP** — Direct JSON-RPC over HTTP/1.1 to a local or remote host.
-//! - **Unix socket** — JSON-RPC over HTTP/1.1 to a local Unix domain socket
-//!   (the standard ecoPrimals primal-to-primal transport).
+//! - **TCP line** — Newline-delimited JSON-RPC over TCP (wateringHole v3.1
+//!   mandatory inter-primal framing). Preferred for composition graphs.
+//! - **TCP HTTP** — JSON-RPC over HTTP/1.1 to a local or remote host (legacy).
+//! - **Unix socket line** — Newline-delimited JSON-RPC over a Unix domain
+//!   socket (ecosystem-standard local transport).
+//! - **Unix socket HTTP** — JSON-RPC over HTTP/1.1 to a local Unix domain socket.
 //! - **Delegated TLS** — HTTPS via the Tower Atomic pattern: plain HTTP to
 //!   a local TLS edge proxy, which handles TLS 1.3 externally via ecosystem
 //!   crypto delegation. Zero `ring`, zero `rustls`, zero C.
@@ -94,7 +97,7 @@ struct JsonRpcResponse<R> {
 }
 
 impl RpcClient {
-    /// Create a client that connects via TCP to the given address.
+    /// Create a client that connects via TCP HTTP to the given address.
     ///
     /// ```
     /// use primal_rpc_client::RpcClient;
@@ -110,7 +113,25 @@ impl RpcClient {
         }
     }
 
-    /// Create a client that connects via Unix domain socket.
+    /// Create a client using newline-delimited JSON-RPC over TCP.
+    ///
+    /// This is the wateringHole v3.1 mandatory inter-primal wire framing.
+    ///
+    /// ```
+    /// use primal_rpc_client::RpcClient;
+    /// use std::net::SocketAddr;
+    ///
+    /// let addr: SocketAddr = "127.0.0.1:0".parse().expect("parse");
+    /// let _ = RpcClient::tcp_line(addr);
+    /// ```
+    #[must_use]
+    pub const fn tcp_line(addr: std::net::SocketAddr) -> Self {
+        Self {
+            transport: Transport::TcpLine(addr),
+        }
+    }
+
+    /// Create a client that connects via Unix domain socket (HTTP framing).
     ///
     /// ```
     /// use primal_rpc_client::RpcClient;
@@ -121,6 +142,20 @@ impl RpcClient {
     pub fn unix(path: impl Into<std::path::PathBuf>) -> Self {
         Self {
             transport: Transport::Unix(path.into()),
+        }
+    }
+
+    /// Create a client using newline-delimited JSON-RPC over a Unix domain socket.
+    ///
+    /// ```
+    /// use primal_rpc_client::RpcClient;
+    ///
+    /// let _ = RpcClient::unix_line("/run/coralreef/primal.sock");
+    /// ```
+    #[must_use]
+    pub fn unix_line(path: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            transport: Transport::UnixLine(path.into()),
         }
     }
 

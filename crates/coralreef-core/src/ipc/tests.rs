@@ -23,11 +23,15 @@ fn test_ipc_error_display() {
 
 #[tokio::test]
 async fn test_cross_protocol_health_consistency() {
-    let (rpc_addr, _rpc_handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let (_tx, rx) = test_helpers::test_shutdown_channel();
-    let (tarpc_addr, _tarpc_handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let (_tx1, rx1) = test_helpers::test_shutdown_channel();
+    let (rpc_addr, _rpc_handle) =
+        start_newline_tcp_jsonrpc("127.0.0.1:0", rx1).await.unwrap();
+    let (_tx2, rx2) = test_helpers::test_shutdown_channel();
+    let (tarpc_addr, _tarpc_handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx2)
+        .await
+        .unwrap();
 
-    let rpc_client = RpcClient::tcp(rpc_addr);
+    let rpc_client = RpcClient::tcp_line(rpc_addr);
     let jsonrpc_health: service::HealthResponse = rpc_client
         .request("shader.compile.status", no_params())
         .await
@@ -55,24 +59,24 @@ async fn test_cross_protocol_health_consistency() {
 #[tokio::test]
 async fn test_graceful_shutdown() {
     let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
-    let (rpc_addr, rpc_handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (rpc_addr, rpc_handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", shutdown_rx.clone())
+        .await
+        .unwrap();
     let (_tarpc_addr, tarpc_handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, shutdown_rx)
         .await
         .unwrap();
 
-    let client = RpcClient::tcp(rpc_addr);
+    let client = RpcClient::tcp_line(rpc_addr);
     let _health: service::HealthResponse = client
         .request("shader.compile.status", no_params())
         .await
         .unwrap();
 
     let _: Result<(), _> = shutdown_tx.send(());
-    let _ = rpc_handle.stop();
 
     let shutdown_timeout = std::time::Duration::from_secs(5);
-    let rpc_stopped = rpc_handle.clone().stopped();
     let shutdown_result = tokio::time::timeout(shutdown_timeout, async move {
-        rpc_stopped.await;
+        rpc_handle.await.ok();
         tarpc_handle.await.ok();
     })
     .await;

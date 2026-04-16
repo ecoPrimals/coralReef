@@ -7,48 +7,38 @@
 use super::*;
 use crate::service;
 use primal_rpc_client::{RpcClient, no_params};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// Send raw HTTP POST to the JSON-RPC server and return the response body.
-async fn raw_http_post(addr: std::net::SocketAddr, body: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+/// Send a raw newline-delimited JSON-RPC payload and return the response line.
+async fn raw_newline_rpc(
+    addr: std::net::SocketAddr,
+    body: &[u8],
+) -> Result<String, std::io::Error> {
     let mut stream = tokio::net::TcpStream::connect(addr).await?;
-    let header = format!(
-        "POST / HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        body.len()
-    );
-    stream.write_all(header.as_bytes()).await?;
     stream.write_all(body).await?;
+    stream.write_all(b"\n").await?;
     stream.flush().await?;
 
-    let mut buf = Vec::with_capacity(8192);
-    stream.read_to_end(&mut buf).await?;
-
-    let header_end = buf
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .map_or(0, |i| i + 4);
-    Ok(buf[header_end..].to_vec())
+    let mut line = String::new();
+    BufReader::new(&mut stream).read_line(&mut line).await?;
+    Ok(line)
 }
 
 #[tokio::test]
 async fn test_connection_resilience_client_disconnect_mid_request() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     for _ in 0..10 {
         let stream = tokio::net::TcpStream::connect(addr).await;
         if let Ok(mut s) = stream {
-            let partial = b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"shader.compile.status\",\"params\":";
+            let partial = b"{\"jsonrpc\":\"2.0\",\"method\":\"shader.compile.status\",\"params\":";
             let _ = s.write_all(partial).await;
             drop(s);
         }
     }
 
-    let client = RpcClient::tcp(addr);
+    let client = RpcClient::tcp_line(addr);
     let response: service::HealthResponse = client
         .request("shader.compile.status", no_params())
         .await
@@ -58,13 +48,13 @@ async fn test_connection_resilience_client_disconnect_mid_request() {
 
 #[tokio::test]
 async fn test_malformed_json_truncated_payload() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let truncated = b"{\"jsonrpc\":\"2.0\",\"method\":\"shader.compile.status\",\"params\":";
-    let body = raw_http_post(addr, truncated).await.unwrap();
-    let body_str = String::from_utf8_lossy(&body);
+    let body = raw_newline_rpc(addr, truncated).await.unwrap();
 
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
+    let parsed: serde_json::Value = serde_json::from_str(body.trim())
         .expect("server must return valid JSON (not crash); response should be JSON-RPC error");
     assert!(
         parsed.get("error").is_some(),
@@ -75,13 +65,13 @@ async fn test_malformed_json_truncated_payload() {
 
 #[tokio::test]
 async fn test_malformed_json_corrupt_payload() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let corrupt = b"{ not valid json at all }";
-    let body = raw_http_post(addr, corrupt).await.unwrap();
-    let body_str = String::from_utf8_lossy(&body);
+    let body = raw_newline_rpc(addr, corrupt).await.unwrap();
 
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
+    let parsed: serde_json::Value = serde_json::from_str(body.trim())
         .expect("server must return valid JSON (not crash); response should be JSON-RPC error");
     assert!(
         parsed.get("error").is_some(),
@@ -92,7 +82,8 @@ async fn test_malformed_json_corrupt_payload() {
 
 #[tokio::test]
 async fn test_invalid_method_name_returns_proper_error() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -100,11 +91,10 @@ async fn test_invalid_method_name_returns_proper_error() {
         "params": {},
         "id": 42
     });
-    let body = raw_http_post(addr, &serde_json::to_vec(&req).unwrap())
+    let body = raw_newline_rpc(addr, &serde_json::to_vec(&req).unwrap())
         .await
         .unwrap();
-    let body_str = String::from_utf8_lossy(&body);
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
+    let parsed: serde_json::Value = serde_json::from_str(body.trim())
         .expect("server must return valid JSON for invalid method (not crash)");
 
     assert!(
@@ -125,18 +115,18 @@ async fn test_invalid_method_name_returns_proper_error() {
 
 #[tokio::test]
 async fn test_missing_required_field_id() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "shader.compile.status",
         "params": {}
     });
-    let body = raw_http_post(addr, &serde_json::to_vec(&req).unwrap())
+    let body = raw_newline_rpc(addr, &serde_json::to_vec(&req).unwrap())
         .await
         .unwrap();
-    let binding = String::from_utf8_lossy(&body);
-    let body_str = binding.trim();
+    let body_str = body.trim();
     if body_str.is_empty() {
         return;
     }
@@ -150,18 +140,18 @@ async fn test_missing_required_field_id() {
 
 #[tokio::test]
 async fn test_missing_required_field_method() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "params": {},
         "id": 1
     });
-    let body = raw_http_post(addr, &serde_json::to_vec(&req).unwrap())
+    let body = raw_newline_rpc(addr, &serde_json::to_vec(&req).unwrap())
         .await
         .unwrap();
-    let body_str = String::from_utf8_lossy(&body);
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
+    let parsed: serde_json::Value = serde_json::from_str(body.trim())
         .expect("server must return valid JSON for missing method (not crash)");
 
     assert!(
@@ -173,18 +163,18 @@ async fn test_missing_required_field_method() {
 
 #[tokio::test]
 async fn test_missing_required_field_params() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "shader.compile.status",
         "id": 1
     });
-    let body = raw_http_post(addr, &serde_json::to_vec(&req).unwrap())
+    let body = raw_newline_rpc(addr, &serde_json::to_vec(&req).unwrap())
         .await
         .unwrap();
-    let body_str = String::from_utf8_lossy(&body);
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
+    let parsed: serde_json::Value = serde_json::from_str(body.trim())
         .expect("server must return valid JSON for missing params (not crash)");
 
     assert!(
@@ -195,7 +185,8 @@ async fn test_missing_required_field_params() {
 
 #[tokio::test]
 async fn test_concurrent_stress_rapid_connect_disconnect() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     for _ in 0..50 {
         let stream = tokio::net::TcpStream::connect(addr).await;
@@ -204,7 +195,7 @@ async fn test_concurrent_stress_rapid_connect_disconnect() {
         }
     }
 
-    let client = RpcClient::tcp(addr);
+    let client = RpcClient::tcp_line(addr);
     let response: service::HealthResponse = client
         .request("shader.compile.status", no_params())
         .await
@@ -214,7 +205,8 @@ async fn test_concurrent_stress_rapid_connect_disconnect() {
 
 #[tokio::test]
 async fn test_oversized_payload_handled_gracefully() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let payload_65kb = "x".repeat(65 * 1024);
     let req = serde_json::json!({
@@ -230,9 +222,8 @@ async fn test_oversized_payload_handled_gracefully() {
     });
     let body = serde_json::to_vec(&req).unwrap();
 
-    let response_body = raw_http_post(addr, &body).await.unwrap();
-    let body_str = String::from_utf8_lossy(&response_body);
-    let parsed: serde_json::Value = serde_json::from_str(&body_str).expect(
+    let response = raw_newline_rpc(addr, &body).await.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(response.trim()).expect(
         "server must return valid JSON for oversized payload (process or error, not crash)",
     );
 
@@ -243,38 +234,49 @@ async fn test_oversized_payload_handled_gracefully() {
 }
 
 #[tokio::test]
-async fn test_empty_payload_handled_gracefully() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+async fn test_empty_payload_server_survives() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
-    let body = raw_http_post(addr, b"").await.unwrap();
-    let body_str = String::from_utf8_lossy(&body);
+    {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream.write_all(b"\n\n\n").await.unwrap();
+        stream.flush().await.unwrap();
+        drop(stream);
+    }
 
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
-        .expect("server must return valid JSON for empty payload (not crash)");
-    assert!(
-        parsed.get("error").is_some(),
-        "empty payload must produce JSON-RPC error: {parsed}"
-    );
+    let client = RpcClient::tcp_line(addr);
+    let response: service::HealthResponse = client
+        .request("shader.compile.status", no_params())
+        .await
+        .expect("server must remain healthy after receiving empty lines");
+    assert_eq!(response.name, env!("CARGO_PKG_NAME"));
 }
 
 #[tokio::test]
-async fn test_whitespace_only_payload_handled_gracefully() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+async fn test_whitespace_only_payload_server_survives() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
-    let body = raw_http_post(addr, b"   \n\t  ").await.unwrap();
-    let body_str = String::from_utf8_lossy(&body);
+    {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream.write_all(b"   \t  \n").await.unwrap();
+        stream.flush().await.unwrap();
+        drop(stream);
+    }
 
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
-        .expect("server must return valid JSON for whitespace-only payload (not crash)");
-    assert!(
-        parsed.get("error").is_some(),
-        "whitespace-only payload must produce JSON-RPC error: {parsed}"
-    );
+    let client = RpcClient::tcp_line(addr);
+    let response: service::HealthResponse = client
+        .request("shader.compile.status", no_params())
+        .await
+        .expect("server must remain healthy after receiving whitespace-only lines");
+    assert_eq!(response.name, env!("CARGO_PKG_NAME"));
 }
 
 #[tokio::test]
 async fn test_version_mismatch_returns_error() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let req = serde_json::json!({
         "jsonrpc": "1.0",
@@ -282,11 +284,10 @@ async fn test_version_mismatch_returns_error() {
         "params": {},
         "id": 1
     });
-    let body = raw_http_post(addr, &serde_json::to_vec(&req).unwrap())
+    let body = raw_newline_rpc(addr, &serde_json::to_vec(&req).unwrap())
         .await
         .unwrap();
-    let body_str = String::from_utf8_lossy(&body);
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
+    let parsed: serde_json::Value = serde_json::from_str(body.trim())
         .expect("server must return valid JSON for wrong version (not crash)");
 
     assert!(

@@ -12,8 +12,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub enum Transport {
     /// Plain HTTP over TCP.
     Tcp(SocketAddr),
+    /// Newline-delimited JSON-RPC over TCP (wateringHole v3.1 inter-primal framing).
+    TcpLine(SocketAddr),
     /// HTTP over a Unix domain socket (primal-to-primal IPC).
     Unix(PathBuf),
+    /// Newline-delimited JSON-RPC over a Unix domain socket.
+    UnixLine(PathBuf),
     /// HTTPS via a local edge proxy that performs TLS on behalf of this client (Tower Atomic pattern).
     DelegatedTlsProxy {
         /// Local HTTP address of the TLS edge (plain HTTP from this process).
@@ -24,14 +28,16 @@ pub enum Transport {
 }
 
 impl Transport {
-    /// Send `body` as an HTTP POST and return the response body bytes.
+    /// Send a JSON-RPC request and return the response body bytes.
     pub(crate) async fn roundtrip(&self, body: &[u8]) -> Result<Bytes, RpcError> {
         match self {
             Self::Tcp(addr) => {
                 let host = addr.ip().to_string();
                 tcp_roundtrip(*addr, &host, "/", body).await
             }
+            Self::TcpLine(addr) => tcp_line_roundtrip(*addr, body).await,
             Self::Unix(path) => unix_roundtrip(path, body).await,
+            Self::UnixLine(path) => unix_line_roundtrip(path, body).await,
             Self::DelegatedTlsProxy {
                 proxy_addr,
                 target_host,
@@ -111,4 +117,39 @@ async fn read_http_response_body<R: AsyncReadExt + Unpin>(
 
 fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+/// Newline-delimited JSON-RPC roundtrip over TCP.
+async fn tcp_line_roundtrip(addr: SocketAddr, body: &[u8]) -> Result<Bytes, RpcError> {
+    let mut stream = tokio::net::TcpStream::connect(addr).await?;
+    line_roundtrip(&mut stream, body).await
+}
+
+/// Newline-delimited JSON-RPC roundtrip over a Unix domain socket.
+#[cfg(unix)]
+async fn unix_line_roundtrip(path: &std::path::Path, body: &[u8]) -> Result<Bytes, RpcError> {
+    let mut stream = tokio::net::UnixStream::connect(path).await?;
+    line_roundtrip(&mut stream, body).await
+}
+
+#[cfg(not(unix))]
+async fn unix_line_roundtrip(_path: &std::path::Path, _body: &[u8]) -> Result<Bytes, RpcError> {
+    Err(RpcError::Io(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Unix sockets not available on this platform",
+    )))
+}
+
+async fn line_roundtrip<S>(stream: &mut S, body: &[u8]) -> Result<Bytes, RpcError>
+where
+    S: AsyncReadExt + AsyncWriteExt + Unpin,
+{
+    stream.write_all(body).await?;
+    stream.write_all(b"\n").await?;
+    stream.flush().await?;
+
+    let mut line = String::new();
+    tokio::io::AsyncBufReadExt::read_line(&mut tokio::io::BufReader::new(stream), &mut line)
+        .await?;
+    Ok(Bytes::from(line.into_bytes()))
 }

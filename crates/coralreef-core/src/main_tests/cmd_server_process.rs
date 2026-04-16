@@ -52,8 +52,6 @@ fn cmd_server_subprocess_tcp_unix_listen_and_sigterm() {
     let mut child = Command::new(&exe)
         .args([
             "server",
-            "--port",
-            "0",
             "--rpc-bind",
             "127.0.0.1:0",
             "--tarpc-bind",

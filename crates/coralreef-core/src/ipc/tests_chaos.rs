@@ -7,39 +7,29 @@
 use super::*;
 use crate::service;
 use primal_rpc_client::{RpcClient, no_params};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio_serde::formats::Bincode;
 
-/// Send raw HTTP POST to the JSON-RPC server and return the response body.
-async fn raw_http_post(addr: std::net::SocketAddr, body: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+/// Send a raw newline-delimited JSON-RPC payload and return the response line.
+async fn raw_newline_rpc(
+    addr: std::net::SocketAddr,
+    body: &[u8],
+) -> Result<String, std::io::Error> {
     let mut stream = tokio::net::TcpStream::connect(addr).await?;
-    let header = format!(
-        "POST / HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        body.len()
-    );
-    stream.write_all(header.as_bytes()).await?;
     stream.write_all(body).await?;
+    stream.write_all(b"\n").await?;
     stream.flush().await?;
 
-    let mut buf = Vec::with_capacity(8192);
-    stream.read_to_end(&mut buf).await?;
-
-    let header_end = buf
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .map_or(0, |i| i + 4);
-    Ok(buf[header_end..].to_vec())
+    let mut line = String::new();
+    BufReader::new(&mut stream).read_line(&mut line).await?;
+    Ok(line)
 }
 
 #[tokio::test]
 async fn test_concurrent_jsonrpc_requests() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
-    let client = RpcClient::tcp(addr);
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
+    let client = RpcClient::tcp_line(addr);
 
     let req = service::CompileWgslRequest {
         wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1)\nfn main() {}"),
@@ -82,13 +72,13 @@ async fn test_concurrent_jsonrpc_requests() {
 
 #[tokio::test]
 async fn test_malformed_jsonrpc_request() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let malformed = b"{ not valid json at all }";
-    let body = raw_http_post(addr, malformed).await.unwrap();
-    let body_str = String::from_utf8_lossy(&body);
+    let body = raw_newline_rpc(addr, malformed).await.unwrap();
 
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
+    let parsed: serde_json::Value = serde_json::from_str(&body)
         .expect("server must return valid JSON (not crash); response should be JSON-RPC error");
     assert!(
         parsed.get("error").is_some(),
@@ -99,7 +89,8 @@ async fn test_malformed_jsonrpc_request() {
 
 #[tokio::test]
 async fn test_rapid_connect_disconnect() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     for _ in 0..20 {
         let stream = tokio::net::TcpStream::connect(addr).await;
@@ -108,7 +99,7 @@ async fn test_rapid_connect_disconnect() {
         }
     }
 
-    let client = RpcClient::tcp(addr);
+    let client = RpcClient::tcp_line(addr);
     let response: service::HealthResponse = client
         .request("shader.compile.status", no_params())
         .await
@@ -118,26 +109,25 @@ async fn test_rapid_connect_disconnect() {
 
 #[tokio::test]
 async fn test_oversized_payload() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let wgsl_1mb = "x".repeat(1024 * 1024);
     let req = serde_json::json!({
-        "wgsl_source": wgsl_1mb,
-        "arch": "sm_70",
-        "opt_level": 2,
-        "fp64_software": true
-    });
-    let body = serde_json::to_vec(&serde_json::json!({
         "jsonrpc": "2.0",
         "method": "shader.compile.wgsl",
-        "params": req,
+        "params": {
+            "wgsl_source": wgsl_1mb,
+            "arch": "sm_70",
+            "opt_level": 2,
+            "fp64_software": true
+        },
         "id": 1
-    }))
-    .unwrap();
+    });
+    let body_bytes = serde_json::to_vec(&req).unwrap();
 
-    let response_body = raw_http_post(addr, &body).await.unwrap();
-    let body_str = String::from_utf8_lossy(&response_body);
-    let parsed: serde_json::Value = serde_json::from_str(&body_str).expect(
+    let response = raw_newline_rpc(addr, &body_bytes).await.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&response).expect(
         "server must return valid JSON for oversized payload (process or error, not crash)",
     );
 
@@ -202,7 +192,8 @@ async fn test_concurrent_tarpc_requests() {
 
 #[tokio::test]
 async fn test_server_handles_invalid_method() {
-    let (addr, _handle) = start_jsonrpc_server(FALLBACK_TCP_BIND).await.unwrap();
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx).await.unwrap();
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -212,9 +203,8 @@ async fn test_server_handles_invalid_method() {
     });
     let body = serde_json::to_vec(&req).unwrap();
 
-    let response_body = raw_http_post(addr, &body).await.unwrap();
-    let body_str = String::from_utf8_lossy(&response_body);
-    let parsed: serde_json::Value = serde_json::from_str(&body_str)
+    let response = raw_newline_rpc(addr, &body).await.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&response)
         .expect("server must return valid JSON for invalid method (not crash)");
 
     assert!(

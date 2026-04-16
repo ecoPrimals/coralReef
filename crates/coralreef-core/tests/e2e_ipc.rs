@@ -1,65 +1,50 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! End-to-end integration tests for the coralReef IPC layer.
 //!
-//! Starts both JSON-RPC and tarpc servers on random ports, exercises all
-//! semantic methods, verifies JSON-RPC 2.0 format, and gracefully shuts down.
+//! Starts both JSON-RPC (newline-delimited) and tarpc servers on random ports,
+//! exercises all semantic methods, verifies JSON-RPC 2.0 format, and gracefully
+//! shuts down.
 //!
 //! Run with: `cargo test -p coralreef-core --test e2e_ipc --features e2e`
 #![cfg(feature = "e2e")]
 
 use coralreef_core::ipc::{
-    BoundAddr, FALLBACK_TCP_BIND, ShaderCompileTarpcClient, start_jsonrpc_server,
+    BoundAddr, FALLBACK_TCP_BIND, ShaderCompileTarpcClient, start_newline_tcp_jsonrpc,
     start_tarpc_tcp_server,
 };
 use coralreef_core::service;
 use primal_rpc_client::{RpcClient, no_params};
 use serde_json::Value;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::watch;
 use tokio_serde::formats::Bincode;
 
-/// Send a raw JSON-RPC request and return the response body for format verification.
+/// Send a raw newline-delimited JSON-RPC request and return the response line.
 async fn raw_jsonrpc_request(
     addr: std::net::SocketAddr,
     method: &str,
     params: Value,
-) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let mut stream = tokio::net::TcpStream::connect(addr).await?;
-    let id = 1u64;
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "method": method,
         "params": params,
-        "id": id
+        "id": 1
     });
-    let body_bytes = body.to_string();
-    let header = format!(
-        "POST / HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        body_bytes.len()
-    );
-    stream.write_all(header.as_bytes()).await?;
-    stream.write_all(body_bytes.as_bytes()).await?;
+    let body_bytes = serde_json::to_vec(&body)?;
+    stream.write_all(&body_bytes).await?;
+    stream.write_all(b"\n").await?;
     stream.flush().await?;
 
-    let mut buf = Vec::with_capacity(4096);
-    stream.read_to_end(&mut buf).await?;
-
-    let header_end = buf
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .ok_or("missing header/body separator")?;
-    let body_start = header_end + 4;
-    Ok(buf[body_start..].to_vec())
+    let mut line = String::new();
+    BufReader::new(&mut stream).read_line(&mut line).await?;
+    Ok(line)
 }
 
 /// Verify the response is valid JSON-RPC 2.0 format.
-fn assert_jsonrpc_2_0_format(body: &[u8]) {
-    let v: Value = serde_json::from_slice(body).expect("response must be valid JSON");
+fn assert_jsonrpc_2_0_format(body: &str) {
+    let v: Value = serde_json::from_str(body.trim()).expect("response must be valid JSON");
     assert!(
         v.get("jsonrpc").and_then(|j| j.as_str()) == Some("2.0"),
         "response must have jsonrpc: \"2.0\", got: {v:?}"
@@ -75,10 +60,13 @@ fn assert_jsonrpc_2_0_format(body: &[u8]) {
 
 #[tokio::test]
 async fn e2e_ipc_full_integration() {
-    // 1. Start JSON-RPC server on random port (127.0.0.1:0)
-    let (jsonrpc_addr, jsonrpc_handle) = start_jsonrpc_server(FALLBACK_TCP_BIND)
-        .await
-        .expect("JSON-RPC server must start");
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+
+    // 1. Start JSON-RPC server (newline-delimited TCP) on random port
+    let (jsonrpc_addr, jsonrpc_handle) =
+        start_newline_tcp_jsonrpc("127.0.0.1:0", shutdown_rx.clone())
+            .await
+            .expect("JSON-RPC server must start");
     assert_ne!(
         jsonrpc_addr.port(),
         0,
@@ -86,7 +74,6 @@ async fn e2e_ipc_full_integration() {
     );
 
     // 2. Start tarpc server on random port
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
     let (tarpc_addr, tarpc_handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, shutdown_rx)
         .await
         .expect("tarpc server must start");
@@ -99,9 +86,9 @@ async fn e2e_ipc_full_integration() {
         "tarpc should bind to OS-assigned port"
     );
 
-    let client = RpcClient::tcp(jsonrpc_addr);
+    let client = RpcClient::tcp_line(jsonrpc_addr);
 
-    // 3. Test all semantic methods via JSON-RPC HTTP
+    // 3. Test all semantic methods via JSON-RPC newline-delimited TCP
 
     // shader.compile.wgsl
     let wgsl_req = service::CompileWgslRequest {
@@ -118,7 +105,6 @@ async fn e2e_ipc_full_integration() {
         assert!(!resp.binary.is_empty());
         assert_eq!(resp.size, resp.binary.len());
     }
-    // wgsl_result may be Err if NVVM not available — that is acceptable
 
     // shader.compile.status
     let status: service::HealthResponse = client
@@ -217,7 +203,6 @@ async fn e2e_ipc_full_integration() {
         assert_eq!(resp.total_count, 2);
         assert!(resp.results.len() == 2);
     }
-    // multi_result may be Err if NVVM not available — that is acceptable
 
     // 6. Verify responses are correct JSON-RPC 2.0 format
     let raw_status =
@@ -233,12 +218,10 @@ async fn e2e_ipc_full_integration() {
 
     // 7. Gracefully shutdown both servers
     let _: Result<(), _> = shutdown_tx.send(());
-    let _ = jsonrpc_handle.stop();
 
     let shutdown_timeout = std::time::Duration::from_secs(5);
-    let rpc_stopped = jsonrpc_handle.clone().stopped();
     let shutdown_result = tokio::time::timeout(shutdown_timeout, async move {
-        rpc_stopped.await;
+        jsonrpc_handle.await.ok();
         tarpc_handle.await.ok();
     })
     .await;

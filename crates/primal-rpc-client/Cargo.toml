@@ -1,6 +1,6 @@
 [package]
 name = "primal-rpc-client"
-description = "Pure Rust JSON-RPC 2.0 HTTP client for ecoPrimals inter-primal communication"
+description = "Pure Rust JSON-RPC 2.0 client for ecoPrimals inter-primal communication (NDJSON + HTTP)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
