@@ -33,6 +33,7 @@ mod boot_result;
 pub mod fecs_method;
 mod firmware;
 mod instance_block;
+pub mod nvdec_scrubber;
 mod sec2_hal;
 pub mod sec2_queue;
 mod solver;
@@ -60,7 +61,7 @@ pub use sec2_hal::{
     sec2_exit_diagnostics, sec2_prepare_direct_boot, sec2_prepare_physical_first,
     sec2_tracepc_dump,
 };
-pub use solver::{BootStrategy, FalconBootSolver, FalconProbe, FecsState};
+pub use solver::{BootStrategy, FalconBootSolver, FalconProbe, FecsState, GpuGeneration};
 pub use strategy_chain::{attempt_acr_chain, attempt_direct_acr_load};
 pub use strategy_hybrid::attempt_hybrid_acr_boot;
 pub use strategy_mailbox::{

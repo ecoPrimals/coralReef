@@ -359,19 +359,47 @@ impl EmberClient {
         Ok(())
     }
 
-    /// Generic one-shot RPC call to ember.
-    fn simple_rpc(
+    /// Connect to ember for a specific BDF.
+    ///
+    /// Currently equivalent to [`connect()`](Self::connect) since there's
+    /// a single ember per machine, but the signature lets callers express
+    /// intent.
+    pub fn connect_for_bdf(_bdf: &str) -> Option<Self> {
+        Self::connect()
+    }
+
+    /// Generic one-shot RPC call to ember (10s timeout).
+    pub fn simple_rpc(
         &self,
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, EmberError> {
+        self.simple_rpc_with_timeout(method, params, std::time::Duration::from_secs(10))
+    }
+
+    /// One-shot RPC call with a custom timeout.
+    pub fn simple_rpc_with_timeout(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+        timeout: std::time::Duration,
+    ) -> Result<serde_json::Value, EmberError> {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
-        stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
+        stream.set_read_timeout(Some(timeout))?;
         let req = make_rpc_request(method, params);
         std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
         let mut buf = vec![0u8; 65536];
         let n = read_full_response(&stream, &mut buf)?;
         parse_rpc_response(&buf[..n])
+    }
+
+    /// Warm cycle: swap to nouveau for HBM2 training, wait, swap back to vfio.
+    pub fn warm_cycle(&self, bdf: &str) -> Result<(), EmberError> {
+        const SETTLE_SECS: u64 = 15;
+        self.swap_device(bdf, "nouveau")?;
+        std::thread::sleep(std::time::Duration::from_secs(SETTLE_SECS));
+        self.swap_device(bdf, "vfio")?;
+        Ok(())
     }
 
     /// Request VFIO fds for a specific BDF from the ember.

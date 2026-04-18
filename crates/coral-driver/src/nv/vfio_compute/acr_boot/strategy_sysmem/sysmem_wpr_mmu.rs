@@ -51,29 +51,43 @@ pub(super) fn fill_wpr_patch_acr_and_setup_mmu(
     let data_off = parsed.load_header.data_dma_base as usize;
 
     if data_off + 0x268 <= payload_patched.len() {
-        let fw_blob_size = u32::from_le_bytes(
-            payload_patched[data_off + 0x258..data_off + 0x25C]
-                .try_into()
-                .unwrap_or([0; 4]),
-        );
-        let fw_blob_base = u64::from_le_bytes(
-            payload_patched[data_off + 0x260..data_off + 0x268]
-                .try_into()
-                .unwrap_or([0; 8]),
-        );
-        let fw_wpr_region_id = u32::from_le_bytes(
-            payload_patched[data_off + 0x210..data_off + 0x214]
-                .try_into()
-                .unwrap_or([0; 4]),
-        );
-        let fw_no_regions = u32::from_le_bytes(
-            payload_patched[data_off + 0x21C..data_off + 0x220]
-                .try_into()
-                .unwrap_or([0; 4]),
-        );
+        let r32 = |off: usize| -> u32 {
+            u32::from_le_bytes(
+                payload_patched[data_off + off..data_off + off + 4]
+                    .try_into()
+                    .unwrap_or([0; 4]),
+            )
+        };
+        let r64 = |off: usize| -> u64 {
+            u64::from_le_bytes(
+                payload_patched[data_off + off..data_off + off + 8]
+                    .try_into()
+                    .unwrap_or([0; 8]),
+            )
+        };
+        let fw_wpr_region_id = r32(0x210);
+        let fw_wpr_offset = r32(0x214);
+        let fw_mmu_memory_range = r32(0x218);
+        let fw_no_regions = r32(0x21C);
+        let fw_r0_start = r32(0x220);
+        let fw_r0_end = r32(0x224);
+        let fw_r0_shadow = r32(0x238);
+        let fw_blob_size = r32(0x258);
+        let fw_blob_base = r64(0x260);
         notes.push(format!(
             "FW original ACR desc: blob_size={fw_blob_size:#x} blob_base={fw_blob_base:#x} wpr_region_id={fw_wpr_region_id} no_regions={fw_no_regions}"
         ));
+        notes.push(format!(
+            "FW unpatched: wpr_offset={fw_wpr_offset:#x} mmu_memory_range={fw_mmu_memory_range:#x} r0_start={fw_r0_start:#x} r0_end={fw_r0_end:#x} r0_shadow={fw_r0_shadow:#x}"
+        ));
+
+        if data_off + 0x280 <= payload_patched.len() {
+            let extra: Vec<String> = (0x268..0x280)
+                .step_by(4)
+                .map(|off| format!("[{off:#05x}]={:#010x}", r32(off)))
+                .collect();
+            notes.push(format!("FW data tail: {}", extra.join(" ")));
+        }
     }
 
     patch_acr_desc(
@@ -159,10 +173,11 @@ pub(super) fn fill_wpr_patch_acr_and_setup_mmu(
     }
 
     let sysmem_pde = |iova: u64| -> u64 {
-        const FLAGS: u64 = (2 << 1) | (1 << 3);
-        (iova >> 4) | FLAGS
+        const VALID: u64 = 1;
+        const COH: u64 = 2 << 1; // target=2 (SYS_MEM_COH) at bits[2:1]
+        iova | VALID | COH
     };
-    let sysmem_pd0_pde = |iova: u64| -> u64 { sysmem_pde(iova) | (1 << 4) };
+    let sysmem_pd0_pde = |iova: u64| -> u64 { sysmem_pde(iova) };
     let sysmem_pte = |phys: u64| -> u64 {
         const FLAGS: u64 = 1 | (2 << 1) | (1 << 3);
         (phys >> 4) | FLAGS
@@ -249,9 +264,9 @@ pub(super) fn fill_wpr_patch_acr_and_setup_mmu(
     {
         let inst = dma.inst_dma.as_mut_slice();
         let pd3_iova = sysmem_iova::PD3;
-        const APER_COH: u32 = 2;
-        let pdb_lo: u32 =
-            ((pd3_iova >> 12) as u32) << 12 | (1 << 11) | (1 << 10) | (1 << 2) | APER_COH;
+        // GP100+ PDB format: addr | VALID | (target << 1)
+        // SYS_MEM_COH target=2: (2 << 1) = 4
+        let pdb_lo: u32 = (pd3_iova as u32) | 1 | (2 << 1);
         let pdb_hi: u32 = (pd3_iova >> 32) as u32;
         w32_le(inst, 0x200, pdb_lo);
         w32_le(inst, 0x204, pdb_hi);
@@ -268,11 +283,10 @@ pub(super) fn fill_wpr_patch_acr_and_setup_mmu(
 
     if !skip_blob_dma {
         let vram_pde = |addr: u64| -> u64 {
-            const VOL: u64 = 1 << 3;
-            const FLAGS: u64 = VOL;
-            (addr >> 4) | FLAGS
+            const VALID: u64 = 1;
+            addr | VALID
         };
-        let vram_pd0_pde = |addr: u64| -> u64 { vram_pde(addr) | (1 << 4) };
+        let vram_pd0_pde = |addr: u64| -> u64 { vram_pde(addr) };
         let vram_pte_fn = |phys: u64| -> u64 {
             const VALID: u64 = 1;
             const VOL: u64 = 1 << 3;
@@ -306,7 +320,7 @@ pub(super) fn fill_wpr_patch_acr_and_setup_mmu(
 
         let mut vr_inst = vec![0u8; 4096];
         let pd3_addr = sysmem_iova::PD3;
-        let vram_pdb_lo: u32 = ((pd3_addr >> 12) as u32) << 12 | (1 << 11) | (1 << 10) | (1 << 2);
+        let vram_pdb_lo: u32 = (pd3_addr as u32) | 1; // VALID + VRAM aperture(0)
         w32_le(&mut vr_inst, 0x200, vram_pdb_lo);
         w32_le(&mut vr_inst, 0x204, 0u32);
         w32_le(&mut vr_inst, 0x208, 0xFFFF_FFFFu32);

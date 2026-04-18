@@ -26,6 +26,10 @@ pub(super) struct SysmemDmaState {
     pub shadow_iova: u64,
     /// Filled after page-table setup (covers VA from WPR end to 2 MiB).
     pub _high_catch: Option<DmaBuffer>,
+    /// Catch-all near the 4 GiB boundary — firmware reads WPR2 addr_lo from
+    /// hardware registers, which can be a truncated VRAM address (e.g. 0xFFE4B000).
+    /// Mapping this IOVA prevents IO_PAGE_FAULT.
+    pub _4gib_catch: Option<DmaBuffer>,
     /// Retained so `allocate_dma` can clone the backend for gap buffers.
     pub container: DmaBackend,
 }

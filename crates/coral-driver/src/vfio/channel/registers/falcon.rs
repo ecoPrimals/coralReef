@@ -19,6 +19,8 @@ pub const PMU_BASE: usize = 0x0010_A000;
 /// SEC2 falcon base address in BAR0.
 /// GV100 topology (PTOP at 0x22700) places SEC2 at 0x087000, NOT the legacy 0x840000.
 pub const SEC2_BASE: usize = 0x0008_7000;
+/// NVDEC falcon base address (GV100).
+pub const NVDEC_BASE: usize = 0x0008_4000;
 
 // Per-falcon register offsets (add to base).
 // From open-gpu-doc `dev_falcon_v4.ref.txt` and nouveau `nvkm/falcon/`.
@@ -166,6 +168,16 @@ pub const GR_CLASS_CFG: usize = 0x802C;
 /// VIRT which requires the bind it's trying to complete. Setting PHYS_VID (0x01)
 /// or the physical override bit (0x80) breaks this dependency.
 pub const FBIF_TRANSCFG: usize = 0x624;
+/// Per-DMA-index TRANSCFG base offset (index 0 = UCODE).
+/// Each index is 0x10 apart: 0x604, 0x614, 0x624, 0x634, 0x644.
+pub const FBIF_TRANSCFG_IDX_BASE: usize = 0x604;
+pub const FBIF_TRANSCFG_IDX_STRIDE: usize = 0x10;
+/// DMA index names used by falcon firmware.
+pub const FBIF_DMAIDX_UCODE: usize = 0;
+pub const FBIF_DMAIDX_VIRT: usize = 1;
+pub const FBIF_DMAIDX_PHYS_VID: usize = 2;
+pub const FBIF_DMAIDX_PHYS_SYS_COH: usize = 3;
+pub const FBIF_DMAIDX_PHYS_SYS_NCOH: usize = 4;
 /// FBIF target mode: virtual addressing (requires active instance block bind).
 #[expect(
     dead_code,
@@ -174,6 +186,10 @@ pub const FBIF_TRANSCFG: usize = 0x624;
 pub const FBIF_TARGET_VIRT: u32 = 0x00;
 /// FBIF target mode: physical video memory (bypasses MMU).
 pub const FBIF_TARGET_PHYS_VID: u32 = 0x01;
+/// FBIF target mode: physical system memory coherent.
+pub const FBIF_TARGET_PHYS_SYS_COH: u32 = 0x02;
+/// FBIF target mode: physical system memory non-coherent.
+pub const FBIF_TARGET_PHYS_SYS_NCOH: u32 = 0x03;
 /// FBIF physical addressing override bit (nouveau `0x80` mask).
 pub const FBIF_PHYSICAL_OVERRIDE: u32 = 0x80;
 

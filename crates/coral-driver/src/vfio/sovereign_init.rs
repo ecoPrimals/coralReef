@@ -62,9 +62,16 @@ pub struct SovereignInitOptions {
     /// Golden register captures for differential HBM2 replay.
     #[serde(skip)]
     pub golden_state: Option<Vec<(usize, u32)>>,
+    /// File path to a JSON golden-state capture (loaded by the RPC handler).
+    /// Format: array of `[offset, value]` pairs, or a `TrainingRecipe` JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub golden_state_path: Option<String>,
     /// Explicit VBIOS ROM bytes (otherwise read from PROM/sysfs).
     #[serde(skip)]
     pub vbios_rom: Option<Vec<u8>>,
+    /// File path to a raw VBIOS ROM dump (loaded by the RPC handler).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vbios_rom_path: Option<String>,
     /// Number of FBPA partitions (auto-detected if None).
     pub fbpa_count: Option<usize>,
     /// SM version for GR init (70 = GV100, 75 = TU102, etc.).
@@ -72,6 +79,11 @@ pub struct SovereignInitOptions {
     /// Skip GR init even if falcon boot succeeds.
     #[serde(default)]
     pub skip_gr_init: bool,
+    /// DMA backend for system-memory ACR boot (IOMMU-mapped buffers).
+    /// When provided, the ACR boot solver can use strategies that place
+    /// the WPR in system memory rather than VRAM-only paths.
+    #[serde(skip)]
+    pub dma_backend: Option<crate::vfio::device::DmaBackend>,
 }
 
 /// Outcome of a single pipeline stage.
@@ -123,6 +135,9 @@ pub struct SovereignInitResult {
     /// Number of HBM2 training register writes (if training ran).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hbm2_writes: Option<usize>,
+    /// Whether the GPU was detected as warm (HBM2 training skipped/reduced).
+    #[serde(default)]
+    pub warm_detected: bool,
 }
 
 impl fmt::Display for SovereignInitResult {
@@ -161,6 +176,7 @@ pub fn sovereign_init(
     let mut chip_id = 0u32;
     let mut boot0 = 0u32;
     let mut training_log: Option<TrainingLog> = None;
+    let mut warm_detected = false;
 
     // ── Stage 1: BAR0 Probe ─────────────────────────────────────────────
     let t = Instant::now();
@@ -182,7 +198,7 @@ pub fn sovereign_init(
                 detail: Some(e),
                 duration_ms: t.elapsed().as_millis() as u64,
             });
-            return finish(bdf, boot0, chip_id, stages, None, pipeline_start);
+            return finish(bdf, boot0, chip_id, stages, None, pipeline_start, false);
         }
     }
 
@@ -214,7 +230,7 @@ pub fn sovereign_init(
                 detail: Some(e),
                 duration_ms: t.elapsed().as_millis() as u64,
             });
-            return finish(bdf, boot0, chip_id, stages, None, pipeline_start);
+            return finish(bdf, boot0, chip_id, stages, None, pipeline_start, false);
         }
     }
 
@@ -229,27 +245,50 @@ pub fn sovereign_init(
         return finish_halted(bdf, boot0, chip_id, "hbm2_training", stages, pipeline_start);
     }
 
+    // Warm detection: if PMC_ENABLE has many engines on AND PRAMIN is
+    // accessible, the GPU was previously trained (e.g. by nouveau warm
+    // handoff). Skip the full typestate pipeline.
+    // Kepler uses GDDR5, not HBM2 — the typestate pipeline doesn't apply.
+    let sm = opts.sm_version.unwrap_or(chip_id_to_sm(chip_id));
+    let pmc_before = bar0.read_u32(PMC_ENABLE).unwrap_or(0);
+    warm_detected = is_kepler(sm) || is_warm_gpu(pmc_before, bar0);
+
     let t = Instant::now();
-    let fbpa_count = opts.fbpa_count.unwrap_or(4);
-    match run_hbm2_training(bar0, bdf, fbpa_count, opts) {
-        Ok(log) => {
-            let writes = log.write_count();
-            training_log = Some(log);
-            stages.push(StageResult {
-                name: "hbm2_training".into(),
-                status: StageStatus::Ok,
-                detail: Some(format!("{writes} register writes")),
-                duration_ms: t.elapsed().as_millis() as u64,
-            });
-        }
-        Err(e) => {
-            stages.push(StageResult {
-                name: "hbm2_training".into(),
-                status: StageStatus::Failed,
-                detail: Some(e),
-                duration_ms: t.elapsed().as_millis() as u64,
-            });
-            return finish(bdf, boot0, chip_id, stages, training_log, pipeline_start);
+    if warm_detected {
+        tracing::info!(
+            pmc_enable = format!("0x{pmc_before:08x}"),
+            "warm GPU detected — skipping HBM2 training"
+        );
+        stages.push(StageResult {
+            name: "hbm2_training".into(),
+            status: StageStatus::Skipped,
+            detail: Some(format!(
+                "warm detected (pmc=0x{pmc_before:08x}, PRAMIN sentinel ok)"
+            )),
+            duration_ms: t.elapsed().as_millis() as u64,
+        });
+    } else {
+        let fbpa_count = opts.fbpa_count.unwrap_or(4);
+        match run_hbm2_training(bar0, bdf, fbpa_count, opts) {
+            Ok(log) => {
+                let writes = log.write_count();
+                training_log = Some(log);
+                stages.push(StageResult {
+                    name: "hbm2_training".into(),
+                    status: StageStatus::Ok,
+                    detail: Some(format!("{writes} register writes")),
+                    duration_ms: t.elapsed().as_millis() as u64,
+                });
+            }
+            Err(e) => {
+                stages.push(StageResult {
+                    name: "hbm2_training".into(),
+                    status: StageStatus::Failed,
+                    detail: Some(e),
+                    duration_ms: t.elapsed().as_millis() as u64,
+                });
+                return finish(bdf, boot0, chip_id, stages, training_log, pipeline_start, warm_detected);
+            }
         }
     }
 
@@ -264,9 +303,8 @@ pub fn sovereign_init(
         return finish_halted(bdf, boot0, chip_id, "falcon_boot", stages, pipeline_start);
     }
 
-    let sm = opts.sm_version.unwrap_or(chip_id_to_sm(chip_id));
     let t = Instant::now();
-    match falcon_boot(bar0, sm) {
+    match falcon_boot(bar0, sm, opts.dma_backend.as_ref()) {
         Ok(detail) => {
             stages.push(StageResult {
                 name: "falcon_boot".into(),
@@ -282,13 +320,19 @@ pub fn sovereign_init(
                 detail: Some(e),
                 duration_ms: t.elapsed().as_millis() as u64,
             });
-            return finish(bdf, boot0, chip_id, stages, training_log, pipeline_start);
+            return finish(bdf, boot0, chip_id, stages, training_log, pipeline_start, warm_detected);
         }
     }
 
     // ── Stage 5: GR Init ────────────────────────────────────────────────
-    if opts.halt_before == Some(HaltBefore::GrInit) || opts.skip_gr_init {
-        let reason = if opts.skip_gr_init {
+    // Kepler FECS was already booted in the falcon_boot stage (direct PIO).
+    // The GV100+ gr_init path re-boots FECS with BL firmware that doesn't
+    // exist for Kepler. Skip GR init for Kepler — the falcon_boot result
+    // already confirms FECS is running.
+    if opts.halt_before == Some(HaltBefore::GrInit) || opts.skip_gr_init || is_kepler(sm) {
+        let reason = if is_kepler(sm) {
+            "kepler: FECS already booted via PIO"
+        } else if opts.skip_gr_init {
             "skip_gr_init=true"
         } else {
             "halt_before=gr_init"
@@ -320,7 +364,7 @@ pub fn sovereign_init(
                     detail: Some(e),
                     duration_ms: t.elapsed().as_millis() as u64,
                 });
-                return finish(bdf, boot0, chip_id, stages, training_log, pipeline_start);
+                return finish(bdf, boot0, chip_id, stages, training_log, pipeline_start, warm_detected);
             }
         }
     }
@@ -353,7 +397,7 @@ pub fn sovereign_init(
                 detail: Some(e),
                 duration_ms: t.elapsed().as_millis() as u64,
             });
-            return finish(bdf, boot0, chip_id, stages, training_log, pipeline_start);
+            return finish(bdf, boot0, chip_id, stages, training_log, pipeline_start, warm_detected);
         }
     }
 
@@ -369,6 +413,7 @@ pub fn sovereign_init(
         stages,
         total_ms: pipeline_start.elapsed().as_millis() as u64,
         hbm2_writes,
+        warm_detected,
     }
 }
 
@@ -450,30 +495,189 @@ fn run_hbm2_training(
     }
 }
 
-fn falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, String> {
+fn is_kepler(sm: u32) -> bool {
+    (35..=37).contains(&sm)
+}
+
+fn kepler_falcon_boot(bar0: &MappedBar) -> Result<String, String> {
+    use crate::nv::vfio_compute::fecs_boot::{falcon_upload_dmem, falcon_upload_imem};
+    use crate::vfio::channel::registers::falcon;
+
+    // Kepler PGRAPH clock gating: write 0x260=1 to enable register access
+    // to PGRAPH subsystem (FECS/GPCCS/GPC). This mirrors nouveau's
+    // pmc_unk260() call before falcon loading.
+    let _ = bar0.write_u32(0x260, 1);
+    std::thread::sleep(Duration::from_millis(10));
+
+    // Also apply GR engine firmware init writes from sw_nonctx.bin etc.
+    // to configure the PGRAPH register space for Kepler.
+    crate::nv::vfio_compute::NvVfioComputeDevice::apply_gr_bar0_init(bar0, 35);
+
+    let fw_dir = "/lib/firmware/nvidia/gk210";
+    let load = |name: &str| -> Result<Vec<u8>, String> {
+        let path = format!("{fw_dir}/{name}");
+        std::fs::read(&path).map_err(|e| format!("{path}: {e}"))
+    };
+
+    let gpccs_inst = load("gpccs_inst.bin")?;
+    let gpccs_data = load("gpccs_data.bin")?;
+    let fecs_inst = load("fecs_inst.bin")?;
+    let fecs_data = load("fecs_data.bin")?;
+
+    tracing::info!(
+        fecs_inst = fecs_inst.len(),
+        fecs_data = fecs_data.len(),
+        gpccs_inst = gpccs_inst.len(),
+        gpccs_data = gpccs_data.len(),
+        "Kepler falcon boot: firmware loaded from {fw_dir}"
+    );
+
+    let boot_falcon = |name: &'static str, base: usize, inst: &[u8], data: &[u8]| -> Result<(u32, u32), String> {
+        let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
+        tracing::info!(
+            name,
+            cpuctl = format!("{cpuctl:#010x}"),
+            "Kepler {name}: starting PIO upload"
+        );
+
+        let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_HRESET);
+        std::thread::sleep(Duration::from_millis(5));
+
+        falcon_upload_dmem(bar0, base, 0, data);
+        falcon_upload_imem(bar0, base, 0, inst, false);
+
+        let _ = bar0.write_u32(base + falcon::BOOTVEC, 0);
+        let _ = bar0.write_u32(base + falcon::MAILBOX0, 0);
+        let _ = bar0.write_u32(base + falcon::MAILBOX1, 0);
+        let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_IINVAL);
+        std::thread::sleep(Duration::from_millis(1));
+        let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_STARTCPU);
+
+        let start = Instant::now();
+        let timeout = Duration::from_secs(2);
+        loop {
+            std::thread::sleep(Duration::from_millis(5));
+            let ctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
+            let mb0 = bar0.read_u32(base + falcon::MAILBOX0).unwrap_or(0);
+
+            if mb0 != 0 {
+                tracing::info!(name, cpuctl = format!("{ctl:#010x}"), mb0 = format!("{mb0:#010x}"), "mailbox response");
+                return Ok((ctl, mb0));
+            }
+            if ctl & falcon::CPUCTL_HALTED != 0 && ctl & falcon::CPUCTL_HRESET == 0 {
+                tracing::warn!(name, cpuctl = format!("{ctl:#010x}"), "halted without mailbox");
+                return Ok((ctl, 0));
+            }
+            if start.elapsed() > timeout {
+                tracing::error!(name, cpuctl = format!("{ctl:#010x}"), "timeout");
+                return Err(format!("{name}: boot timeout (cpuctl={ctl:#010x})"));
+            }
+        }
+    };
+
+    let (gpccs_ctl, gpccs_mb0) = boot_falcon("GPCCS", falcon::GPCCS_BASE, &gpccs_inst, &gpccs_data)?;
+    let (fecs_ctl, fecs_mb0) = boot_falcon("FECS", falcon::FECS_BASE, &fecs_inst, &fecs_data)?;
+
+    let fecs_running = fecs_ctl & falcon::CPUCTL_HALTED == 0 && fecs_mb0 != 0;
+
+    let detail = format!(
+        "Kepler PIO: FECS cpuctl={fecs_ctl:#010x} mb0={fecs_mb0:#010x} | \
+         GPCCS cpuctl={gpccs_ctl:#010x} mb0={gpccs_mb0:#010x} | running={fecs_running}"
+    );
+
+    if fecs_running {
+        Ok(detail)
+    } else {
+        Err(format!("Kepler falcon not running: {detail}"))
+    }
+}
+
+fn falcon_boot(
+    bar0: &MappedBar,
+    sm_version: u32,
+    dma: Option<&crate::vfio::device::DmaBackend>,
+) -> Result<String, String> {
+    use crate::vfio::channel::registers::falcon;
+
+    if is_kepler(sm_version) {
+        tracing::info!(sm = sm_version, "Kepler GPU detected — using direct PIO falcon boot (no ACR)");
+        return kepler_falcon_boot(bar0);
+    }
+
     let chip = crate::nv::identity::chip_name(sm_version);
 
-    // Apply GR BAR0 init writes first (engine enable, nonctx, dynamic)
+    // Apply GR BAR0 init writes first (engine enable, nonctx, dynamic).
     crate::nv::vfio_compute::NvVfioComputeDevice::apply_gr_bar0_init(bar0, sm_version);
 
+    // Exp 173 proved nvidia-535 closed does NOT configure WPR on GV100 (pre-GSP).
+    // WPR is a Turing+/Ampere+ concept for GSP-RM protection. On Volta, the RM
+    // runs on the CPU and doesn't use WPR hardware boundaries. The ACR chain's
+    // requirement for WPR cannot be satisfied on GV100 through vendor drivers.
+    // The SEC2→HS→FECS bootstrap path requires a different approach for Volta.
+
+    let wpr1_beg = bar0.read_u32(0x100CE4).unwrap_or(0xDEAD);
+    let wpr1_end = bar0.read_u32(0x100CE8).unwrap_or(0xDEAD);
+    let wpr2_beg = bar0.read_u32(0x100CEC).unwrap_or(0xDEAD);
+    let wpr2_end = bar0.read_u32(0x100CF0).unwrap_or(0xDEAD);
+    let wpr_configured = wpr2_beg != 0 && wpr2_end != 0 && wpr2_end > wpr2_beg;
+    tracing::info!(
+        wpr1_beg = format!("{wpr1_beg:#x}"),
+        wpr1_end = format!("{wpr1_end:#x}"),
+        wpr2_beg = format!("{wpr2_beg:#x}"),
+        wpr2_end = format!("{wpr2_end:#x}"),
+        wpr_configured,
+        "pre-ACR WPR state"
+    );
+
+    tracing::info!(chip, dma_available = dma.is_some(), "falcon boot: trying ACR boot solver...");
+
+    let acr_detail = match crate::nv::vfio_compute::acr_boot::FalconBootSolver::boot_for_generation(
+        bar0,
+        sm_version,
+        chip,
+        dma.cloned(),
+        None,
+    ) {
+        Ok(results) => {
+            if results.iter().any(|r| r.success) {
+                let cpuctl = bar0
+                    .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
+                    .unwrap_or(0xDEAD_DEAD);
+                let mb0 = bar0
+                    .read_u32(falcon::FECS_BASE + falcon::MAILBOX0)
+                    .unwrap_or(0);
+                return Ok(format!(
+                    "ACR boot OK: FECS cpuctl=0x{cpuctl:08x} mb0=0x{mb0:08x} ({} strategies)",
+                    results.len()
+                ));
+            }
+            let summary: Vec<String> = results
+                .iter()
+                .enumerate()
+                .map(|(i, r)| {
+                    let tail: Vec<&str> = r.notes.iter().rev().take(40).map(|s| s.as_str()).collect();
+                    format!("S{i}:{} [{}]", r.strategy, tail.join("; "))
+                })
+                .collect();
+            summary.join(" | ")
+        }
+        Err(e) => format!("solver_err:{e}"),
+    };
+
+    tracing::info!(chip, "ACR failed, trying direct PIO upload...");
     match crate::nv::vfio_compute::fecs_boot::boot_gr_falcons(bar0, chip) {
         Ok(result) => {
             let detail = format!(
-                "FECS: cpuctl=0x{:08x} mb0=0x{:08x} running={}",
-                result.cpuctl_after, result.mailbox0, result.running,
+                "direct boot: FECS cpuctl=0x{:08x} mb0=0x{:08x} running={} | acr:[{}]",
+                result.cpuctl_after, result.mailbox0, result.running, acr_detail,
             );
             if result.running {
-                tracing::info!(chip, "falcon boot: {detail}");
                 Ok(detail)
             } else {
-                tracing::warn!(chip, "falcon not running after boot: {detail}");
                 Err(format!("falcon not running: {detail}"))
             }
         }
-        Err(e) => {
-            tracing::warn!(chip, error = %e, "falcon boot failed");
-            Err(format!("falcon boot: {e}"))
-        }
+        Err(e) => Err(format!("all boot paths failed: {e} | acr:[{acr_detail}]")),
     }
 }
 
@@ -565,8 +769,9 @@ fn chip_id_to_sm(chip_id: u32) -> u32 {
         0x106 => 75, // TU106
         0x116 => 75, // TU116
         0x117 => 75, // TU117
-        0x0E7 => 35, // GK210 (Tesla K80)
-        0x0F0 => 50, // GM200
+        0x0E7 => 35, // GK110 (original Kepler mapping)
+        0x0F0..=0x0FF => 35, // GK210 (Tesla K80) — Kepler, no ACR/WPR
+        0x120..=0x12F => 50, // GM200 (Maxwell)
         _ => {
             tracing::warn!(chip_id = format!("0x{chip_id:03x}"), "unknown chip — assuming SM 70");
             70
@@ -583,6 +788,7 @@ fn finish(
     stages: Vec<StageResult>,
     training_log: Option<TrainingLog>,
     start: Instant,
+    warm: bool,
 ) -> SovereignInitResult {
     SovereignInitResult {
         bdf: bdf.to_string(),
@@ -594,6 +800,7 @@ fn finish(
         stages,
         total_ms: start.elapsed().as_millis() as u64,
         hbm2_writes: training_log.as_ref().map(|l| l.write_count()),
+        warm_detected: warm,
     }
 }
 
@@ -615,7 +822,21 @@ fn finish_halted(
         stages,
         total_ms: start.elapsed().as_millis() as u64,
         hbm2_writes: None,
+        warm_detected: false,
     }
+}
+
+/// Heuristic to detect if the GPU has already been trained.
+///
+/// A "warm" GPU has most engines enabled (high popcount in PMC_ENABLE)
+/// and accessible VRAM (PRAMIN sentinel test passes). A cold GPU after
+/// PCI reset typically has PMC_ENABLE = 0x0 or very few bits set.
+fn is_warm_gpu(pmc_enable: u32, bar0: &MappedBar) -> bool {
+    let popcount = pmc_enable.count_ones();
+    if popcount < 8 {
+        return false;
+    }
+    pramin_sentinel_test(bar0)
 }
 
 #[cfg(test)]
@@ -657,6 +878,7 @@ mod tests {
             stages: vec![],
             total_ms: 42,
             hbm2_writes: None,
+            warm_detected: false,
         };
         let s = r.to_string();
         assert!(s.contains("HALTED@hbm2_training"));
@@ -682,6 +904,7 @@ mod tests {
             ],
             total_ms: 100,
             hbm2_writes: Some(42),
+            warm_detected: true,
         };
         let s = r.to_string();
         assert!(s.contains("COMPUTE_READY"));

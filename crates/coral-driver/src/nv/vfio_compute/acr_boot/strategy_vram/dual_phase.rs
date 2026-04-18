@@ -90,10 +90,8 @@ fn build_vram_legacy_pde_tables(bar0: &MappedBar) -> bool {
     }
 
     // Instance block: PDB at RAMIN offset 0x200
-    let pdb_lo: u32 = ((FALCON_PD3_VRAM >> 12) << 12)
-        | (1 << 11) // BIG_PAGE_SIZE = 64KiB
-        | (1 << 10) // USE_VER2_PT_FORMAT
-        ; // target bits[1:0] = 0 = VRAM, VOL=0
+    // GP100+ format: addr | VALID | (target << 1), target=0 for VRAM
+    let pdb_lo: u32 = FALCON_PD3_VRAM | 1;
     if !wv(FALCON_INST_VRAM, 0x200, pdb_lo) {
         return false;
     }

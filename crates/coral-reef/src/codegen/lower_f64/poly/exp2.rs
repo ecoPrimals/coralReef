@@ -11,7 +11,7 @@ pub fn lower_f64_exp2(
     op: &OpF64Exp2,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &dyn ShaderModel,
+    sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -199,60 +199,17 @@ pub fn lower_f64_exp2(
     ));
 
     // First ldexp: add n1 << 20 to p's high word
-    let n1_shifted = alloc.alloc(RegFile::GPR);
-    out.push(with_pred(
-        Instr::new(OpShf {
-            dst: n1_shifted.into(),
-            srcs: [n1.into(), Src::ZERO, Src::new_imm_u32(20)],
-            right: false,
-            wrap: true,
-            data_type: IntType::I32,
-            dst_high: false,
-        }),
-        pred,
-    ));
+    let n1_shifted = emit_shl_imm(&mut out, alloc, pred, n1.into(), 20, sm);
 
-    let p_high_step1 = alloc.alloc(RegFile::GPR);
-    out.push(with_pred(
-        Instr::new(OpIAdd3 {
-            dsts: [p_high_step1.into(), Dst::None, Dst::None],
-            srcs: [p[1].into(), n1_shifted.into(), Src::ZERO],
-        }),
-        pred,
-    ));
+    let p_high_step1 = emit_iadd(&mut out, alloc, pred, p[1].into(), n1_shifted.into(), sm);
 
     // For normal path, this is the final result.
     // For subnormal path, multiply by 2^n2 where n2 = n + 1022.
-    let n2 = alloc.alloc(RegFile::GPR);
-    out.push(with_pred(
-        Instr::new(OpIAdd3 {
-            dsts: [n2.into(), Dst::None, Dst::None],
-            srcs: [n_i32.into(), Src::new_imm_u32(1022), Src::ZERO],
-        }),
-        pred,
-    ));
+    let n2 = emit_iadd(&mut out, alloc, pred, n_i32.into(), Src::new_imm_u32(1022), sm);
 
     // Build 2^n2 as f64: high word = (n2 + 1023) << 20, low word = 0
-    let n2_biased = alloc.alloc(RegFile::GPR);
-    out.push(with_pred(
-        Instr::new(OpIAdd3 {
-            dsts: [n2_biased.into(), Dst::None, Dst::None],
-            srcs: [n2.into(), Src::new_imm_u32(1023), Src::ZERO],
-        }),
-        pred,
-    ));
-    let scale_hi = alloc.alloc(RegFile::GPR);
-    out.push(with_pred(
-        Instr::new(OpShf {
-            dst: scale_hi.into(),
-            srcs: [n2_biased.into(), Src::ZERO, Src::new_imm_u32(20)],
-            right: false,
-            wrap: true,
-            data_type: IntType::I32,
-            dst_high: false,
-        }),
-        pred,
-    ));
+    let n2_biased = emit_iadd(&mut out, alloc, pred, n2.into(), Src::new_imm_u32(1023), sm);
+    let scale_hi = emit_shl_imm(&mut out, alloc, pred, n2_biased.into(), 20, sm);
 
     // step1 * 2^n2
     let step1 = alloc.alloc_vec(RegFile::GPR, 2);

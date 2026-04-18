@@ -283,6 +283,7 @@ pub(super) fn allocate_dma(
         wpr_end_iova,
         shadow_iova,
         _high_catch: None,
+        _4gib_catch: None,
         container,
     })
 }

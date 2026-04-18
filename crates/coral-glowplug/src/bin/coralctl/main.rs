@@ -17,6 +17,7 @@
 #![forbid(unsafe_code)]
 
 mod deploy;
+mod handlers_capture;
 mod handlers_device;
 mod handlers_diag;
 mod oracle;
@@ -218,6 +219,44 @@ enum Command {
         #[command(subcommand)]
         action: ExperimentAction,
     },
+
+    /// Training recipe capture — observe vendor driver init and distill a replay recipe.
+    Capture {
+        #[command(subcommand)]
+        action: CaptureAction,
+    },
+
+    /// Run the full sovereign boot orchestration on a GPU.
+    SovereignBoot {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaptureAction {
+    /// Capture a training recipe by observing an external driver's memory init.
+    Training {
+        /// PCI BDF address (e.g. 0000:03:00.0).
+        bdf: String,
+        /// Warm driver to use (nouveau, nvidia). Default: auto-detect.
+        #[arg(long)]
+        driver: Option<String>,
+    },
+    /// Compare two training recipe files.
+    Compare {
+        /// Left recipe file path.
+        left: String,
+        /// Right recipe file path.
+        right: String,
+    },
+    /// Decode PLL/timing patterns from a training recipe.
+    Decode {
+        /// Recipe file path.
+        file: String,
+    },
+    /// List all captured training recipes.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -525,5 +564,31 @@ fn main() {
                 );
             }
         },
+        Command::Capture { action } => match action {
+            CaptureAction::Training { bdf, driver } => {
+                handlers_capture::rpc_capture_training(
+                    &cli.socket,
+                    &bdf,
+                    driver.as_deref(),
+                );
+            }
+            CaptureAction::Compare { left, right } => {
+                handlers_capture::compare_recipes(&left, &right);
+            }
+            CaptureAction::Decode { file } => {
+                handlers_capture::decode_recipe(&file);
+            }
+            CaptureAction::List => {
+                handlers_capture::list_recipes();
+            }
+        },
+        Command::SovereignBoot { bdf } => {
+            let result = coral_glowplug::sovereign::sovereign_boot(&bdf);
+            let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+            println!("{json}");
+            if !result.success {
+                std::process::exit(1);
+            }
+        }
     }
 }

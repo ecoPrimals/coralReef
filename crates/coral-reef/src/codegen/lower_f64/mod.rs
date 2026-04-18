@@ -32,10 +32,13 @@ pub mod poly;
 /// sqrt/rcp. Transcendentals (sin/cos/exp2/log2) still need polynomial
 /// lowering on both vendors.
 pub fn lower_f64_function(func: &mut Function, sm: &dyn ShaderModel) {
-    let is_amd = sm.is_amd();
-    if !is_amd && sm.sm() < 70 {
+    if sm.is_amd() {
+        func.map_instrs(|instr, alloc| lower_instr(instr, alloc, sm));
         return;
     }
+    // NVIDIA: MUFU is f32-only, so all f64 transcendentals (rcp, sqrt,
+    // exp2, log2, sin, cos) must be lowered to MUFU seed + Newton-Raphson
+    // or polynomial sequences regardless of SM generation.
     func.map_instrs(|instr, alloc| lower_instr(instr, alloc, sm));
 }
 
@@ -121,6 +124,72 @@ pub fn lower_instr(
 pub(super) fn with_pred(mut instr: Instr, pred: Pred) -> Instr {
     instr.pred = pred;
     instr
+}
+
+/// Emit a 2-operand integer add: IAdd3 on SM70+, IAdd2 on SM32.
+pub(super) fn emit_iadd(
+    out: &mut Vec<Instr>,
+    alloc: &mut SSAValueAllocator,
+    pred: Pred,
+    a: Src,
+    b: Src,
+    sm: &dyn ShaderModel,
+) -> SSAValue {
+    let dst = alloc.alloc(RegFile::GPR);
+    if sm.sm() >= 70 {
+        out.push(with_pred(
+            Instr::new(OpIAdd3 {
+                dsts: [dst.into(), Dst::None, Dst::None],
+                srcs: [a, b, Src::ZERO],
+            }),
+            pred,
+        ));
+    } else {
+        out.push(with_pred(
+            Instr::new(OpIAdd2 {
+                dsts: [dst.into(), Dst::None],
+                srcs: [a, b],
+            }),
+            pred,
+        ));
+    }
+    dst
+}
+
+/// Emit a left shift by an immediate: OpShf on SM70+, OpShl on SM32.
+/// SM32's OpShf encoder doesn't support left-shift-low (requires right || dst_high).
+pub(super) fn emit_shl_imm(
+    out: &mut Vec<Instr>,
+    alloc: &mut SSAValueAllocator,
+    pred: Pred,
+    src: Src,
+    shift_bits: u32,
+    sm: &dyn ShaderModel,
+) -> SSAValue {
+    let dst = alloc.alloc(RegFile::GPR);
+    if sm.sm() >= 70 {
+        out.push(with_pred(
+            Instr::new(OpShf {
+                dst: dst.into(),
+                srcs: [src, Src::ZERO, Src::new_imm_u32(shift_bits)],
+                right: false,
+                wrap: true,
+                data_type: IntType::I32,
+                dst_high: false,
+            }),
+            pred,
+        ));
+    } else {
+        out.push(with_pred(
+            Instr::new(OpShl {
+                dst: dst.into(),
+                srcs: [src, Src::new_imm_u32(shift_bits)],
+                wrap: true,
+            }),
+            pred,
+        ));
+    }
+    dst
 }
 
 pub(super) fn emit_f64_zero(

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Training recipe capture — observe an external driver's memory training and
 //! distill it into a replayable recipe for sovereign GPU boot.
 //!
@@ -14,7 +14,7 @@
 use coral_driver::vfio::channel::hbm2_training::{
     DomainCapture, GoldenCapture, capture_oracle_state,
 };
-use coral_driver::nv::chip::detect_from_boot0;
+use coral_driver::nv::identity::{boot0_to_sm, chip_name};
 
 use crate::ember::EmberClient;
 use crate::sovereign::{BootStep, StepStatus};
@@ -183,9 +183,8 @@ pub fn capture_training(bdf: &str, warm_driver: Option<&str>) -> CaptureResult {
         }
     };
 
-    // Determine chip from BOOT0
-    let chip_cap = detect_from_boot0(cold_snapshot.boot0);
-    let chip = chip_cap.chip_name().to_string();
+    let sm = boot0_to_sm(cold_snapshot.boot0).unwrap_or(70);
+    let chip = chip_name(sm).to_string();
 
     // Step 3: Connect to ember
     let step_start = std::time::Instant::now();

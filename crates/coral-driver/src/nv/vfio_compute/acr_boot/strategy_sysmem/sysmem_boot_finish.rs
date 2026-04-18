@@ -4,13 +4,14 @@
 
 use crate::vfio::channel::registers::{falcon, misc};
 use crate::vfio::device::MappedBar;
+use crate::vfio::dma::DmaBuffer;
 
 use super::super::boot_result::{AcrBootResult, PostBootCapture};
 use super::super::firmware::ParsedAcrFirmware;
 use super::super::instance_block;
 use super::super::sec2_hal::{
-    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, find_sec2_pmc_bit,
-    pmc_enable_sec2, sec2_dmem_read,
+    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_pio_scrub_imem,
+    falcon_start_cpu, find_sec2_pmc_bit, pmc_enable_sec2, sec2_dmem_read,
 };
 use super::super::sysmem_iova;
 use super::super::wpr::build_bl_dmem_desc;
@@ -37,6 +38,8 @@ pub(super) fn sec2_reset_bind_load_and_poll(
 
     w(falcon::ITFEN, r(falcon::ITFEN) & !0x03);
     w(falcon::IRQMCLR, 0xFFFF_FFFF);
+
+    // 1. PMC disable (stop engine clock)
     {
         let sec2_bit = find_sec2_pmc_bit(bar0).unwrap_or(22);
         let sec2_mask = 1u32 << sec2_bit;
@@ -47,14 +50,20 @@ pub(super) fn sec2_reset_bind_load_and_poll(
             std::thread::sleep(std::time::Duration::from_micros(20));
         }
     }
+
+    // 2. ENGCTL local reset (while engine clock is off)
     w(falcon::ENGCTL, 0x01);
     std::thread::sleep(std::time::Duration::from_micros(10));
     w(falcon::ENGCTL, 0x00);
 
+    // 3. PMC enable → ROM starts fresh, scrubs IMEM/DMEM, then HALTs
     if let Err(e) = pmc_enable_sec2(bar0) {
         notes.push(format!("PMC enable failed: {e}"));
     }
     let _ = bar0.read_u32(base + falcon::MAILBOX0);
+    std::thread::sleep(std::time::Duration::from_micros(50));
+
+    // 4. Wait for memory scrub (DMACTL bits [2:1] = 0)
     let scrub_start = std::time::Instant::now();
     loop {
         let scrub = r(falcon::DMACTL);
@@ -68,8 +77,34 @@ pub(super) fn sec2_reset_bind_load_and_poll(
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
+    // 5. Write BOOT_0 chip ID (per nouveau gm200_flcn_enable)
     let boot0 = bar0.read_u32(misc::BOOT0).unwrap_or(0);
     w(0x084, boot0);
+
+    // 6. Wait for ROM halt — nouveau checks CPUCTL bit 4 (0x10) for halt.
+    let halt_start = std::time::Instant::now();
+    let mut rom_halted = false;
+    loop {
+        let cpuctl = r(falcon::CPUCTL);
+        if cpuctl & falcon::CPUCTL_HRESET != 0 {
+            rom_halted = true;
+            notes.push(format!(
+                "ROM halted in {:?} cpuctl={cpuctl:#010x}",
+                halt_start.elapsed()
+            ));
+            break;
+        }
+        if halt_start.elapsed() > std::time::Duration::from_millis(500) {
+            notes.push(format!("HALT timeout (500ms) cpuctl={cpuctl:#010x}"));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    if !rom_halted {
+        falcon_pio_scrub_imem(bar0, base);
+        notes.push("Manual IMEM/DMEM scrub (ROM did not halt)".to_string());
+    }
 
     let cpuctl_post = r(falcon::CPUCTL);
     let sctl_post = r(falcon::SCTL);
@@ -130,6 +165,11 @@ pub(super) fn sec2_reset_bind_load_and_poll(
         notes.push("TLB invalidate: SKIPPED".to_string());
     }
 
+    // Configure ALL FBIF indices for system-memory DMA via IOMMU.
+    // Previously only index 2 (PHYS_VID) was set, leaving indices 3/4
+    // (SYS_COH/NCOH) at 0x0 — the ACR firmware uses those for sysmem DMA.
+    super::super::sec2_hal::falcon_configure_fbif_all_sysmem(bar0, base, notes);
+
     let hwcfg = r(falcon::HWCFG);
     let code_limit = falcon::imem_size_bytes(hwcfg);
     let boot_size = (parsed.bl_desc.bl_code_off + parsed.bl_desc.bl_code_size + 0xFF) & !0xFF;
@@ -177,8 +217,12 @@ pub(super) fn sec2_reset_bind_load_and_poll(
     ));
 
     {
-        let tlb_hi = bar0.read_u32(0x100CEC).unwrap_or(0xDEAD);
-        let reg_cf0 = bar0.read_u32(0x100CF0).unwrap_or(0xDEAD);
+        let wpr1_beg = bar0.read_u32(0x100CE4).unwrap_or(0xDEAD);
+        let wpr1_end = bar0.read_u32(0x100CE8).unwrap_or(0xDEAD);
+        let wpr2_beg = bar0.read_u32(0x100CEC).unwrap_or(0xDEAD);
+        let wpr2_end = bar0.read_u32(0x100CF0).unwrap_or(0xDEAD);
+        let fbpa_lo = bar0.read_u32(0x1FA824).unwrap_or(0xDEAD);
+        let fbpa_hi = bar0.read_u32(0x1FA828).unwrap_or(0xDEAD);
 
         let _ = bar0.write_u32(0x100CD4, 2);
         let indexed_start = bar0.read_u32(0x100CD4).unwrap_or(0xDEAD);
@@ -186,11 +230,56 @@ pub(super) fn sec2_reset_bind_load_and_poll(
         let indexed_end = bar0.read_u32(0x100CD4).unwrap_or(0xDEAD);
 
         notes.push(format!(
-            "MMU TLB hi={tlb_hi:#010x} 0xCF0={reg_cf0:#010x} (read-only, no longer writing WPR here)"
+            "WPR hw: WPR1=[{wpr1_beg:#010x}..{wpr1_end:#010x}] WPR2=[{wpr2_beg:#010x}..{wpr2_end:#010x}]"
         ));
         notes.push(format!(
-            "WPR2 indexed: start_raw={indexed_start:#010x} end_raw={indexed_end:#010x}"
+            "WPR FBPA: lo={fbpa_lo:#010x} hi={fbpa_hi:#010x} indexed=[{indexed_start:#010x}..{indexed_end:#010x}]"
         ));
+
+        for idx in 0u32..5 {
+            let fbif_off = 0x604 + (idx as usize) * 0x10;
+            let val = r(fbif_off);
+            let name = match idx {
+                0 => "UCODE",
+                1 => "VIRT",
+                2 => "PHYS_VID",
+                3 => "PHYS_SYS_COH",
+                4 => "PHYS_SYS_NCOH",
+                _ => "?",
+            };
+            notes.push(format!("FBIF_TRANSCFG[{idx}]({name})@{fbif_off:#05x}={val:#010x}"));
+        }
+
+        // Map a large DMA catch-all covering the top of the 32-bit IOVA space.
+        // The ACR firmware reads VRAM physical WPR2 addresses and truncates them
+        // to 32 bits for DMA. For 12GB Titan V (VRAM at 0x0-0x300000000), the
+        // truncated WPR addresses fall in 0xFF000000-0xFFFFFFFF. Observed faults:
+        // 0xFFC4B000, 0xFFDFD000, 0xFFE3B000, 0xFFE4B000.
+        let catch_base: u64 = 0xFF00_0000;
+        let catch_size: usize = 0x100_0000; // 16 MiB (covers 0xFF000000-0xFFFFFFFF)
+        match DmaBuffer::new(dma.container.clone(), catch_size, catch_base) {
+            Ok(mut buf) => {
+                let wpr = &dma.wpr_data;
+                // Tile the WPR data across the entire buffer so firmware finds
+                // valid data at any truncated VRAM offset.
+                let sl = buf.as_mut_slice();
+                let mut off = 0;
+                while off < catch_size {
+                    let chunk = wpr.len().min(catch_size - off);
+                    sl[off..off + chunk].copy_from_slice(&wpr[..chunk]);
+                    off += chunk;
+                }
+                notes.push(format!(
+                    "4GiB catch: {catch_size:#x}B at IOVA {catch_base:#x} (FBPA lo={fbpa_lo:#x})"
+                ));
+                dma._4gib_catch = Some(buf);
+            }
+            Err(e) => {
+                notes.push(format!(
+                    "4GiB catch alloc FAILED at {catch_base:#x}: {e}"
+                ));
+            }
+        }
     }
 
     {

@@ -54,8 +54,9 @@ impl GpuIdentity {
             // Hopper GH100 (H100 SXM/PCIe, H200)
             0x2321..=0x233F => Some(90),
             // Blackwell GB202 (RTX 5090), GB203 (RTX 5080), GB205 (RTX 5070 Ti),
-            // GB206 (RTX 5070), GB207 (RTX 5060)
-            0x2900..=0x2999 => Some(120),
+            // GB206 (RTX 5070/5060 Ti), GB207 (RTX 5060)
+            // PCI ID ranges: 0x29xx (initial), 0x2Bxx/0x2Cxx (Pro), 0x2Dxx (refresh)
+            0x2900..=0x2999 | 0x2B00..=0x2DFF => Some(120),
             _ => None,
         }
     }

@@ -135,6 +135,37 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
         wpr_data.len()
     ));
 
+    // ── Step 2e: Configure WPR2 hardware boundaries ──
+    // SEC2 cannot transition to HS mode without hardware WPR. The BL verifies
+    // the ACR payload against WPR-protected VRAM. On GV100, WPR is normally
+    // configured by PMU DEVINIT. Since PMU firmware is unavailable (nouveau
+    // reports "pmu: firmware unavailable"), we configure WPR2 directly.
+    //
+    // PFB_WPR registers: values are in 256-byte granularity (addr >> 8).
+    let wpr_beg_val = wpr_vram_base >> 8;
+    let wpr_end_val = (wpr_end as u32) >> 8;
+    {
+        let pre_beg = bar0.read_u32(0x100CE4).unwrap_or(0xDEAD);
+        let pre_end = bar0.read_u32(0x100CE8).unwrap_or(0xDEAD);
+        let _ = bar0.write_u32(0x100CE4, wpr_beg_val);
+        let _ = bar0.write_u32(0x100CE8, wpr_end_val);
+        let rb_beg = bar0.read_u32(0x100CE4).unwrap_or(0xDEAD);
+        let rb_end = bar0.read_u32(0x100CE8).unwrap_or(0xDEAD);
+        notes.push(format!(
+            "WPR1: {pre_beg:#x}->{rb_beg:#x}(wanted {wpr_beg_val:#x}) {pre_end:#x}->{rb_end:#x}(wanted {wpr_end_val:#x})"
+        ));
+
+        let pre2_beg = bar0.read_u32(0x100CEC).unwrap_or(0xDEAD);
+        let pre2_end = bar0.read_u32(0x100CF0).unwrap_or(0xDEAD);
+        let _ = bar0.write_u32(0x100CEC, wpr_beg_val);
+        let _ = bar0.write_u32(0x100CF0, wpr_end_val);
+        let rb2_beg = bar0.read_u32(0x100CEC).unwrap_or(0xDEAD);
+        let rb2_end = bar0.read_u32(0x100CF0).unwrap_or(0xDEAD);
+        notes.push(format!(
+            "WPR2: {pre2_beg:#x}->{rb2_beg:#x}(wanted {wpr_beg_val:#x}) {pre2_end:#x}->{rb2_end:#x}(wanted {wpr_end_val:#x})"
+        ));
+    }
+
     // Verify ACR payload in VRAM
     if let Ok(region) = PraminRegion::new(bar0, vram_base, 16) {
         let v0 = region.read_u32(0).unwrap_or(0);
@@ -171,7 +202,8 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     // ── Step 3: Minimal SEC2 preparation (NO bind, NO double reset) ──
     // Exp 094 proved that bind_inst writes and double ENGCTL cycles before
     // STARTCPU prevent the BL from executing. For physical DMA (ctx_dma=PHYS),
-    // no instance block binding is needed — FBIF=0x91 routes DMA directly to VRAM.
+    // No instance block binding needed — PHYS_OVERRIDE routes DMA to VRAM.
+    // FBIF_TRANSCFG preserves the post-PMC-reset default (0x190 on GV100).
     //
     // Match Strategy 1's flow (which successfully executes BL):
     // engine_reset → FBIF → BL_upload → BOOTVEC → STARTCPU
@@ -181,13 +213,21 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     }
     notes.push(format!("SEC2 engine reset: ok={reset_ok}"));
 
-    // Set FBIF for physical VRAM access AFTER reset (reset sets FBIF=0x190)
-    let fbif_target = falcon::FBIF_TARGET_PHYS_VID | falcon::FBIF_PHYSICAL_OVERRIDE | 0x10;
-    w(falcon::FBIF_TRANSCFG, fbif_target);
+    // Preserve the hardware-default FBIF_TRANSCFG (post-PMC-reset value
+    // includes bit 8 = 0x100 on GV100). sec2_prepare_physical_first already
+    // ORed PHYS_OVERRIDE (0x80) via falcon_prepare_physical_dma. Verify it
+    // reads 0x190 (VIRT + 0x10 + PHYS_OVERRIDE + 0x100) — matching nouveau.
     let fbif_after = r(falcon::FBIF_TRANSCFG);
-    notes.push(format!(
-        "FBIF_TRANSCFG: target={fbif_target:#010x} now={fbif_after:#010x}"
-    ));
+    notes.push(format!("FBIF_TRANSCFG: {fbif_after:#010x} (preserved reset default)"));
+    for idx in 0u32..5 {
+        let fbif_off = 0x604 + (idx as usize) * 0x10;
+        let val = r(fbif_off);
+        let name = match idx {
+            0 => "UCODE", 1 => "VIRT", 2 => "PHYS_VID",
+            3 => "PHYS_SYS_COH", 4 => "PHYS_SYS_NCOH", _ => "?",
+        };
+        notes.push(format!("FBIF[{idx}]({name})@{fbif_off:#05x}={val:#010x}"));
+    }
 
     // ── Step 5: Load BL code → IMEM ──
     let hwcfg = r(falcon::HWCFG);
@@ -296,9 +336,14 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     falcon_start_cpu(bar0, base);
 
     // ── Step 7b: Maintain FBIF during BL execution ──
-    // Re-apply FBIF in case BL or ROM clears PHYS_VID bit during startup.
+    // Ensure PHYS_OVERRIDE stays set while BL is starting. Read-modify-write
+    // preserves the hardware-default bits (0x100 on GV100) that are required
+    // for DMA to reach VRAM.
     for _ in 0..100 {
-        w(falcon::FBIF_TRANSCFG, fbif_target);
+        let cur = r(falcon::FBIF_TRANSCFG);
+        if cur & falcon::FBIF_PHYSICAL_OVERRIDE == 0 {
+            w(falcon::FBIF_TRANSCFG, cur | falcon::FBIF_PHYSICAL_OVERRIDE);
+        }
         std::thread::sleep(std::time::Duration::from_micros(10));
     }
     let fbif_post_start = r(falcon::FBIF_TRANSCFG);

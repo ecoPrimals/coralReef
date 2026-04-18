@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Training recipe capture handlers.
 //!
 //! `capture training` routes through glowplug for full lifecycle orchestration
@@ -193,60 +193,24 @@ pub(crate) fn decode_recipe(file_path: &str) {
         }
     };
 
-    let pattern = coral_driver::vfio::channel::hbm2_training::decode_training_pattern(
-        &recipe.chip,
-        &recipe.training_writes,
-    );
-
     println!("================================================================");
-    println!("  TRAINING PATTERN DECODE — {}", recipe.chip);
+    println!("  TRAINING RECIPE DECODE — {}", recipe.chip);
     println!("================================================================");
     println!("  Source: {file_path}");
     println!("  Chip:   {}", recipe.chip);
     println!("  Driver: {}", recipe.warm_driver);
-    println!("  Total writes: {} ({} classified, {} unclassified)",
-        pattern.total_writes,
-        pattern.total_writes - pattern.unclassified_writes,
-        pattern.unclassified_writes,
-    );
+    println!("  Total writes: {}", recipe.total_writes);
     println!("================================================================\n");
 
-    if !pattern.plls.is_empty() {
-        println!("PLL configurations:");
-        for pll in &pattern.plls {
-            let freq_str = pll.freq_khz
-                .map(|f| format!("{:.1} MHz", f as f64 / 1000.0))
-                .unwrap_or_else(|| "unknown".to_string());
-            println!("  {:<10} CTL={:#010x} COEFF={:#010x}  M={} N={} P={} → {freq_str}",
-                pll.name,
-                pll.ctl,
-                pll.coeff,
-                pll.ref_div.unwrap_or(0),
-                pll.fb_div.unwrap_or(0),
-                pll.post_div.unwrap_or(0),
-            );
+    println!("Domains:");
+    for domain in &recipe.training_writes {
+        println!("  {:<12} {} writes", domain.name, domain.registers.len());
+        for &(off, val) in domain.registers.iter().take(5) {
+            println!("    {off:#010x} = {val:#010x}");
         }
-        println!();
-    }
-
-    if !pattern.fbpa_timings.is_empty() {
-        println!("FBPA timing configurations:");
-        for timing in &pattern.fbpa_timings {
-            println!("  FBPA{}: CMD={:#010x} CFG={:#010x} T0={:#010x} T1={:#010x} T2={:#010x}",
-                timing.partition,
-                timing.cmd,
-                timing.cfg,
-                timing.timing0,
-                timing.timing1,
-                timing.timing2,
-            );
+        if domain.registers.len() > 5 {
+            println!("    ... and {} more", domain.registers.len() - 5);
         }
-        println!();
-    }
-
-    if pattern.plls.is_empty() && pattern.fbpa_timings.is_empty() {
-        println!("No PLL or timing patterns found in this recipe.");
-        println!("The training writes may target non-standard registers.");
     }
 }
 

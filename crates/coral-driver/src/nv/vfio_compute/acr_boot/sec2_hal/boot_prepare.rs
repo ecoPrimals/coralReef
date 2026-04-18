@@ -47,18 +47,23 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
         "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x} exci={pre_exci:#010x}"
     ));
 
-    // 1. PMC-level reset: clears falcon execution state (CPUCTL, EXCI, firmware).
+    // 1. ENGCTL local reset FIRST (while PMC is still enabled).
+    //    Nouveau's gm200_flcn_enable does ENGCTL toggle before PMC enable.
+    //    Doing PMC reset first starts the ROM, then ENGCTL kills it mid-scrub.
+    w(falcon::ENGCTL, 0x01);
+    std::thread::sleep(std::time::Duration::from_micros(10));
+    w(falcon::ENGCTL, 0x00);
+    notes.push("ENGCTL local reset pulse (before PMC)".to_string());
+
+    // 2. PMC-level reset: power-cycles SEC2 engine → ROM starts fresh.
     //    SCTL (security mode) is fuse-enforced on GV100 and survives PMC reset.
     match pmc::pmc_reset_sec2(bar0) {
         Ok(()) => notes.push("PMC SEC2 reset OK".to_string()),
         Err(e) => notes.push(format!("PMC SEC2 reset FAILED: {e}")),
     }
+    std::thread::sleep(std::time::Duration::from_micros(50));
 
-    w(falcon::ENGCTL, 0x01);
-    std::thread::sleep(std::time::Duration::from_micros(10));
-    w(falcon::ENGCTL, 0x00);
-    notes.push("ENGCTL local reset pulse".to_string());
-
+    // 3. Wait for memory scrub (DMACTL bits [2:1] = 0).
     let scrub_start = std::time::Instant::now();
     loop {
         let scrub = r(falcon::DMACTL);
@@ -73,9 +78,10 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
-    // 4. Wait for ROM to halt (cpuctl bit 4 = HALTED on GV100).
-    //    nouveau: nvkm_falcon_v1_wait_for_halt checks `cpuctl & 0x10`.
+    // 4. Wait for ROM to halt — nouveau checks CPUCTL bit 4 (0x10) for halt.
+    //    On GV100, bit 4 is HRESET/HALTED dual-purpose. ROM sets it to 1 after scrub.
     let halt_start = std::time::Instant::now();
+    let mut rom_halted = false;
     loop {
         let cpuctl = r(falcon::CPUCTL);
         if cpuctl & falcon::CPUCTL_HRESET != 0 {
@@ -83,21 +89,28 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
                 "ROM halted in {:?} cpuctl={cpuctl:#010x}",
                 halt_start.elapsed()
             ));
+            rom_halted = true;
             break;
         }
-        if halt_start.elapsed() > std::time::Duration::from_millis(3000) {
-            notes.push(format!("HALT timeout (3s) cpuctl={cpuctl:#010x}"));
+        if halt_start.elapsed() > std::time::Duration::from_millis(500) {
+            notes.push(format!("HALT timeout (500ms) cpuctl={cpuctl:#010x}"));
             break;
         }
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
-    // Post-PMC diagnostic: verify secure mode is cleared
+    // Fallback: if ROM didn't halt, manually scrub IMEM via PIO to clear stale code.
+    if !rom_halted {
+        super::falcon_cpu::falcon_pio_scrub_imem(bar0, base);
+        notes.push("Manual IMEM scrub (ROM did not halt)".to_string());
+    }
+
+    // Post-PMC diagnostic
     let post_cpuctl = r(falcon::CPUCTL);
     let post_sctl = r(falcon::SCTL);
     let post_exci = r(falcon::EXCI);
     notes.push(format!(
-        "Post-PMC-reset: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} exci={post_exci:#010x}"
+        "Post-reset: cpuctl={post_cpuctl:#010x} sctl={post_sctl:#010x} exci={post_exci:#010x}"
     ));
 
     // 5. Write BOOT_0 chip ID (per nouveau gm200_flcn_enable)
@@ -179,16 +192,18 @@ pub fn sec2_prepare_physical_first(bar0: &MappedBar) -> (bool, Vec<String>) {
         "Pre-reset: cpuctl={pre_cpuctl:#010x} sctl={pre_sctl:#010x} exci={pre_exci:#010x}"
     ));
 
-    // 1. PMC-level reset
+    // 1. ENGCTL local reset FIRST (before PMC cycle).
+    w(falcon::ENGCTL, 0x01);
+    std::thread::sleep(std::time::Duration::from_micros(10));
+    w(falcon::ENGCTL, 0x00);
+    notes.push("ENGCTL local reset pulse (before PMC)".to_string());
+
+    // 2. PMC-level reset: power-cycles SEC2 engine → ROM starts fresh.
     match pmc::pmc_reset_sec2(bar0) {
         Ok(()) => notes.push("PMC SEC2 reset OK".to_string()),
         Err(e) => notes.push(format!("PMC SEC2 reset FAILED: {e}")),
     }
-
-    w(falcon::ENGCTL, 0x01);
-    std::thread::sleep(std::time::Duration::from_micros(10));
-    w(falcon::ENGCTL, 0x00);
-    notes.push("ENGCTL local reset pulse".to_string());
+    std::thread::sleep(std::time::Duration::from_micros(50));
 
     // 3. Wait for memory scrub (DMACTL bits [2:1] = 0)
     let scrub_start = std::time::Instant::now();
@@ -205,7 +220,7 @@ pub fn sec2_prepare_physical_first(bar0: &MappedBar) -> (bool, Vec<String>) {
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
-    // 4. Wait for ROM halt
+    // 4. Wait for ROM halt — nouveau checks CPUCTL bit 4 (0x10).
     let halt_start = std::time::Instant::now();
     let mut halted = false;
     loop {
@@ -218,11 +233,17 @@ pub fn sec2_prepare_physical_first(bar0: &MappedBar) -> (bool, Vec<String>) {
             halted = true;
             break;
         }
-        if halt_start.elapsed() > std::time::Duration::from_millis(3000) {
-            notes.push(format!("HALT timeout (3s) cpuctl={cpuctl:#010x}"));
+        if halt_start.elapsed() > std::time::Duration::from_millis(500) {
+            notes.push(format!("HALT timeout (500ms) cpuctl={cpuctl:#010x}"));
             break;
         }
         std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    // Fallback: manually scrub IMEM if ROM didn't halt
+    if !halted {
+        super::falcon_cpu::falcon_pio_scrub_imem(bar0, base);
+        notes.push("Manual IMEM scrub (ROM did not halt)".to_string());
     }
 
     // Post-reset diagnostics

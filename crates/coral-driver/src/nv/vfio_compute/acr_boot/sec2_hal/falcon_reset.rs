@@ -187,6 +187,11 @@ pub fn falcon_engine_reset(bar0: &MappedBar, base: usize) -> DriverResult<()> {
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
+    if !halted {
+        super::falcon_cpu::falcon_pio_scrub_imem(bar0, base);
+        tracing::info!("Manual IMEM/DMEM scrub (ROM did not halt)");
+    }
+
     let cpuctl = r(falcon::CPUCTL);
     let sctl = r(falcon::SCTL);
     tracing::info!(

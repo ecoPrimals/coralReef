@@ -45,6 +45,7 @@
 //! let _maybe = EmberClient::connect();
 //! ```
 
+pub mod capture;
 pub mod config;
 pub mod device;
 pub mod ember;
@@ -58,6 +59,7 @@ pub mod pci_ids;
 pub mod personality;
 pub mod ring;
 pub mod sec2_bridge;
+pub mod sovereign;
 pub mod sysfs;
 pub mod sysfs_ops;
 

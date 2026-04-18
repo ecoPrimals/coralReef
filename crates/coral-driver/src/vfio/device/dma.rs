@@ -24,7 +24,7 @@ pub enum VfioBackendKind {
 /// container and the modern iommufd IOAS. Both variants are cheap to clone
 /// (`Arc`-wrapped) so they can be passed to [`DmaBackend`] consumers and channel
 /// code that needs to create IOMMU mappings.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DmaBackend {
     /// Legacy VFIO container fd (kernel < 6.2). DMA maps via
     /// `VFIO_IOMMU_MAP_DMA` / `VFIO_IOMMU_UNMAP_DMA` on this fd.

@@ -189,11 +189,84 @@ pub enum BootStrategy {
     NoViablePath,
 }
 
+/// GPU generation classification for strategy ordering.
+///
+/// Different generations require fundamentally different boot approaches:
+/// - **Pre-ACR** (Kepler): Direct PIO IMEM/DMEM upload, no secure boot
+/// - **CPU-RM** (Volta/Pascal): CPU-based Resource Manager, no GSP/WPR
+/// - **GSP-RM** (Turing+): GSP firmware + WPR-dependent ACR chain
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuGeneration {
+    /// Kepler (SM 3x): No ACR, no secure boot. Direct PIO firmware upload.
+    /// GPCCS boots first, then FECS. No bootloader — firmware runs directly.
+    Kepler,
+    /// Volta/Pascal (SM 5x–7x): CPU-based RM manages GR via BAR0 writes.
+    /// No WPR hardware boundaries. FECS can stay HALTED while RM drives GR.
+    /// Training recipe replay replaces firmware boot.
+    CpuRm,
+    /// Turing and newer (SM 75+): GSP-RM with WPR-protected firmware.
+    /// Full ACR chain: SEC2 → HS bootstrap → FECS/GPCCS secure boot.
+    GspRm,
+}
+
+impl GpuGeneration {
+    /// Classify SM version into a generation.
+    #[must_use]
+    pub const fn from_sm(sm: u32) -> Self {
+        match sm {
+            0..=49 => Self::Kepler,
+            50..=74 => Self::CpuRm,
+            _ => Self::GspRm,
+        }
+    }
+}
+
 /// The Falcon Boot Solver — probes GPU state and selects the best
 /// strategy for getting FECS running.
+///
+/// Strategy ordering is generation-aware:
+/// - **Kepler**: Returns immediately — sovereign_init handles PIO boot directly
+/// - **Volta (CPU-RM)**: Prioritizes golden-state replay over ACR strategies
+/// - **Turing+ (GSP-RM)**: Full ACR strategy cascade
 pub struct FalconBootSolver;
 
 impl FalconBootSolver {
+    /// Generation-aware boot: classifies the GPU and dispatches to the
+    /// appropriate strategy cascade.
+    ///
+    /// - **Kepler**: Returns empty (sovereign_init handles PIO boot separately)
+    /// - **CPU-RM (Volta)**: Logs advisory, falls through to legacy ACR cascade
+    ///   (golden-state replay is handled by sovereign_init's GR init stage)
+    /// - **GSP-RM (Turing+)**: Full ACR strategy cascade
+    pub fn boot_for_generation(
+        bar0: &MappedBar,
+        sm: u32,
+        chip: &str,
+        container: Option<DmaBackend>,
+        journal: Option<&dyn BootJournal>,
+    ) -> DriverResult<Vec<AcrBootResult>> {
+        let gpu_gen = GpuGeneration::from_sm(sm);
+        tracing::info!(generation = ?gpu_gen, sm, chip, "FalconBootSolver: generation-aware dispatch");
+
+        match gpu_gen {
+            GpuGeneration::Kepler => {
+                tracing::info!("Kepler: ACR solver not applicable — PIO boot handled by sovereign_init");
+                Ok(Vec::new())
+            }
+            GpuGeneration::CpuRm => {
+                tracing::info!(
+                    "CPU-RM (Volta/Pascal): no WPR/GSP. ACR strategies unlikely to succeed. \
+                     Golden-state replay via sovereign_init is the primary boot path."
+                );
+                Self::boot(bar0, chip, container, journal)
+            }
+            GpuGeneration::GspRm => {
+                tracing::info!("GSP-RM (Turing+): full ACR strategy cascade");
+                Self::boot(bar0, chip, container, journal)
+            }
+        }
+    }
+
     /// Probe and attempt to boot FECS using the best available strategy.
     ///
     /// Strategy ordering prioritizes the most faithful Nouveau reproduction:

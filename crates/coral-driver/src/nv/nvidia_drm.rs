@@ -35,6 +35,46 @@ use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo}
 
 use super::uvm_compute::NvUvmComputeDevice;
 
+/// Derive the NVIDIA device minor (gpu_index) from a DRM render node path.
+///
+/// Resolves `/dev/dri/renderD*` → sysfs BDF → `/proc/driver/nvidia/gpus/<BDF>/information`
+/// → `Device Minor` field. Falls back to 0 if any lookup fails.
+fn nvidia_gpu_index_from_render_node(path: &str) -> u32 {
+    let node_name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("renderD128");
+
+    let sysfs_device = format!("/sys/class/drm/{node_name}/device");
+    let bdf = match std::fs::read_link(&sysfs_device) {
+        Ok(link) => link
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string(),
+        Err(_) => return 0,
+    };
+
+    if bdf.is_empty() {
+        return 0;
+    }
+
+    let info_path = format!("/proc/driver/nvidia/gpus/{bdf}/information");
+    let info = match std::fs::read_to_string(&info_path) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+
+    for line in info.lines() {
+        if let Some(val) = line.strip_prefix("Device Minor:") {
+            if let Ok(minor) = val.trim().parse::<u32>() {
+                return minor;
+            }
+        }
+    }
+    0
+}
+
 /// NVIDIA GPU device via the proprietary nvidia-drm DRM module.
 ///
 /// Provides device probing via DRM render nodes and delegates compute
@@ -98,12 +138,16 @@ impl NvDrmDevice {
             .and_then(|id| id.nvidia_sm())
             .unwrap_or(86);
 
-        let compute = match NvUvmComputeDevice::open(0, sm) {
+        let gpu_index = nvidia_gpu_index_from_render_node(path);
+        tracing::info!(path, gpu_index, sm, "resolved NVIDIA device minor for UVM");
+
+        let compute = match NvUvmComputeDevice::open(gpu_index, sm) {
             Ok(dev) => Some(dev),
             Err(e) => {
                 tracing::error!(
                     error = %e,
                     path,
+                    gpu_index,
                     "UVM compute device failed for nvidia-drm"
                 );
                 None

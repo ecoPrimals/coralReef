@@ -14,8 +14,8 @@ use super::instance_block::{
     FALCON_PT0_VRAM, encode_sysmem_pte, encode_vram_pd0_pde, encode_vram_pde, encode_vram_pte,
 };
 use super::sec2_hal::{
-    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, find_sec2_pmc_bit,
-    pmc_enable_sec2, sec2_dmem_read,
+    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_pio_scrub_imem,
+    falcon_start_cpu, find_sec2_pmc_bit, pmc_enable_sec2, sec2_dmem_read,
 };
 use super::sysmem_iova;
 use super::wpr::{build_bl_dmem_desc, build_wpr, patch_acr_desc};
@@ -177,10 +177,8 @@ pub fn attempt_hybrid_acr_boot(
     ));
 
     // Instance block: PDB in VRAM, pointing to PD3 in VRAM
-    let pdb_lo: u32 = ((FALCON_PD3_VRAM >> 12) << 12)
-        | (1 << 11) // BIG_PAGE_SIZE = 64KiB
-        | (1 << 10) // USE_VER2_PT_FORMAT
-        ; // bits[1:0] = 0 = VRAM aperture, VOL=0
+    // GP100+ format (nouveau gp100_vmm_join): addr | VALID | (target << 1)
+    let pdb_lo: u32 = FALCON_PD3_VRAM | 1; // VALID + VRAM aperture(0)
     if !wv(FALCON_INST_VRAM, 0x200, pdb_lo)
         || !wv(FALCON_INST_VRAM, 0x204, 0)
         || !wv(FALCON_INST_VRAM, 0x208, 0xFFFF_FFFF)
@@ -212,11 +210,13 @@ pub fn attempt_hybrid_acr_boot(
     std::thread::sleep(std::time::Duration::from_micros(10));
     w(falcon::ENGCTL, 0x00);
 
-    // Phase B: gm200_flcn_enable
+    // Phase B: gm200_flcn_enable — PMC enable → ROM starts, scrubs, HALTs
     if let Err(e) = pmc_enable_sec2(bar0) {
         notes.push(format!("PMC enable failed: {e}"));
     }
     let _ = bar0.read_u32(base + falcon::MAILBOX0);
+    std::thread::sleep(std::time::Duration::from_micros(50));
+
     let scrub_start = std::time::Instant::now();
     loop {
         let scrub = r(falcon::DMACTL);
@@ -232,6 +232,31 @@ pub fn attempt_hybrid_acr_boot(
 
     let boot0 = bar0.read_u32(misc::BOOT0).unwrap_or(0);
     w(0x084, boot0);
+
+    // Wait for ROM halt — nouveau checks CPUCTL bit 4 (0x10).
+    let halt_start = std::time::Instant::now();
+    let mut rom_halted = false;
+    loop {
+        let cpuctl = r(falcon::CPUCTL);
+        if cpuctl & falcon::CPUCTL_HRESET != 0 {
+            rom_halted = true;
+            notes.push(format!(
+                "ROM halted in {:?} cpuctl={cpuctl:#010x}",
+                halt_start.elapsed()
+            ));
+            break;
+        }
+        if halt_start.elapsed() > std::time::Duration::from_millis(500) {
+            notes.push(format!("HALT timeout (500ms) cpuctl={cpuctl:#010x}"));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+
+    if !rom_halted {
+        falcon_pio_scrub_imem(bar0, base);
+        notes.push("Manual IMEM/DMEM scrub (ROM did not halt)".to_string());
+    }
 
     let cpuctl_post = r(falcon::CPUCTL);
     let sctl_post = r(falcon::SCTL);
@@ -252,6 +277,9 @@ pub fn attempt_hybrid_acr_boot(
     for n in &bind_notes {
         notes.push(n.clone());
     }
+
+    // ── Step 6c: configure ALL FBIF indices for system-memory DMA ──
+    super::sec2_hal::falcon_configure_fbif_all_sysmem(bar0, base, &mut notes);
 
     // ── Step 7: Load BL code → IMEM ──
     let hwcfg = r(falcon::HWCFG);
@@ -279,6 +307,50 @@ pub fn attempt_hybrid_acr_boot(
     notes.push(format!(
         "BL desc: code={code_dma_base:#x} data={data_dma_base:#x}"
     ));
+
+    // ── Step 9b: WPR2 register snapshot + 4GiB-boundary catch-all ──
+    let _4gib_catch = {
+        let fbpa_lo = bar0.read_u32(0x1FA824).unwrap_or(0xDEAD);
+        let fbpa_hi = bar0.read_u32(0x1FA828).unwrap_or(0xDEAD);
+        let wpr2_beg = bar0.read_u32(0x100CEC).unwrap_or(0xDEAD);
+        let wpr2_end = bar0.read_u32(0x100CF0).unwrap_or(0xDEAD);
+        notes.push(format!(
+            "WPR hw: WPR2=[{wpr2_beg:#010x}..{wpr2_end:#010x}] FBPA=[{fbpa_lo:#010x}:{fbpa_hi:#010x}]"
+        ));
+
+        for idx in 0u32..5 {
+            let fbif_off = 0x604 + (idx as usize) * 0x10;
+            let val = r(fbif_off);
+            let name = match idx {
+                0 => "UCODE", 1 => "VIRT", 2 => "PHYS_VID",
+                3 => "PHYS_SYS_COH", 4 => "PHYS_SYS_NCOH", _ => "?",
+            };
+            notes.push(format!("FBIF_TRANSCFG[{idx}]({name})@{fbif_off:#05x}={val:#010x}"));
+        }
+
+        // Fixed catch-all at top of 32-bit IOVA space (see sysmem_boot_finish.rs).
+        let catch_base: u64 = 0xFF00_0000;
+        let catch_size: usize = 0x100_0000; // 16 MiB
+        match DmaBuffer::new(container.clone(), catch_size, catch_base) {
+            Ok(mut buf) => {
+                let sl = buf.as_mut_slice();
+                let mut off = 0;
+                while off < catch_size {
+                    let chunk = wpr_data.len().min(catch_size - off);
+                    sl[off..off + chunk].copy_from_slice(&wpr_data[..chunk]);
+                    off += chunk;
+                }
+                notes.push(format!(
+                    "4GiB catch: {catch_size:#x}B at IOVA {catch_base:#x}"
+                ));
+                Some(buf)
+            }
+            Err(e) => {
+                notes.push(format!("4GiB catch alloc FAILED: {e}"));
+                None
+            }
+        }
+    };
 
     // ── Step 10: Boot SEC2 ──
     w(falcon::MAILBOX0, 0xcafe_beef_u32);

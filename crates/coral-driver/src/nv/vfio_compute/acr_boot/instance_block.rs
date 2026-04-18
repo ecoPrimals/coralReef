@@ -175,21 +175,23 @@ pub const FALCON_PT0_VRAM: u32 = 0x15000;
 
 /// Encode a non-leaf PDE pointing to a sub-directory in VRAM.
 ///
-/// MMU v2 PDE format (from nova-core `dev_mmu.h`):
-///   bit 0:      valid_inverted (0 = valid)
-///   `bits[2:1]`:  aperture (1 = VideoMemory)
-///   `bits[32:8]`: table_frame_vid = phys_addr >> 12
+/// GP100+ (GV100) PDE format (from nouveau `gp100_vmm_pgd_pde`):
+///   bit 0:      VALID (1 = valid)
+///   `bits[2:1]`:  target/aperture (0 = VRAM, 1 = NCOH, 2 = COH)
+///   `bits[N:12]`: page-aligned physical address (bits[11:0] = 0)
 ///
-/// Result: `(phys >> 12) << 8 | aperture << 1` = `(phys >> 4) | 0x2`
+/// Unlike PTEs which use `addr >> 4`, PDEs keep the address at its
+/// natural page-aligned position: `phys_addr | VALID`.
 pub fn encode_vram_pde(vram_addr: u64) -> u64 {
-    const APER_VRAM: u64 = 1 << 1; // bits[2:1] = 1 = VRAM
-    (vram_addr >> 4) | APER_VRAM
+    const VALID: u64 = 1;
+    vram_addr | VALID
 }
 
-/// Encode a PD0 dual PDE for the small page table pointer (same as non-leaf PDE).
+/// Encode a PD0 dual PDE for the small page table pointer.
 ///
-/// On GV100, the PD0 level uses 16-byte dual PDEs. The small PT pointer goes in
-/// the **upper** 8 bytes (offset 8). Callers must write this at offset 8.
+/// On GV100, PD0 uses 16-byte dual PDEs. The small PT pointer goes in
+/// the **upper** 8 bytes (offset 8). Same format as non-leaf PDEs:
+/// `phys_addr | VALID` with VRAM aperture (target=0).
 pub(crate) fn encode_vram_pd0_pde(vram_addr: u64) -> u64 {
     encode_vram_pde(vram_addr)
 }
@@ -293,10 +295,9 @@ pub fn build_vram_falcon_inst_block(bar0: &MappedBar) -> bool {
     }
 
     // Instance block: PAGE_DIR_BASE at RAMIN offset 0x200
-    let pdb_lo: u32 = ((FALCON_PD3_VRAM >> 12) << 12)
-        | (1 << 11) // BIG_PAGE_SIZE = 64KiB
-        | (1 << 10) // USE_VER2_PT_FORMAT
-        ; // target bits[1:0] = 0 = VRAM, VOL=0
+    // GP100+ format (from nouveau gp100_vmm_join): addr | VALID | (target << 1)
+    // For VRAM: target=0, so pdb = addr | 1
+    let pdb_lo: u32 = FALCON_PD3_VRAM | 1; // VALID + VRAM aperture
     if !wv(FALCON_INST_VRAM, 0x200, pdb_lo) {
         return false;
     }
@@ -304,7 +305,7 @@ pub fn build_vram_falcon_inst_block(bar0: &MappedBar) -> bool {
         return false;
     }
 
-    // VA limit = 128TB
+    // VA limit
     if !wv(FALCON_INST_VRAM, 0x208, 0xFFFF_FFFF) {
         return false;
     }

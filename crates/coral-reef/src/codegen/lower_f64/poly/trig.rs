@@ -207,7 +207,7 @@ pub fn lower_f64_cos(
     op: &OpF64Cos,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &dyn ShaderModel,
+    sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -249,14 +249,7 @@ pub fn lower_f64_cos(
         }),
         pred,
     ));
-    let n_plus_1 = alloc.alloc(RegFile::GPR);
-    out.push(with_pred(
-        Instr::new(OpIAdd3 {
-            dsts: [n_plus_1.into(), Dst::None, Dst::None],
-            srcs: [n_i32.into(), Src::new_imm_u32(1), Src::ZERO],
-        }),
-        pred,
-    ));
+    let n_plus_1 = emit_iadd(&mut out, alloc, pred, n_i32.into(), Src::new_imm_u32(1), sm);
     let n_plus_1_and_2 = alloc.alloc(RegFile::GPR);
     out.push(with_pred(
         Instr::new(OpLop2 {

@@ -412,9 +412,9 @@ pub(crate) fn falcon_status(
         .unwrap_or("fecs");
 
     let base = match engine {
-        "fecs" => 0x0040_9800_u32,
-        "gpccs" => 0x0041_a800_u32,
-        "sec2" => 0x0084_0000_u32,
+        "fecs" => 0x0040_9000_u32,
+        "gpccs" => 0x0041_a000_u32,
+        "sec2" => 0x0008_7000_u32,
         "pmu" => 0x0010_a000_u32,
         "nvdec" => 0x0084_8000_u32,
         other => {
@@ -438,30 +438,44 @@ pub(crate) fn falcon_status(
     };
 
     let ops: Vec<(u32, Option<u32>)> = vec![
-        (base + 0x100, None), // FALCON_CPUCTL
-        (base + 0x10C, None), // FALCON_MAILBOX0
-        (base + 0x110, None), // FALCON_MAILBOX1
-        (base + 0x108, None), // FALCON_SCTL
-        (base + 0x12C, None), // FALCON_BOOTVEC
-        (base + 0x024, None), // FALCON_OS
+        (base + 0x100, None), // CPUCTL
+        (base + 0x040, None), // MAILBOX0
+        (base + 0x044, None), // MAILBOX1
+        (base + 0x240, None), // SCTL
+        (base + 0x104, None), // BOOTVEC
+        (base + 0x080, None), // OS
+        (base + 0x108, None), // HWCFG
+        (base + 0x030, None), // PC
+        (base + 0x148, None), // EXCI
     ];
 
     let result = bar0.isolated_batch(&ops, MMIO_TIMEOUT);
 
     match result {
         IsolationResult::Ok(values) => {
+            let cpuctl = *values.first().unwrap_or(&0);
+            let sctl = *values.get(3).unwrap_or(&0);
+            let sec_mode = (sctl >> 12) & 3;
+            let halted = cpuctl & 0x20 != 0;
+            let hreset = cpuctl & 0x10 != 0;
             write_jsonrpc_ok(
                 stream,
                 id,
                 serde_json::json!({
                     "engine": engine,
                     "base": format!("0x{base:08x}"),
-                    "cpuctl": format!("0x{:08x}", values.first().unwrap_or(&0)),
+                    "cpuctl": format!("0x{cpuctl:08x}"),
                     "mailbox0": format!("0x{:08x}", values.get(1).unwrap_or(&0)),
                     "mailbox1": format!("0x{:08x}", values.get(2).unwrap_or(&0)),
-                    "sctl": format!("0x{:08x}", values.get(3).unwrap_or(&0)),
+                    "sctl": format!("0x{sctl:08x}"),
                     "bootvec": format!("0x{:08x}", values.get(4).unwrap_or(&0)),
                     "os": format!("0x{:08x}", values.get(5).unwrap_or(&0)),
+                    "hwcfg": format!("0x{:08x}", values.get(6).unwrap_or(&0)),
+                    "pc": format!("0x{:08x}", values.get(7).unwrap_or(&0)),
+                    "exci": format!("0x{:08x}", values.get(8).unwrap_or(&0)),
+                    "sec_mode": sec_mode,
+                    "halted": halted,
+                    "hreset": hreset,
                 }),
             )
             .map_err(EmberIpcError::from)?;
