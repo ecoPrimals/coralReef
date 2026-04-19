@@ -275,6 +275,27 @@ async fn main() {
         );
     }
 
+    // Blackwell+ (GB2xx) requires coral-kmod.ko for kernel-privileged GPU_PROMOTE_CTX.
+    // Ensure it's loaded via ember before activating any Blackwell devices.
+    let has_blackwell = slots.iter().any(|s| s.chip_name.starts_with("GB"));
+    if has_blackwell {
+        if let Some(ref client) = ember_client {
+            if client.ensure_kmod_loaded(None) {
+                tracing::info!("coral-kmod ready for Blackwell GPU channel setup");
+            } else {
+                tracing::warn!(
+                    "coral-kmod not available — Blackwell GPUs will use \
+                     userspace RM path (GPU_PROMOTE_CTX may fail)"
+                );
+            }
+        } else {
+            tracing::info!(
+                "Blackwell device detected but ember unavailable — \
+                 coral-kmod must be loaded manually (insmod coral_kmod.ko)"
+            );
+        }
+    }
+
     for slot in &mut slots {
         if slot.config.is_protected() {
             continue;

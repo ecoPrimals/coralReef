@@ -82,8 +82,12 @@ impl Backend for NvidiaBackend {
     fn compile(&self, shader: &mut Shader<'_>) -> Result<CompiledBinary, CompileError> {
         let compiled = crate::codegen::pipeline::compile_shader(shader, false)?;
 
-        let mut binary = Vec::with_capacity(compiled.header.len() * 4 + compiled.code.len() * 4);
-        for word in &compiled.header {
+        // Compute shaders have no SPH — all dispatch metadata lives in the QMD.
+        // Graphics shaders carry the SPH prepended to the instruction stream.
+        let is_compute = matches!(shader.info.stage, ShaderStageInfo::Compute(_));
+        let hdr_words = if is_compute { 0 } else { compiled.header.len() };
+        let mut binary = Vec::with_capacity(hdr_words * 4 + compiled.code.len() * 4);
+        for word in &compiled.header[..hdr_words] {
             binary.extend_from_slice(&word.to_le_bytes());
         }
         for word in &compiled.code {

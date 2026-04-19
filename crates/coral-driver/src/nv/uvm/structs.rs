@@ -8,6 +8,7 @@
 use bytemuck::Zeroable;
 
 use super::NV_MAX_SUBDEVICES;
+use super::{ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT, GPU_PROMOTE_CONTEXT_MAX_ENTRIES, INTERNAL_GR_MAX_ENGINES};
 
 /// Arguments for `UVM_INITIALIZE`.
 #[repr(C)]
@@ -514,6 +515,56 @@ pub struct NvRmMapMemoryDmaParams {
     pub pad2: u32,
 }
 
+/// Parameters for `NV_ESC_RM_UNMAP_MEMORY_DMA` (`NVOS47_PARAMETERS`).
+///
+/// Unmaps an RM memory object from a GPU virtual address space, tearing
+/// down page table entries so the GPU VA can be safely reused without
+/// stale TLB entries.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct NvRmUnmapMemoryDmaParams {
+    /// Client handle.
+    pub h_client: u32,
+    /// Device handle.
+    pub h_device: u32,
+    /// VA space / virtual memory handle (`NV01_MEMORY_VIRTUAL`).
+    pub h_dma: u32,
+    /// Memory object handle.
+    pub h_memory: u32,
+    /// Flags (reserved, pass 0).
+    pub flags: u32,
+    /// Alignment padding.
+    pub pad: u32,
+    /// GPU virtual address to unmap (as returned by `rm_map_memory_dma`).
+    pub dma_offset: u64,
+    /// RM status code.
+    pub status: u32,
+    /// Trailing padding.
+    pub pad2: u32,
+}
+
+/// `UVM_PAGEABLE_MEM_ACCESS` parameters.
+///
+/// Queries whether pageable (CPU-managed) memory access is supported for
+/// this UVM context. CUDA calls this during context creation on Blackwell.
+///
+/// Layout (8 bytes) — must match `UVM_PAGEABLE_MEM_ACCESS_PARAMS` from
+/// `uvm_ioctl.h`:
+/// ```text
+/// 0x00  pageableMemAccess  NvBool (u8) — OUT
+/// 0x01  (pad)              3 bytes
+/// 0x04  rmStatus           NV_STATUS (u32) — OUT
+/// ```
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct UvmPageableMemAccessParams {
+    /// Whether pageable memory access is supported (output).
+    pub pageable_mem_access: u8,
+    _pad: [u8; 3],
+    /// RM status code returned by kernel.
+    pub rm_status: u32,
+}
+
 /// `UVM_REGISTER_GPU_VASPACE` parameters.
 ///
 /// Registers an RM VA space with UVM so that external memory can be mapped
@@ -625,3 +676,137 @@ impl Default for UvmMapExternalAllocParams {
         Self::zeroed()
     }
 }
+
+// ── GR context buffer query and promotion structs ───────────────────
+//
+// Used by `NV2080_CTRL_CMD_INTERNAL_STATIC_KGR_GET_CONTEXT_BUFFERS_INFO`
+// and `NV2080_CTRL_CMD_GPU_PROMOTE_CTX` to implement the nouveau-style
+// explicit context buffer allocation flow.
+
+/// Per-engine-ID buffer requirement (size + alignment).
+///
+/// Matches `NV2080_CTRL_INTERNAL_ENGINE_CONTEXT_BUFFER_INFO` from
+/// `ctrl2080internal.h`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EngineContextBufferInfo {
+    /// Required buffer size in bytes.
+    pub size: u32,
+    /// Required allocation alignment in bytes.
+    pub alignment: u32,
+}
+
+// Safety: all-zero is valid for this POD type.
+unsafe impl bytemuck::Zeroable for EngineContextBufferInfo {}
+// Safety: no padding, no invariants — purely POD.
+unsafe impl bytemuck::Pod for EngineContextBufferInfo {}
+
+/// Buffer requirements for one GR engine instance.
+///
+/// Matches `NV2080_CTRL_INTERNAL_STATIC_GR_CONTEXT_BUFFERS_INFO`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct GrContextBuffersInfo {
+    /// Per-engine-ID buffer requirements (indexed by `ENGINE_CTX_ID_*`).
+    pub engine: [EngineContextBufferInfo; ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT],
+}
+
+impl Default for GrContextBuffersInfo {
+    fn default() -> Self {
+        Self::zeroed()
+    }
+}
+
+// Safety: all-zero is valid.
+unsafe impl bytemuck::Zeroable for GrContextBuffersInfo {}
+// Safety: array of POD, no padding.
+unsafe impl bytemuck::Pod for GrContextBuffersInfo {}
+
+/// Response for `NV2080_CTRL_CMD_INTERNAL_STATIC_KGR_GET_CONTEXT_BUFFERS_INFO`.
+///
+/// Contains buffer requirements for up to 8 GR engine instances.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct GetContextBuffersInfoParams {
+    /// Per-GR-engine buffer requirements (index 0 = first GR engine).
+    pub engine_context_buffers_info: [GrContextBuffersInfo; INTERNAL_GR_MAX_ENGINES],
+}
+
+impl Default for GetContextBuffersInfoParams {
+    fn default() -> Self {
+        Self::zeroed()
+    }
+}
+
+// Safety: all-zero is valid.
+unsafe impl bytemuck::Zeroable for GetContextBuffersInfoParams {}
+// Safety: array of POD, no padding.
+unsafe impl bytemuck::Pod for GetContextBuffersInfoParams {}
+
+/// One entry in the `GPU_PROMOTE_CTX` buffer table.
+///
+/// Matches `NV2080_CTRL_GPU_PROMOTE_CTX_BUFFER_ENTRY` from `ctrl2080gpu.h`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PromoteCtxBufferEntry {
+    /// GPU physical address (for non-mapped buffers).
+    pub gpu_phys_addr: u64,
+    /// GPU virtual address (0 for non-mapped buffers).
+    pub gpu_virt_addr: u64,
+    /// Buffer size in bytes.
+    pub size: u64,
+    /// Physical attributes (4 = sysmem/cached for initialized buffers).
+    pub phys_attr: u32,
+    /// Buffer type (`PROMOTE_CTX_BUFFER_ID_*`).
+    pub buffer_id: u16,
+    /// Whether RM should initialize this buffer (1 = yes).
+    pub b_initialize: u8,
+    /// Whether this buffer has no VA mapping (1 = physical only).
+    pub b_nonmapped: u8,
+}
+
+// Safety: all-zero is valid for this POD type.
+unsafe impl bytemuck::Zeroable for PromoteCtxBufferEntry {}
+// Safety: no padding (u64, u64, u64, u32, u16, u8, u8 = 32 bytes), no invariants.
+unsafe impl bytemuck::Pod for PromoteCtxBufferEntry {}
+
+/// Parameters for `NV2080_CTRL_CMD_GPU_PROMOTE_CTX`.
+///
+/// Matches `NV2080_CTRL_GPU_PROMOTE_CTX_PARAMS` from `ctrl2080gpu.h`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct GpuPromoteCtxParams {
+    /// Engine type (`NV2080_ENGINE_TYPE_GR0` = 0).
+    pub engine_type: u32,
+    /// RM client handle.
+    pub h_client: u32,
+    /// Channel ID (0 = RM resolves from `h_object`).
+    pub ch_id: u32,
+    /// Channel's owning client handle.
+    pub h_chan_client: u32,
+    /// Channel object handle.
+    pub h_object: u32,
+    /// Virtual memory handle (reserved, typically 0).
+    pub h_virt_memory: u32,
+    /// Virtual address (reserved, typically 0).
+    pub virt_address: u64,
+    /// Size (reserved, typically 0).
+    pub size: u64,
+    /// Number of valid entries in `promote_entry`.
+    pub entry_count: u32,
+    /// Explicit padding for 8-byte alignment of `promote_entry`.
+    pub _pad: u32,
+    /// Buffer entries to promote to RM.
+    pub promote_entry: [PromoteCtxBufferEntry; GPU_PROMOTE_CONTEXT_MAX_ENTRIES],
+}
+
+impl Default for GpuPromoteCtxParams {
+    fn default() -> Self {
+        Self::zeroed()
+    }
+}
+
+// Safety: all-zero is valid.
+unsafe impl bytemuck::Zeroable for GpuPromoteCtxParams {}
+// Safety: composed of POD, explicit padding ensures no implicit padding.
+unsafe impl bytemuck::Pod for GpuPromoteCtxParams {}

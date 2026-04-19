@@ -5,6 +5,7 @@ mod fd;
 mod handlers_device;
 mod handlers_journal;
 mod handlers_devinit;
+mod handlers_kmod;
 mod handlers_mmio;
 mod handlers_sovereign;
 mod helpers;
@@ -174,6 +175,15 @@ pub fn handle_client(
         "ember.vbios.read" => {
             handlers_devinit::vbios_read(stream, held, id, params)?;
         }
+        "ember.kmod.status" => {
+            handlers_kmod::status(stream, id)?;
+        }
+        "ember.kmod.load" => {
+            handlers_kmod::load(stream, id, params)?;
+        }
+        "ember.kmod.unload" => {
+            handlers_kmod::unload(stream, id)?;
+        }
         "health.check" => {
             let resp = health_check_response(held, started_at);
             jsonrpc::write_jsonrpc_ok(stream, id, resp).map_err(EmberIpcError::from)?;
@@ -328,6 +338,15 @@ pub fn handle_client_tcp(
         }
         "ember.vbios.read" => {
             handlers_devinit::vbios_read(stream, held, id, params)?;
+        }
+        "ember.kmod.status" => {
+            handlers_kmod::status(stream, id)?;
+        }
+        "ember.kmod.load" => {
+            handlers_kmod::load(stream, id, params)?;
+        }
+        "ember.kmod.unload" => {
+            handlers_kmod::unload(stream, id)?;
         }
         "health.check" => {
             let resp = health_check_response(held, started_at);

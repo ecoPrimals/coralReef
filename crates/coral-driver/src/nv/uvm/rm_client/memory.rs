@@ -4,10 +4,13 @@
 use crate::error::{DriverError, DriverResult};
 
 use super::super::rm_helpers::nv_rm_ioctl;
-use super::super::structs::{NvRmMapMemoryDmaParams, NvRmMapMemoryParams, NvRmUnmapMemoryParams};
+use super::super::structs::{
+    NvRmMapMemoryDmaParams, NvRmMapMemoryParams, NvRmUnmapMemoryDmaParams,
+    NvRmUnmapMemoryParams,
+};
 use super::super::{
     NV_ESC_RM_MAP_MEMORY, NV_ESC_RM_MAP_MEMORY_DMA, NV_ESC_RM_UNMAP_MEMORY,
-    NVOS46_FLAGS_SHADER_ACCESS_READ_WRITE, nv_ioctl_rw,
+    NV_ESC_RM_UNMAP_MEMORY_DMA, NVOS46_FLAGS_SHADER_ACCESS_READ_WRITE, nv_ioctl_rw,
 };
 use super::RmClient;
 
@@ -146,6 +149,43 @@ impl RmClient {
             ioctl_nr,
             &mut params,
             "RM_UNMAP_MEMORY",
+            |p| p.status,
+        )
+    }
+
+    /// Unmap a GPU virtual address mapping created by `rm_map_memory_dma*`.
+    ///
+    /// Uses `NV_ESC_RM_UNMAP_MEMORY_DMA` (NVOS47) to tear down the GPU page
+    /// table entries for `dma_offset` within the `h_virt_mem` VA space,
+    /// preventing stale TLB entries when the same VA is later reused.
+    pub fn rm_unmap_memory_dma(
+        &mut self,
+        h_device: u32,
+        h_virt_mem: u32,
+        h_memory: u32,
+        dma_offset: u64,
+    ) -> DriverResult<()> {
+        let mut params = NvRmUnmapMemoryDmaParams {
+            h_client: self.h_client,
+            h_device,
+            h_dma: h_virt_mem,
+            h_memory,
+            flags: 0,
+            pad: 0,
+            dma_offset,
+            status: 0,
+            pad2: 0,
+        };
+
+        let ioctl_nr = nv_ioctl_rw(
+            NV_ESC_RM_UNMAP_MEMORY_DMA,
+            std::mem::size_of::<NvRmUnmapMemoryDmaParams>(),
+        );
+        nv_rm_ioctl(
+            self.ctl.fd(),
+            ioctl_nr,
+            &mut params,
+            "RM_UNMAP_MEMORY_DMA",
             |p| p.status,
         )
     }

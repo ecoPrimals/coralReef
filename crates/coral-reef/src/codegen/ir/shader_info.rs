@@ -271,6 +271,33 @@ impl Shader<'_> {
         }
     }
 
+    /// Insert `MEMBAR.SYS` before every `EXIT` in compute shaders.
+    ///
+    /// Global stores (`STG`) use weak ordering and land in the GPU L2 cache.
+    /// Without an explicit system-scope memory barrier, those writes may not
+    /// be visible to the CPU when it reads back results via the UVM mapping.
+    /// Inserting `MEMBAR.SYS` before each `EXIT` ensures L2→DRAM writeback
+    /// completes before the thread retires.
+    pub fn insert_exit_system_membar(&mut self) {
+        if !matches!(self.info.stage, ShaderStageInfo::Compute(_)) {
+            return;
+        }
+        for func in &mut self.functions {
+            for block in func.blocks.iter_mut() {
+                let mut new_instrs = Vec::with_capacity(block.instrs.len() + 4);
+                for instr in block.instrs.drain(..) {
+                    if matches!(instr.op, Op::Exit(_)) {
+                        new_instrs.push(Instr::new(OpMemBar {
+                            scope: MemScope::System,
+                        }));
+                    }
+                    new_instrs.push(instr);
+                }
+                block.instrs = new_instrs;
+            }
+        }
+    }
+
     /// Remove all annotations, presumably before encoding the shader.
     pub fn remove_annotations(&mut self) {
         self.map_instrs(|instr: Instr, _| -> MappedInstrs {

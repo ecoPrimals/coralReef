@@ -3,7 +3,7 @@
 
 use crate::nv::uvm::{
     ADA_COMPUTE_A, AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B,
-    BLACKWELL_CHANNEL_GPFIFO_B, BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, HOPPER_COMPUTE_A,
+    BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, HOPPER_COMPUTE_A,
     VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
 };
 
@@ -67,7 +67,7 @@ impl GpuGen {
 
     pub(super) const fn channel_class(self) -> u32 {
         match self {
-            Self::BlackwellA | Self::BlackwellB => BLACKWELL_CHANNEL_GPFIFO_B,
+            Self::BlackwellA | Self::BlackwellB => BLACKWELL_CHANNEL_GPFIFO_A,
             Self::AmpereA | Self::AmpereB | Self::Ada | Self::Hopper => AMPERE_CHANNEL_GPFIFO_A,
             Self::Volta | Self::Turing => VOLTA_CHANNEL_GPFIFO_A,
         }
@@ -84,6 +84,18 @@ impl GpuGen {
             Self::Volta | Self::Turing => VOLTA_COMPUTE_A,
         }
     }
+}
+
+/// An explicitly-allocated GR context buffer promoted to RM.
+///
+/// These are allocated during `NvUvmComputeDevice::open()` and promoted
+/// via `GPU_PROMOTE_CTX` to replace demand-paged internal buffers.
+pub(super) struct CtxBuffer {
+    pub(super) buffer_id: u16,
+    pub(super) h_memory: u32,
+    #[expect(dead_code, reason = "diagnostic use in future iterations")]
+    pub(super) size: u64,
+    pub(super) gpu_va: u64,
 }
 
 /// A buffer allocated via RM + UVM.
@@ -119,9 +131,13 @@ pub(super) const fn gpfifo_entry(push_buf_va: u64, length_dwords: u32) -> u64 {
 }
 
 /// Volta+ RAMUSERD `GP_PUT` offset (bytes) — dword 35.
+/// Present on all generations from Volta through Blackwell.
 pub(super) const USERD_GP_PUT_OFFSET: usize = 35 * 4; // 0x8C
 
-/// Volta+ RAMUSERD `GP_GET` offset (bytes) — dword 34.
+/// Volta-Hopper RAMUSERD `GP_GET` offset (bytes) — dword 34.
+/// NOTE: Blackwell (clca6f) removed GP_GET from the USERD control struct.
+/// The entire 0x00-0x8B range is "Ignored00" on Blackwell.
+/// On Blackwell, completion must be tracked via semaphore release instead.
 pub(super) const USERD_GP_GET_OFFSET: usize = 34 * 4; // 0x88
 
 /// Default GPFIFO ring entries (each entry = 8 bytes, 512 entries = 4 KiB).

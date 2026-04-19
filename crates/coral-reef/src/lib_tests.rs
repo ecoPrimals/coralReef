@@ -420,7 +420,7 @@ fn test_strip_enable_directives_preserves_other_lines() {
 }
 
 #[test]
-fn test_emit_binary_nvidia_includes_header() {
+fn test_emit_binary_nvidia_graphics_includes_header() {
     let mut header = [0u32; codegen::nv::shader_header::CURRENT_MAX_SHADER_HEADER_SIZE];
     header[0] = 0xDEAD;
     header[1] = 0xBEEF;
@@ -431,6 +431,21 @@ fn test_emit_binary_nvidia_includes_header() {
     let binary = emit_binary(&compiled, GpuTarget::Nvidia(NvArch::Sm70));
     let header_bytes = codegen::nv::shader_header::CURRENT_MAX_SHADER_HEADER_SIZE * 4;
     assert_eq!(binary.len(), header_bytes + 4, "full header + 1 code word");
+}
+
+#[test]
+fn test_emit_binary_nvidia_compute_omits_zeroed_header() {
+    let compiled = codegen::pipeline::CompiledShader {
+        header: [0u32; codegen::nv::shader_header::CURRENT_MAX_SHADER_HEADER_SIZE],
+        code: vec![0xCAFE],
+    };
+    let binary = emit_binary(&compiled, GpuTarget::Nvidia(NvArch::Sm70));
+    assert_eq!(binary.len(), 4, "compute binary has no SPH, only code words");
+    assert_eq!(
+        u32::from_le_bytes(binary[0..4].try_into().unwrap()),
+        0xCAFE,
+        "first bytes are the instruction word"
+    );
 }
 
 #[test]

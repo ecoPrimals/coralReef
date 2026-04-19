@@ -49,22 +49,49 @@ pub mod class {
 }
 
 /// NVIDIA compute class method registers (offsets in bytes).
+///
+/// Sourced from `clc3c0.h` (Volta), `clcec0.h` (Blackwell).
+/// These are stable across Volta through Blackwell (SM70–SM120+).
 pub mod method {
-    /// Set the target object (compute class).
+    /// Set the target object (compute class) on the selected subchannel.
     pub const SET_OBJECT: u32 = 0x0000;
-    /// Invalidate instruction and data caches.
-    pub const INVALIDATE_SHADER_CACHES: u32 = 0x0088;
-    /// Set shared memory window (upper 32 bits).
-    pub const SET_SHADER_LOCAL_MEMORY_WINDOW_A: u32 = 0x077C;
-    /// Set shared memory window (lower 32 bits).
-    pub const SET_SHADER_LOCAL_MEMORY_WINDOW_B: u32 = 0x0780;
-    /// Launch compute: QMD address (upper 32 bits).
-    pub const SEND_PCAS_A: u32 = 0x0D00;
-    /// Launch compute: QMD address (lower 32 bits).
-    pub const SEND_SIGNALING_PCAS_B: u32 = 0x0D04;
+    /// Invalidate shader instruction and data caches.
+    pub const INVALIDATE_SHADER_CACHES: u32 = 0x021C;
+    /// Set shared memory window base (upper 17 bits).
+    pub const SET_SHADER_SHARED_MEMORY_WINDOW_A: u32 = 0x02A0;
+    /// Set shared memory window base (lower 32 bits).
+    pub const SET_SHADER_SHARED_MEMORY_WINDOW_B: u32 = 0x02A4;
+    /// SLM non-throttled per-TPC limit (upper 8 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_A: u32 = 0x02E4;
+    /// SLM non-throttled per-TPC limit (lower 32 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_B: u32 = 0x02E8;
+    /// SLM non-throttled max SM count (9 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_C: u32 = 0x02EC;
+    /// SLM base GPU VA (upper 8 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_A: u32 = 0x0790;
+    /// SLM base GPU VA (lower 32 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_B: u32 = 0x0794;
+    /// Set local memory window base (upper 17 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_WINDOW_A: u32 = 0x07B0;
+    /// Set local memory window base (lower 32 bits).
+    pub const SET_SHADER_LOCAL_MEMORY_WINDOW_B: u32 = 0x07B4;
+    /// Launch compute: QMD address >> 8 (256-byte aligned).
+    pub const SEND_PCAS_A: u32 = 0x02B4;
+    /// Launch compute trigger (<= Turing): bit 0 = invalidate, bit 1 = schedule.
+    pub const SEND_SIGNALING_PCAS_B: u32 = 0x02BC;
+    /// Launch compute trigger (Ampere+): bits 3:0 = PCAS_ACTION enum.
+    /// NVK uses PCAS_ACTION_INVALIDATE_COPY_SCHEDULE (0x3) for all dispatches.
+    pub const SEND_SIGNALING_PCAS2_B: u32 = 0x02C0;
 
     /// Invalidate instruction + data caches (bits 0 + 4).
     pub const INVALIDATE_INSTR_AND_DATA: u32 = 0x11;
+
+    /// PCAS_ACTION_INVALIDATE_COPY_SCHEDULE — invalidate PCAS state, copy QMD,
+    /// and schedule the CTA grid for execution. Used with `SEND_SIGNALING_PCAS2_B`.
+    pub const PCAS_ACTION_INVALIDATE_COPY_SCHEDULE: u32 = 0x3;
+
+    /// Turing compute class threshold — classes above this use PCAS2_B.
+    pub const TURING_COMPUTE_A: u32 = 0xC5C0;
 }
 
 /// Default word capacity for push buffers — sufficient for most
@@ -122,6 +149,11 @@ impl PushBuf {
         self.words.extend_from_slice(data);
     }
 
+    /// Append another push buffer's contents to this one.
+    pub fn append(&mut self, other: &Self) {
+        self.words.extend_from_slice(&other.words);
+    }
+
     /// Emit a NOP (zero header).
     pub fn nop(&mut self) {
         self.words.push(0);
@@ -145,28 +177,82 @@ impl PushBuf {
         &self.words
     }
 
-    /// Build a compute dispatch push buffer for Volta+ (SM70+).
+    /// Build a one-time compute init push buffer for Volta+ (SM70+).
     ///
-    /// Sets up the compute class, invalidates caches, and launches
-    /// via `SEND_PCAS_A`/`B` with the QMD address.
+    /// Binds the compute class to subchannel 1 via `SET_OBJECT` and configures
+    /// the shared/local memory windows **and** the SLM (Shader Local Memory)
+    /// base address. Must be submitted once after channel setup — NVK does
+    /// this in `nvk_push_dispatch_state_init()` + `nvk_queue_state_update()`.
+    ///
+    /// The SLM registers (`SET_SHADER_LOCAL_MEMORY_A/B` +
+    /// `SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_A/B/C`) tell the SM where to
+    /// put per-warp scratch/CRS memory. Without them, even an EXIT-only shader
+    /// faults with `Invalid Address Space` during warp launch.
+    ///
+    /// Repeated `SET_OBJECT` calls on Blackwell corrupt channel state
+    /// (GR_CLASS_ERROR 0x0D), so this is separated from per-dispatch work.
     #[must_use]
-    pub fn compute_dispatch(compute_class: u32, qmd_addr: u64, local_mem_window: u64) -> Self {
+    pub fn compute_init(
+        compute_class: u32,
+        local_mem_window: u64,
+        slm_base_addr: u64,
+        slm_per_tpc_bytes: u64,
+    ) -> Self {
         let mut pb = Self::new();
-        let sub = 0_u32;
+        let sub = 1_u32;
 
         pb.push_1(sub, method::SET_OBJECT, compute_class);
 
-        pb.push_1(
-            sub,
-            method::INVALIDATE_SHADER_CACHES,
-            method::INVALIDATE_INSTR_AND_DATA,
-        );
+        let uses_pcas2 = compute_class > method::TURING_COMPUTE_A;
+        let smem_window: u64 = if uses_pcas2 { 1u64 << 32 } else { 0xFE00_0000 };
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "deliberate split into 32-bit halves"
         )]
         {
+            pb.push_1(
+                sub,
+                method::SET_SHADER_SHARED_MEMORY_WINDOW_A,
+                (smem_window >> 32) as u32,
+            );
+            pb.push_1(
+                sub,
+                method::SET_SHADER_SHARED_MEMORY_WINDOW_B,
+                smem_window as u32,
+            );
+
+            // SLM base address (where per-warp scratch / CRS lives).
+            pb.push_1(
+                sub,
+                method::SET_SHADER_LOCAL_MEMORY_A,
+                (slm_base_addr >> 32) as u32,
+            );
+            pb.push_1(
+                sub,
+                method::SET_SHADER_LOCAL_MEMORY_B,
+                slm_base_addr as u32,
+            );
+
+            // Per-TPC SLM allocation limit — NVK sets this to
+            // `bytes_per_warp * max_warps_per_sm * sms_per_tpc`.
+            pb.push_1(
+                sub,
+                method::SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_A,
+                (slm_per_tpc_bytes >> 32) as u32,
+            );
+            pb.push_1(
+                sub,
+                method::SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_B,
+                slm_per_tpc_bytes as u32,
+            );
+            pb.push_1(
+                sub,
+                method::SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_C,
+                0xFF, // all SMs
+            );
+
+            // Local memory window (generic address space mapping).
             pb.push_1(
                 sub,
                 method::SET_SHADER_LOCAL_MEMORY_WINDOW_A,
@@ -177,9 +263,50 @@ impl PushBuf {
                 method::SET_SHADER_LOCAL_MEMORY_WINDOW_B,
                 local_mem_window as u32,
             );
+        }
 
-            pb.push_1(sub, method::SEND_PCAS_A, (qmd_addr >> 32) as u32);
-            pb.push_1(sub, method::SEND_SIGNALING_PCAS_B, qmd_addr as u32);
+        pb
+    }
+
+    /// Build a per-dispatch push buffer for Volta+ (SM70+).
+    ///
+    /// Invalidates caches and launches via `SEND_PCAS_A` + the appropriate
+    /// signaling method. The compute class must already be bound to subchannel 1
+    /// via a prior [`compute_init`](Self::compute_init) submission.
+    ///
+    /// - `<= Turing`: `SEND_SIGNALING_PCAS_B` (0x02BC) with invalidate+schedule bits
+    /// - `>  Turing`: `SEND_SIGNALING_PCAS2_B` (0x02C0) with `PCAS_ACTION_INVALIDATE_COPY_SCHEDULE`
+    ///
+    /// `SEND_PCAS_A` takes `qmd_addr >> 8` (QMD must be 256-byte aligned).
+    #[must_use]
+    pub fn compute_dispatch(compute_class: u32, qmd_addr: u64) -> Self {
+        let mut pb = Self::new();
+        let sub = 1_u32;
+
+        pb.push_1(
+            sub,
+            method::INVALIDATE_SHADER_CACHES,
+            method::INVALIDATE_INSTR_AND_DATA,
+        );
+
+        let uses_pcas2 = compute_class > method::TURING_COMPUTE_A;
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "deliberate split into 32-bit halves"
+        )]
+        {
+            pb.push_1(sub, method::SEND_PCAS_A, (qmd_addr >> 8) as u32);
+
+            if uses_pcas2 {
+                pb.push_1(
+                    sub,
+                    method::SEND_SIGNALING_PCAS2_B,
+                    method::PCAS_ACTION_INVALIDATE_COPY_SCHEDULE,
+                );
+            } else {
+                pb.push_1(sub, method::SEND_SIGNALING_PCAS_B, 0x3);
+            }
         }
 
         pb
@@ -244,15 +371,15 @@ mod tests {
 
     #[test]
     fn mthd_incr_with_method() {
-        // INVALIDATE_SHADER_CACHES = 0x0088
-        // method>>2 = 0x22, count=1, subchan=0
-        let hdr = mthd_incr(0, 0x0088, 1);
+        // INVALIDATE_SHADER_CACHES = 0x021C
+        // method>>2 = 0x87, count=1, subchan=0
+        let hdr = mthd_incr(0, 0x021C, 1);
         let method_field = hdr & 0x1FFF;
         let count_field = (hdr >> 16) & 0x1FFF;
         let type_field = hdr >> 29;
         assert_eq!(type_field, 1);
         assert_eq!(count_field, 1);
-        assert_eq!(method_field, 0x0088 >> 2);
+        assert_eq!(method_field, 0x021C >> 2);
     }
 
     #[test]
@@ -270,17 +397,71 @@ mod tests {
     }
 
     #[test]
-    fn pushbuf_compute_dispatch_structure() {
-        let pb = PushBuf::compute_dispatch(class::VOLTA_COMPUTE_A, 0x1_0000_0000, 0xFF00_0000);
+    fn compute_init_volta_binds_class_and_windows() {
+        let pb = PushBuf::compute_init(class::VOLTA_COMPUTE_A, 0xFF00_0000, 0x1_0000_0000, 0x8000);
         let words = pb.as_words();
-        // Should have: SET_OBJECT(hdr,data), INVALIDATE(hdr,data),
-        // LOCAL_MEM_A(hdr,data), LOCAL_MEM_B(hdr,data),
-        // SEND_PCAS_A(hdr,data), SEND_PCAS_B(hdr,data) = 12 words
-        assert_eq!(words.len(), 12);
-
-        // First pair: SET_OBJECT
-        assert_eq!(words[0], mthd_incr(0, method::SET_OBJECT, 1));
+        // SET_OBJECT(2) + SMEM_WINDOW_A/B(4) + SLM_A/B(4) +
+        // NON_THROTTLED_A/B/C(6) + LOCAL_WINDOW_A/B(4) = 20
+        assert_eq!(words.len(), 20);
+        assert_eq!(words[0], mthd_incr(1, method::SET_OBJECT, 1));
         assert_eq!(words[1], class::VOLTA_COMPUTE_A);
+    }
+
+    #[test]
+    fn compute_init_blackwell_binds_class_and_windows() {
+        let pb = PushBuf::compute_init(0xCEC0, 0xFF00_0000, 0x1_0000_0000, 0x8000);
+        let words = pb.as_words();
+        assert_eq!(words.len(), 20);
+        assert_eq!(words[0], mthd_incr(1, method::SET_OBJECT, 1));
+        assert_eq!(words[1], 0xCEC0);
+        // Shared memory window for Blackwell: 1<<32 → A=1, B=0
+        assert_eq!(words[3], 0x0000_0001); // SMEM_WINDOW_A upper
+        assert_eq!(words[5], 0x0000_0000); // SMEM_WINDOW_B lower
+    }
+
+    #[test]
+    fn pushbuf_compute_dispatch_volta_uses_pcas_b() {
+        let pb = PushBuf::compute_dispatch(class::VOLTA_COMPUTE_A, 0x1_0000_0000);
+        let words = pb.as_words();
+        // INVALIDATE(2), SEND_PCAS_A(2), SEND_SIGNALING_PCAS_B(2) = 6
+        assert_eq!(words.len(), 6);
+
+        // No SET_OBJECT — that belongs in compute_init
+        assert!(
+            !words.contains(&mthd_incr(1, method::SET_OBJECT, 1)),
+            "compute_dispatch must not contain SET_OBJECT"
+        );
+
+        let pcas_b_idx = words
+            .iter()
+            .position(|&w| w == mthd_incr(1, method::SEND_SIGNALING_PCAS_B, 1));
+        assert!(pcas_b_idx.is_some(), "Volta must use SEND_SIGNALING_PCAS_B");
+    }
+
+    #[test]
+    fn pushbuf_compute_dispatch_blackwell_uses_pcas2_b() {
+        let pb = PushBuf::compute_dispatch(0xCEC0, 0x1_0000_0000);
+        let words = pb.as_words();
+        // INVALIDATE(2), SEND_PCAS_A(2), SEND_SIGNALING_PCAS2_B(2) = 6
+        assert_eq!(words.len(), 6);
+
+        // No SET_OBJECT — that belongs in compute_init
+        assert!(
+            !words.contains(&mthd_incr(1, method::SET_OBJECT, 1)),
+            "compute_dispatch must not contain SET_OBJECT"
+        );
+
+        let pcas2_idx = words
+            .iter()
+            .position(|&w| w == mthd_incr(1, method::SEND_SIGNALING_PCAS2_B, 1));
+        assert!(
+            pcas2_idx.is_some(),
+            "Blackwell must use SEND_SIGNALING_PCAS2_B"
+        );
+        assert_eq!(
+            words[pcas2_idx.unwrap() + 1],
+            method::PCAS_ACTION_INVALIDATE_COPY_SCHEDULE
+        );
     }
 
     #[test]
@@ -340,24 +521,15 @@ mod tests {
         clippy::cast_possible_truncation,
         reason = "deliberate truncation test for 32-bit halves"
     )]
-    #[expect(
-        clippy::similar_names,
-        reason = "pcas_a and pcas_b are the actual GPU register names"
-    )]
-    fn pushbuf_compute_dispatch_qmd_addr_split() {
-        let qmd_addr = 0x80_1234_5678_9ABC_u64;
-        let pb = PushBuf::compute_dispatch(class::VOLTA_COMPUTE_A, qmd_addr, 0xFF00_0000);
+    fn pushbuf_compute_dispatch_qmd_addr_shifted8() {
+        let qmd_addr = 0x0000_0001_0000_1000_u64;
+        let pb = PushBuf::compute_dispatch(class::VOLTA_COMPUTE_A, qmd_addr);
         let words = pb.as_words();
         let send_pcas_a_idx = words
             .iter()
-            .position(|&w| w == mthd_incr(0, method::SEND_PCAS_A, 1))
+            .position(|&w| w == mthd_incr(1, method::SEND_PCAS_A, 1))
             .expect("compute_dispatch must emit SEND_PCAS_A");
-        assert_eq!(words[send_pcas_a_idx + 1], (qmd_addr >> 32) as u32);
-        let send_pcas_b_idx = words
-            .iter()
-            .position(|&w| w == mthd_incr(0, method::SEND_SIGNALING_PCAS_B, 1))
-            .expect("compute_dispatch must emit SEND_SIGNALING_PCAS_B");
-        assert_eq!(words[send_pcas_b_idx + 1], qmd_addr as u32);
+        assert_eq!(words[send_pcas_a_idx + 1], (qmd_addr >> 8) as u32);
     }
 
     #[test]

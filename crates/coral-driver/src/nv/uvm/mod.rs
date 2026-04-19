@@ -26,7 +26,7 @@
 //! - `kernel-open/common/inc/nv-ioctl-numbers.h`
 //! - `kernel-open/common/inc/nv-ioctl.h`
 
-mod rm_client;
+pub(crate) mod rm_client;
 mod rm_helpers;
 pub mod structs;
 
@@ -224,6 +224,14 @@ pub const FERMI_VASPACE_A: u32 = 0x0000_90F1;
 /// and placed on a runlist.
 pub const FERMI_CONTEXT_SHARE_A: u32 = 0x0000_9067;
 
+/// VA space flag: enable replayable faults at the RM/hardware level.
+///
+/// When set, MMU faults in this VA space are replayable rather than fatal.
+/// Required on Blackwell GSP-RM where GR context buffers are demand-paged:
+/// the SM's first access triggers a replayable fault that GSP services,
+/// rather than a fatal "Invalid Address Space" (ESR 0x10).
+pub const NV_VASPACE_FLAGS_ENABLE_FAULTING: u32 = 0x0000_0004;
+
 /// VA space flag: page faulting enabled (required for UVM managed pages).
 pub const NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING: u32 = 0x0000_0040;
 
@@ -336,7 +344,80 @@ pub const NV0080_CTRL_CMD_GR_SET_LOCAL_MEMORY_SIZE: u32 = 0x0080_1105;
 /// GR context creation (including SLM pool allocation) WITHOUT allocating
 /// a GR class object on the channel. The GSP firmware creates all context
 /// buffers when this is called.
-pub const NV2080_CTRL_CMD_GR_CTXSW_SETUP_BIND: u32 = 0x2080_1218;
+pub const NV2080_CTRL_CMD_GR_CTXSW_SETUP_BIND: u32 = 0x2080_123A;
+
+/// RM control command: promote virtual context buffers to RM.
+///
+/// Called on the subdevice handle. Tells RM about explicitly-allocated
+/// context buffers (MAIN, PATCH, BUNDLE_CB, etc.) so the GR engine can
+/// use them. This is how nouveau sets up per-channel GR contexts on
+/// GSP-RM — required on Blackwell where demand-paged internal buffers
+/// cause `SM Warp Exception: Invalid Address Space`.
+pub const NV2080_CTRL_CMD_GPU_PROMOTE_CTX: u32 = 0x2080_012B;
+
+/// RM internal control: query GR context buffer sizes from GSP-RM.
+///
+/// Returns per-engine-ID size and alignment for all context buffer types.
+/// Used with `engineContextBuffersInfo[0].engine[i]` for the first GR engine.
+pub const NV2080_CTRL_CMD_INTERNAL_STATIC_KGR_GET_CONTEXT_BUFFERS_INFO: u32 = 0x2080_0A32;
+
+/// Number of engine context buffer entries returned by the info query.
+pub const ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT: usize = 0x1a;
+
+/// Maximum GR engines in the info query response.
+pub const INTERNAL_GR_MAX_ENGINES: usize = 8;
+
+/// Maximum entries in a single `GPU_PROMOTE_CTX` call.
+pub const GPU_PROMOTE_CONTEXT_MAX_ENTRIES: usize = 16;
+
+// ── Promote context buffer IDs ──────────────────────────────────────
+//
+// These correspond to `NV2080_CTRL_GPU_PROMOTE_CTX_BUFFER_ID_*` from
+// the NVIDIA open headers (`ctrl2080gpu.h`).
+
+/// Main GR context image (per-channel, needs init).
+pub const PROMOTE_CTX_BUFFER_ID_MAIN: u16 = 0;
+/// Performance monitoring context.
+pub const PROMOTE_CTX_BUFFER_ID_PM: u16 = 1;
+/// Patch context buffer (per-channel, needs init).
+pub const PROMOTE_CTX_BUFFER_ID_PATCH: u16 = 2;
+/// Bundle constant buffer (global).
+pub const PROMOTE_CTX_BUFFER_ID_BUFFER_BUNDLE_CB: u16 = 3;
+/// Page pool (global).
+pub const PROMOTE_CTX_BUFFER_ID_PAGEPOOL: u16 = 4;
+/// Attribute constant buffer (global, needs power-of-2 alignment).
+pub const PROMOTE_CTX_BUFFER_ID_ATTRIBUTE_CB: u16 = 5;
+/// RTV constant buffer (global).
+pub const PROMOTE_CTX_BUFFER_ID_RTV_CB_GLOBAL: u16 = 6;
+/// FECS event buffer (global, needs init).
+pub const PROMOTE_CTX_BUFFER_ID_FECS_EVENT: u16 = 9;
+/// Privilege access map (global, needs init, read-only, non-mapped).
+pub const PROMOTE_CTX_BUFFER_ID_PRIV_ACCESS_MAP: u16 = 10;
+/// Unrestricted privilege access map (global, needs init, read-only, VA-mapped).
+pub const PROMOTE_CTX_BUFFER_ID_UNRESTRICTED_PRIV_ACCESS_MAP: u16 = 11;
+
+// ── Engine context properties IDs ───────────────────────────────────
+//
+// Index into the `engineContextBuffersInfo[0].engine[]` array returned by
+// `KGR_GET_CONTEXT_BUFFERS_INFO`. Mapped to `PROMOTE_CTX_BUFFER_ID_*` via
+// the same table nouveau uses in `r535_gr_get_ctxbuf_info()`.
+
+/// Engine ID for the main GRAPHICS context.
+pub const ENGINE_CTX_ID_GRAPHICS: usize = 0x00;
+/// Engine ID for GRAPHICS_PATCH.
+pub const ENGINE_CTX_ID_GRAPHICS_PATCH: usize = 0x09;
+/// Engine ID for GRAPHICS_BUNDLE_CB.
+pub const ENGINE_CTX_ID_GRAPHICS_BUNDLE_CB: usize = 0x01;
+/// Engine ID for GRAPHICS_PAGEPOOL.
+pub const ENGINE_CTX_ID_GRAPHICS_PAGEPOOL: usize = 0x04;
+/// Engine ID for GRAPHICS_ATTRIBUTE_CB.
+pub const ENGINE_CTX_ID_GRAPHICS_ATTRIBUTE_CB: usize = 0x02;
+/// Engine ID for GRAPHICS_RTV_CB_GLOBAL.
+pub const ENGINE_CTX_ID_GRAPHICS_RTV_CB_GLOBAL: usize = 0x0B;
+/// Engine ID for GRAPHICS_FECS_EVENT.
+pub const ENGINE_CTX_ID_GRAPHICS_FECS_EVENT: usize = 0x0D;
+/// Engine ID for GRAPHICS_PRIV_ACCESS_MAP.
+pub const ENGINE_CTX_ID_GRAPHICS_PRIV_ACCESS_MAP: usize = 0x11;
 
 /// GR info index: total number of SMs (streaming multiprocessors).
 pub const NV2080_CTRL_GR_INFO_INDEX_SM_COUNT: u32 = 0x002B;
@@ -373,6 +454,11 @@ impl NvCtlDevice {
                 DriverError::DeviceNotFound(format!("cannot open {NV_CTL_PATH}: {e}").into())
             })?;
         Ok(Self { file })
+    }
+
+    /// Wrap an existing `File` as a control device handle.
+    pub(crate) fn from_file(file: File) -> Self {
+        Self { file }
     }
 
     /// Raw file descriptor for ioctl.
@@ -458,6 +544,32 @@ impl NvUvmDevice {
             ));
         }
         Ok(())
+    }
+
+    /// Query whether pageable memory access is supported and return the result.
+    ///
+    /// CUDA calls this during context creation on Blackwell (R580+).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DriverError`] if the ioctl fails or returns non-OK status.
+    pub fn pageable_mem_access(&self) -> DriverResult<bool> {
+        let mut params = UvmPageableMemAccessParams::default();
+        self.raw_ioctl(
+            UVM_PAGEABLE_MEM_ACCESS,
+            &mut params,
+            "UVM_PAGEABLE_MEM_ACCESS",
+        )?;
+        if params.rm_status != NV_OK {
+            return Err(DriverError::SubmitFailed(
+                format!(
+                    "UVM_PAGEABLE_MEM_ACCESS failed: status=0x{:08X}",
+                    params.rm_status
+                )
+                .into(),
+            ));
+        }
+        Ok(params.pageable_mem_access != 0)
     }
 
     /// Register an RM VA space with UVM.
@@ -705,15 +817,25 @@ mod tests {
         assert_eq!(std::mem::size_of::<Nv2080GpuGetGidInfoParams>(), 268);
         assert_eq!(std::mem::size_of::<Nv0080AllocParams>(), 56);
         assert_eq!(std::mem::size_of::<UvmRegisterGpuParams>(), 40);
+        assert_eq!(std::mem::size_of::<UvmPageableMemAccessParams>(), 8);
         assert_eq!(std::mem::size_of::<UvmGpuMappingAttributes>(), 36);
         assert_eq!(std::mem::size_of::<NvChannelGroupAllocParams>(), 32);
         assert_eq!(std::mem::size_of::<NvMemoryAllocParams>(), 128);
         assert_eq!(std::mem::size_of::<NvRmMapMemoryParams>(), 56);
         assert_eq!(std::mem::size_of::<NvRmUnmapMemoryParams>(), 32);
         assert_eq!(std::mem::size_of::<NvRmMapMemoryDmaParams>(), 64);
+        assert_eq!(std::mem::size_of::<NvRmUnmapMemoryDmaParams>(), 40);
         assert_eq!(std::mem::size_of::<NvMemoryVirtualAllocParams>(), 24);
         assert_eq!(std::mem::size_of::<UvmCreateExternalRangeParams>(), 24);
         assert_eq!(std::mem::size_of::<UvmMapExternalAllocParams>(), 9264);
+
+        // GPU_PROMOTE_CTX structs — must match the NVIDIA RM ABI exactly.
+        assert_eq!(std::mem::size_of::<EngineContextBufferInfo>(), 8);
+        assert_eq!(std::mem::size_of::<GrContextBuffersInfo>(), 8 * ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT);
+        assert_eq!(std::mem::size_of::<GetContextBuffersInfoParams>(), 8 * ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT * INTERNAL_GR_MAX_ENGINES);
+        assert_eq!(std::mem::size_of::<PromoteCtxBufferEntry>(), 32);
+        // GpuPromoteCtxParams: 6×u32(24) + 2×u64(16) + u32(4) + pad(4) + 16×32(512) = 560
+        assert_eq!(std::mem::size_of::<GpuPromoteCtxParams>(), 560);
     }
 
     #[test]

@@ -107,7 +107,7 @@ fn uvm_compute_bind() {
     // Auto-detect SM version to select correct channel/compute class
     let sm = detect_sm_from_smi();
     let (channel_class, compute_class) = match sm {
-        120.. => (BLACKWELL_CHANNEL_GPFIFO_B, BLACKWELL_COMPUTE_B),
+        120.. => (BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_COMPUTE_B),
         100.. => (BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_COMPUTE_A),
         _ => (AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_B),
     };

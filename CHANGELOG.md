@@ -10,6 +10,28 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Blackwell Sovereign Dispatch — ABI fixes + kmod evolution (2026-04-19)
+
+#### coral-driver: UVM struct ABI fix
+- Fixed `UvmPageableMemAccessParams`: was 4 bytes, kernel expects 8 — added `pageable_mem_access: u8` + padding before `rm_status`
+- `pageable_mem_access()` now returns `DriverResult<bool>` (was `DriverResult<()>`)
+- Added size assertion: `assert_eq!(size_of::<UvmPageableMemAccessParams>(), 8)`
+
+#### coral-kmod: VRAM allocation fix
+- Fixed `alloc_gpu_buffer` page size: `PAGE_SIZE_BOTH` + `PAGE_SIZE_HUGE_2MB` → `PAGE_SIZE_4KB` for data buffers
+- Eliminates `FAULT_PDE` on Blackwell (page directory entries now correct for 4KB allocations)
+- Removed `FIXED_ADDRESS_ALLOCATE` flag from alloc flags
+
+#### coral-kmod: new ioctl surface
+- `CORAL_IOCTL_ALLOC_GPU_BUFFER` — kernel-context VRAM allocation + GPU VA mapping
+- `CORAL_IOCTL_FREE_GPU_BUFFER` — kernel-context VRAM deallocation
+- Rust bindings in `coral_kmod.rs` for both ioctls
+
+#### coral-driver: Blackwell compute path
+- `NvUvmComputeDevice` gains `coral_kmod` field for kmod-based buffer allocation
+- `alloc()` conditionally routes Blackwell through kmod VRAM path (BAR1 CPU mapping)
+- Channel class fixed to `BLACKWELL_CHANNEL_GPFIFO_A` (0xC96F, matches CUDA R580 trace)
+
 ### Iteration 83 — Drop jsonrpsee, Pure serde_json JSON-RPC (2026-04-16)
 
 #### jsonrpsee Removal (Ecosystem Standard Migration)

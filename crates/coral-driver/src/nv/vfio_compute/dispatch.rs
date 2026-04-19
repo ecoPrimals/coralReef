@@ -78,7 +78,12 @@ impl NvVfioComputeDevice {
         } else {
             LOCAL_MEM_WINDOW_LEGACY
         };
-        let pb = PushBuf::compute_dispatch(self.compute_class, qmd_iova, local_mem_window);
+        // VFIO submissions are independent GPFIFO entries — include
+        // init (SET_OBJECT + windows) alongside each dispatch.
+        // VFIO path: no persistent SLM buffer — pass 0 (no local memory).
+        let mut pb = PushBuf::compute_init(self.compute_class, local_mem_window, 0, 0);
+        let dispatch = PushBuf::compute_dispatch(self.compute_class, qmd_iova);
+        pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
 
         let (pb_handle, pb_iova) = self.alloc_dma(pb_bytes.len())?;
@@ -160,7 +165,9 @@ impl NvVfioComputeDevice {
         } else {
             LOCAL_MEM_WINDOW_LEGACY
         };
-        let pb = PushBuf::compute_dispatch(self.compute_class, qmd_iova, local_mem_window);
+        let mut pb = PushBuf::compute_init(self.compute_class, local_mem_window, 0, 0);
+        let dispatch = PushBuf::compute_dispatch(self.compute_class, qmd_iova);
+        pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
 
         let (pb_handle, pb_iova) = self.alloc_dma(pb_bytes.len())?;

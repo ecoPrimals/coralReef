@@ -4,20 +4,145 @@
 use crate::error::DriverResult;
 
 use super::super::structs::{
-    Nv0080AllocParams, Nv2080AllocParams, NvChannelAllocParams, NvChannelGroupAllocParams,
-    NvCtxShareAllocParams, NvMemoryAllocParams, NvMemoryVirtualAllocParams, NvVaspaceAllocParams,
+    GetContextBuffersInfoParams, GpuPromoteCtxParams, Nv0080AllocParams, Nv2080AllocParams,
+    NvChannelAllocParams, NvChannelGroupAllocParams, NvCtxShareAllocParams, NvMemoryAllocParams,
+    NvMemoryVirtualAllocParams, NvVaspaceAllocParams, PromoteCtxBufferEntry,
 };
 use super::super::{
     ADA_COMPUTE_A, AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B,
-    BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, FERMI_CONTEXT_SHARE_A, FERMI_VASPACE_A,
-    HOPPER_COMPUTE_A, KEPLER_CHANNEL_GROUP_A, NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING, NV01_DEVICE_0,
-    NV01_MEMORY_LOCAL_USER, NV01_MEMORY_SYSTEM, NV01_MEMORY_VIRTUAL, NV20_SUBDEVICE_0,
-    NV2080_ENGINE_TYPE_GR0, NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE,
-    NVOS32_ALLOC_FLAGS_IGNORE_BANK_PLACEMENT, NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED,
-    NVOS32_ATTR_PHYSICALITY_CONTIGUOUS, NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS,
-    NVOS32_ATTR2_32BIT_ADDRESSABLE,
+    BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT,
+    ENGINE_CTX_ID_GRAPHICS, ENGINE_CTX_ID_GRAPHICS_ATTRIBUTE_CB, ENGINE_CTX_ID_GRAPHICS_BUNDLE_CB,
+    ENGINE_CTX_ID_GRAPHICS_FECS_EVENT, ENGINE_CTX_ID_GRAPHICS_PAGEPOOL,
+    ENGINE_CTX_ID_GRAPHICS_PATCH, ENGINE_CTX_ID_GRAPHICS_PRIV_ACCESS_MAP,
+    ENGINE_CTX_ID_GRAPHICS_RTV_CB_GLOBAL, FERMI_CONTEXT_SHARE_A, FERMI_VASPACE_A,
+    HOPPER_COMPUTE_A, KEPLER_CHANNEL_GROUP_A, NV2080_CTRL_CMD_GPU_PROMOTE_CTX,
+    NV2080_CTRL_CMD_INTERNAL_STATIC_KGR_GET_CONTEXT_BUFFERS_INFO, NV_VASPACE_FLAGS_ENABLE_FAULTING,
+    NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING, NV01_DEVICE_0, NV01_MEMORY_LOCAL_USER,
+    NV01_MEMORY_SYSTEM, NV01_MEMORY_VIRTUAL, NV20_SUBDEVICE_0, NV2080_ENGINE_TYPE_GR0,
+    NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE, NVOS32_ALLOC_FLAGS_IGNORE_BANK_PLACEMENT,
+    NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED, NVOS32_ATTR_PHYSICALITY_CONTIGUOUS,
+    NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS, NVOS32_ATTR2_32BIT_ADDRESSABLE,
+    PROMOTE_CTX_BUFFER_ID_ATTRIBUTE_CB, PROMOTE_CTX_BUFFER_ID_BUFFER_BUNDLE_CB,
+    PROMOTE_CTX_BUFFER_ID_FECS_EVENT, PROMOTE_CTX_BUFFER_ID_MAIN,
+    PROMOTE_CTX_BUFFER_ID_PAGEPOOL, PROMOTE_CTX_BUFFER_ID_PATCH,
+    PROMOTE_CTX_BUFFER_ID_PRIV_ACCESS_MAP, PROMOTE_CTX_BUFFER_ID_RTV_CB_GLOBAL,
+    PROMOTE_CTX_BUFFER_ID_UNRESTRICTED_PRIV_ACCESS_MAP,
 };
 use super::RmClient;
+
+/// Descriptor for one GR context buffer requirement.
+///
+/// Returned by [`RmClient::query_gr_context_buffers_info`] and used to
+/// allocate + promote context buffers via `GPU_PROMOTE_CTX`.
+#[derive(Debug, Clone)]
+pub struct CtxBufDesc {
+    /// Promote context buffer ID (`PROMOTE_CTX_BUFFER_ID_*`).
+    pub buffer_id: u16,
+    /// Aligned allocation size in bytes.
+    pub size: u64,
+    /// Required allocation alignment.
+    pub alignment: u64,
+    /// Whether the buffer needs zero-initialization before promotion.
+    pub needs_init: bool,
+    /// Whether the buffer should NOT be VA-mapped (physical address only).
+    pub is_nonmapped: bool,
+}
+
+/// Hardcoded Blackwell (GB20x, SM 12.0) context buffer sizes.
+///
+/// Used as a fallback when `KGR_GET_CONTEXT_BUFFERS_INFO` is rejected
+/// (internal RM command, kernel-only). Sizes are conservatively large —
+/// RM will use at most what it needs from each buffer.
+///
+/// Derived from nouveau's `r535_gr_promote_ctx` patterns and typical
+/// Blackwell context requirements (GB202: 5 GPCs, 20 TPCs, 40 SMs).
+pub fn hardcoded_blackwell_ctx_buffers() -> Vec<CtxBufDesc> {
+    use super::super::{
+        PROMOTE_CTX_BUFFER_ID_ATTRIBUTE_CB, PROMOTE_CTX_BUFFER_ID_BUFFER_BUNDLE_CB,
+        PROMOTE_CTX_BUFFER_ID_FECS_EVENT, PROMOTE_CTX_BUFFER_ID_MAIN,
+        PROMOTE_CTX_BUFFER_ID_PAGEPOOL, PROMOTE_CTX_BUFFER_ID_PATCH,
+        PROMOTE_CTX_BUFFER_ID_PRIV_ACCESS_MAP, PROMOTE_CTX_BUFFER_ID_RTV_CB_GLOBAL,
+        PROMOTE_CTX_BUFFER_ID_UNRESTRICTED_PRIV_ACCESS_MAP,
+    };
+
+    vec![
+        // MAIN: largest buffer, holds the GR context image.
+        // Nouveau adds 64 * 0x1000 (256 KiB) for per-subctx headers.
+        // 8 MiB is generous for Blackwell.
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_MAIN,
+            size: 8 * 1024 * 1024, // 8 MiB
+            alignment: 0x1000,
+            needs_init: true,
+            is_nonmapped: false,
+        },
+        // PATCH: per-channel patch context.
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_PATCH,
+            size: 512 * 1024, // 512 KiB
+            alignment: 0x1000,
+            needs_init: true,
+            is_nonmapped: false,
+        },
+        // BUNDLE_CB: global constant bundle buffer.
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_BUFFER_BUNDLE_CB,
+            size: 512 * 1024, // 512 KiB
+            alignment: 0x1000,
+            needs_init: false,
+            is_nonmapped: false,
+        },
+        // PAGEPOOL: global page pool for GR.
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_PAGEPOOL,
+            size: 1024 * 1024, // 1 MiB
+            alignment: 0x1000,
+            needs_init: false,
+            is_nonmapped: false,
+        },
+        // ATTRIBUTE_CB: global attribute constant buffer (power-of-2 aligned).
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_ATTRIBUTE_CB,
+            size: 2 * 1024 * 1024, // 2 MiB
+            alignment: 2 * 1024 * 1024, // power-of-2
+            needs_init: false,
+            is_nonmapped: false,
+        },
+        // RTV_CB_GLOBAL: render target view constant buffer.
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_RTV_CB_GLOBAL,
+            size: 256 * 1024, // 256 KiB
+            alignment: 0x1000,
+            needs_init: false,
+            is_nonmapped: false,
+        },
+        // FECS_EVENT: FECS event buffer.
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_FECS_EVENT,
+            size: 256 * 1024, // 256 KiB
+            alignment: 0x1000,
+            needs_init: true,
+            is_nonmapped: false,
+        },
+        // PRIV_ACCESS_MAP: privilege access map (non-mapped, physical only).
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_PRIV_ACCESS_MAP,
+            size: 64 * 1024, // 64 KiB
+            alignment: 0x1000,
+            needs_init: true,
+            is_nonmapped: true,
+        },
+        // UNRESTRICTED_PRIV_ACCESS_MAP: unrestricted privilege access map.
+        // Unlike PRIV_ACCESS_MAP, this one IS VA-mapped (nouveau sets bNonmapped=0).
+        CtxBufDesc {
+            buffer_id: PROMOTE_CTX_BUFFER_ID_UNRESTRICTED_PRIV_ACCESS_MAP,
+            size: 64 * 1024, // 64 KiB
+            alignment: 0x1000,
+            needs_init: true,
+            is_nonmapped: false,
+        },
+    ]
+}
 
 impl RmClient {
     /// Allocate a device object under this client.
@@ -83,16 +208,47 @@ impl RmClient {
         self.alloc_vaspace_with_flags(h_device, 0)
     }
 
-    /// Allocate a VA space with UVM-compatible flags.
+    /// Allocate a VA space with replayable fault support for Blackwell.
     ///
-    /// Sets `IS_EXTERNALLY_OWNED` so UVM can manage page tables,
-    /// and `ENABLE_PAGE_FAULTING` for UVM page-fault handling.
+    /// Tries flag combinations in order of preference:
+    /// 1. `ENABLE_FAULTING | ENABLE_PAGE_FAULTING` (0x44) — full fault support
+    /// 2. `ENABLE_FAULTING` (0x04) — RM-level replayable faults
+    /// 3. `ENABLE_PAGE_FAULTING` (0x40) — UVM-level page faulting
     ///
     /// # Errors
     ///
-    /// Returns [`DriverError`](crate::error::DriverError) if the RM alloc fails.
+    /// Returns [`DriverError`](crate::error::DriverError) if all flag combinations fail.
     pub fn alloc_vaspace_for_uvm(&mut self, h_device: u32) -> DriverResult<u32> {
-        self.alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING)
+        let flag_sets: &[(u32, &str)] = &[
+            (
+                NV_VASPACE_FLAGS_ENABLE_FAULTING | NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING,
+                "ENABLE_FAULTING|ENABLE_PAGE_FAULTING (0x44)",
+            ),
+            (
+                NV_VASPACE_FLAGS_ENABLE_FAULTING,
+                "ENABLE_FAULTING (0x04)",
+            ),
+            (
+                NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING,
+                "ENABLE_PAGE_FAULTING (0x40)",
+            ),
+        ];
+
+        for &(flags, label) in flag_sets {
+            match self.alloc_vaspace_with_flags(h_device, flags) {
+                Ok(h) => {
+                    eprintln!("[coral-driver] alloc_vaspace {label} OK");
+                    return Ok(h);
+                }
+                Err(e) => {
+                    eprintln!("[coral-driver] alloc_vaspace {label} failed: {e}");
+                }
+            }
+        }
+
+        Err(crate::error::DriverError::SubmitFailed(
+            "all VA space flag combinations rejected by RM".into(),
+        ))
     }
 
     fn alloc_vaspace_with_flags(&mut self, h_device: u32, flags: u32) -> DriverResult<u32> {
@@ -111,9 +267,19 @@ impl RmClient {
             "RM_ALLOC(FERMI_VASPACE_A)",
         )?;
 
+        eprintln!(
+            "[coral-driver] VA space allocated: h_vaspace=0x{h_vaspace:08X} flags=0x{flags:08X} \
+             va_size=0x{:016X} va_base=0x{:016X} va_start=0x{:016X} va_limit=0x{:016X}",
+            va_params.va_size,
+            va_params.va_base,
+            va_params.va_start_internal,
+            va_params.va_limit_internal,
+        );
         tracing::info!(
             h_vaspace = format_args!("0x{h_vaspace:08X}"),
             flags = format_args!("0x{flags:08X}"),
+            va_size = format_args!("0x{:016X}", va_params.va_size),
+            va_base = format_args!("0x{:016X}", va_params.va_base),
             "VA space allocated"
         );
         Ok(h_vaspace)
@@ -530,6 +696,224 @@ impl RmClient {
             0xa06c_0101, // NVA06C_CTRL_CMD_GPFIFO_SCHEDULE
             &mut params,
             "RM_CONTROL(TSG_GPFIFO_SCHEDULE)",
+        )
+    }
+
+    /// Bind GR context-switch state for a channel (`NV2080_CTRL_CMD_GR_CTXSW_SETUP_BIND`).
+    ///
+    /// On GSP-RM (580.x+), this tells the GPU System Processor to allocate
+    /// all GR context buffers for the channel. Without this, the first compute
+    /// dispatch hits `CTXNOTVALID` (error 0x20) because there is no GR context.
+    ///
+    /// `v_mem_ptr` is the GPU VA of a pre-allocated context buffer. When 0,
+    /// RM allocates context buffers internally (demand-paged). When non-zero,
+    /// RM uses the provided eagerly-mapped buffer, avoiding demand-paged faults
+    /// that can't be serviced without UVM registration.
+    pub fn gr_ctxsw_setup_bind(
+        &mut self,
+        h_subdevice: u32,
+        h_channel: u32,
+    ) -> DriverResult<()> {
+        self.gr_ctxsw_setup_bind_with_mem(h_subdevice, h_channel, 0)
+    }
+
+    /// Like [`gr_ctxsw_setup_bind`](Self::gr_ctxsw_setup_bind) but with an
+    /// explicit context buffer GPU VA.
+    pub fn gr_ctxsw_setup_bind_with_mem(
+        &mut self,
+        h_subdevice: u32,
+        h_channel: u32,
+        v_mem_ptr: u64,
+    ) -> DriverResult<()> {
+        #[repr(C)]
+        #[derive(Debug, Default)]
+        struct GrCtxswSetupBindParams {
+            h_client: u32,
+            h_channel: u32,
+            v_mem_ptr: u64,
+        }
+
+        let mut params = GrCtxswSetupBindParams {
+            h_client: self.h_client,
+            h_channel,
+            v_mem_ptr,
+        };
+
+        eprintln!(
+            "[coral-driver] GR_CTXSW_SETUP_BIND: h_channel=0x{h_channel:08X} \
+             vMemPtr=0x{v_mem_ptr:016X}"
+        );
+
+        let result = self.rm_control(
+            h_subdevice,
+            super::super::NV2080_CTRL_CMD_GR_CTXSW_SETUP_BIND,
+            &mut params,
+            "RM_CONTROL(GR_CTXSW_SETUP_BIND)",
+        );
+
+        match &result {
+            Ok(()) => {
+                tracing::info!(
+                    h_channel = format_args!("0x{h_channel:08X}"),
+                    v_mem_ptr = format_args!("0x{v_mem_ptr:016X}"),
+                    "GR context switch setup bound — context ready for compute"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    h_channel = format_args!("0x{h_channel:08X}"),
+                    v_mem_ptr = format_args!("0x{v_mem_ptr:016X}"),
+                    error = %e,
+                    "GR_CTXSW_SETUP_BIND failed"
+                );
+            }
+        }
+
+        result
+    }
+
+    /// Query GR context buffer requirements from GSP-RM.
+    ///
+    /// Calls `NV2080_CTRL_CMD_INTERNAL_STATIC_KGR_GET_CONTEXT_BUFFERS_INFO`
+    /// on the subdevice and returns a list of `(buffer_id, size, alignment)`
+    /// descriptors for the first GR engine instance (index 0).
+    ///
+    /// The mapping from engine-context-property IDs to promote-context buffer
+    /// IDs follows the same table nouveau uses in `r535_gr_get_ctxbuf_info()`.
+    pub fn query_gr_context_buffers_info(
+        &mut self,
+        h_subdevice: u32,
+    ) -> DriverResult<Vec<CtxBufDesc>> {
+        let mut params = GetContextBuffersInfoParams::default();
+
+        let result = self.rm_control(
+            h_subdevice,
+            NV2080_CTRL_CMD_INTERNAL_STATIC_KGR_GET_CONTEXT_BUFFERS_INFO,
+            &mut params,
+            "RM_CONTROL(KGR_GET_CONTEXT_BUFFERS_INFO)",
+        );
+
+        if let Err(e) = result {
+            eprintln!(
+                "[coral-driver] KGR_GET_CONTEXT_BUFFERS_INFO failed: {e} \
+                 (internal RM command — may be kernel-only)"
+            );
+            return Err(e);
+        }
+
+        let gr0 = &params.engine_context_buffers_info[0];
+
+        // Mapping table: (engine_ctx_id, promote_buffer_id, needs_init, is_nonmapped)
+        // Mirrors nouveau's r535_gr_get_ctxbuf_info() table.
+        let mapping: &[(usize, u16, bool, bool)] = &[
+            (ENGINE_CTX_ID_GRAPHICS,               PROMOTE_CTX_BUFFER_ID_MAIN,                       true,  false),
+            (ENGINE_CTX_ID_GRAPHICS_PATCH,          PROMOTE_CTX_BUFFER_ID_PATCH,                      true,  false),
+            (ENGINE_CTX_ID_GRAPHICS_BUNDLE_CB,      PROMOTE_CTX_BUFFER_ID_BUFFER_BUNDLE_CB,           false, false),
+            (ENGINE_CTX_ID_GRAPHICS_PAGEPOOL,       PROMOTE_CTX_BUFFER_ID_PAGEPOOL,                   false, false),
+            (ENGINE_CTX_ID_GRAPHICS_ATTRIBUTE_CB,   PROMOTE_CTX_BUFFER_ID_ATTRIBUTE_CB,               false, false),
+            (ENGINE_CTX_ID_GRAPHICS_RTV_CB_GLOBAL,  PROMOTE_CTX_BUFFER_ID_RTV_CB_GLOBAL,              false, false),
+            (ENGINE_CTX_ID_GRAPHICS_FECS_EVENT,     PROMOTE_CTX_BUFFER_ID_FECS_EVENT,                 true,  false),
+            (ENGINE_CTX_ID_GRAPHICS_PRIV_ACCESS_MAP, PROMOTE_CTX_BUFFER_ID_PRIV_ACCESS_MAP,           true,  true),
+            // Unrestricted priv access map uses the same engine ID as priv access map
+            // but with a different promote buffer ID — nouveau allocates it separately.
+            (ENGINE_CTX_ID_GRAPHICS_PRIV_ACCESS_MAP, PROMOTE_CTX_BUFFER_ID_UNRESTRICTED_PRIV_ACCESS_MAP, true, true),
+        ];
+
+        let mut descs = Vec::new();
+        for &(engine_id, buffer_id, needs_init, is_nonmapped) in mapping {
+            if engine_id >= ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT {
+                continue;
+            }
+            let info = &gr0.engine[engine_id];
+            if info.size == 0 {
+                continue;
+            }
+
+            let mut size = info.size as u64;
+            let mut alignment = info.alignment as u64;
+
+            // MAIN buffer: nouveau adds 64 * 0x1000 (256 KiB) for per-subctx headers.
+            if buffer_id == PROMOTE_CTX_BUFFER_ID_MAIN {
+                size += 64 * 0x1000;
+            }
+
+            // ATTRIBUTE_CB: nouveau uses power-of-2 alignment.
+            if buffer_id == PROMOTE_CTX_BUFFER_ID_ATTRIBUTE_CB && alignment > 0 {
+                alignment = alignment.next_power_of_two();
+            }
+
+            // Minimum page alignment.
+            if alignment < 0x1000 {
+                alignment = 0x1000;
+            }
+
+            // Round size up to alignment.
+            size = (size + alignment - 1) & !(alignment - 1);
+
+            eprintln!(
+                "[coral-driver]   ctx_buf id={buffer_id} engine_id=0x{engine_id:02X} \
+                 size=0x{size:X} align=0x{alignment:X} init={needs_init} nonmapped={is_nonmapped}"
+            );
+
+            descs.push(CtxBufDesc {
+                buffer_id,
+                size,
+                alignment,
+                needs_init,
+                is_nonmapped,
+            });
+        }
+
+        Ok(descs)
+    }
+
+    /// Promote explicitly-allocated context buffers to RM.
+    ///
+    /// Calls `NV2080_CTRL_CMD_GPU_PROMOTE_CTX` to inform GSP-RM about
+    /// the context buffers we allocated in our VA space. This replaces the
+    /// demand-paged internal allocation that causes `SM Warp Exception:
+    /// Invalid Address Space` on Blackwell.
+    pub fn gpu_promote_ctx(
+        &mut self,
+        h_subdevice: u32,
+        h_channel: u32,
+        entries: &[PromoteCtxBufferEntry],
+    ) -> DriverResult<()> {
+        use super::super::GPU_PROMOTE_CONTEXT_MAX_ENTRIES;
+
+        if entries.len() > GPU_PROMOTE_CONTEXT_MAX_ENTRIES {
+            return Err(crate::error::DriverError::SubmitFailed(
+                format!(
+                    "GPU_PROMOTE_CTX: {} entries exceeds max {}",
+                    entries.len(),
+                    GPU_PROMOTE_CONTEXT_MAX_ENTRIES
+                )
+                .into(),
+            ));
+        }
+
+        let mut params = GpuPromoteCtxParams::default();
+        params.engine_type = NV2080_ENGINE_TYPE_GR0;
+        params.h_client = self.h_client;
+        params.ch_id = 0; // RM looks up by h_object (channel handle)
+        params.h_chan_client = self.h_client;
+        params.h_object = h_channel;
+        params.entry_count = entries.len() as u32;
+
+        for (i, entry) in entries.iter().enumerate() {
+            params.promote_entry[i] = *entry;
+        }
+
+        eprintln!(
+            "[coral-driver] GPU_PROMOTE_CTX: h_channel=0x{h_channel:08X} entries={}",
+            entries.len()
+        );
+
+        self.rm_control(
+            h_subdevice,
+            NV2080_CTRL_CMD_GPU_PROMOTE_CTX,
+            &mut params,
+            "RM_CONTROL(GPU_PROMOTE_CTX)",
         )
     }
 

@@ -402,6 +402,57 @@ impl EmberClient {
         Ok(())
     }
 
+    /// Query coral-kmod status from ember.
+    ///
+    /// Returns `(loaded, device_ready)`. If the ember call fails, returns `(false, false)`.
+    pub fn kmod_status(&self) -> (bool, bool) {
+        match self.simple_rpc("ember.kmod.status", serde_json::json!({})) {
+            Ok(v) => {
+                let loaded = v.get("loaded").and_then(|x| x.as_bool()).unwrap_or(false);
+                let ready = v.get("device_ready").and_then(|x| x.as_bool()).unwrap_or(false);
+                (loaded, ready)
+            }
+            Err(_) => (false, false),
+        }
+    }
+
+    /// Load coral-kmod.ko via ember (uses insmod/modprobe).
+    ///
+    /// An optional `ko_path` can be provided for explicit module file location.
+    pub fn kmod_load(&self, ko_path: Option<&str>) -> Result<serde_json::Value, EmberError> {
+        let params = match ko_path {
+            Some(p) => serde_json::json!({ "path": p }),
+            None => serde_json::json!({}),
+        };
+        self.simple_rpc("ember.kmod.load", params)
+    }
+
+    /// Unload coral-kmod.ko via ember.
+    pub fn kmod_unload(&self) -> Result<serde_json::Value, EmberError> {
+        self.simple_rpc("ember.kmod.unload", serde_json::json!({}))
+    }
+
+    /// Ensure coral-kmod.ko is loaded for Blackwell GPU support.
+    ///
+    /// Returns `true` if the module is (or becomes) loaded and `/dev/coral-rm` is ready.
+    pub fn ensure_kmod_loaded(&self, ko_path: Option<&str>) -> bool {
+        let (loaded, ready) = self.kmod_status();
+        if loaded && ready {
+            return true;
+        }
+        if !loaded {
+            match self.kmod_load(ko_path) {
+                Ok(_) => tracing::info!("coral-kmod loaded via ember"),
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to load coral-kmod via ember");
+                    return false;
+                }
+            }
+        }
+        let (_, ready) = self.kmod_status();
+        ready
+    }
+
     /// Request VFIO fds for a specific BDF from the ember.
     ///
     /// Backend-aware: the response includes a `"backend"` field (`"legacy"` or

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! RM (Resource Manager) client — allocates and manages NVIDIA GPU objects.
 
-mod alloc;
+pub(crate) mod alloc;
 mod memory;
 
 use crate::error::{DriverError, DriverResult};
@@ -30,6 +30,7 @@ pub struct RmClient {
     ctl: NvCtlDevice,
     h_client: u32,
     observer: Option<Box<dyn crate::gsp::rm_observer::RmObserver>>,
+    owns_client: bool,
 }
 
 impl RmClient {
@@ -54,6 +55,28 @@ impl RmClient {
             ctl,
             h_client,
             observer: None,
+            owns_client: true,
+        })
+    }
+
+    /// Wrap an existing kernel-module-provided ctl fd and client handle.
+    ///
+    /// The returned `RmClient` can issue RM ioctls on the kmod's client but
+    /// does NOT free the client on drop (the kernel module manages its lifecycle).
+    ///
+    /// # Safety
+    ///
+    /// `ctl_fd` must be a valid open `/dev/nvidiactl` file descriptor.
+    pub unsafe fn wrap_kmod_fd(ctl_fd: i32, h_client: u32) -> DriverResult<Self> {
+        let dup_fd = rustix::io::dup(std::os::unix::io::BorrowedFd::borrow_raw(ctl_fd))
+            .map_err(|e| DriverError::DeviceNotFound(format!("dup kmod ctl_fd: {e}").into()))?;
+        let file = std::fs::File::from(dup_fd);
+        let ctl = NvCtlDevice::from_file(file);
+        Ok(Self {
+            ctl,
+            h_client,
+            observer: None,
+            owns_client: false,
         })
     }
 
@@ -366,7 +389,9 @@ impl RmClient {
 
 impl Drop for RmClient {
     fn drop(&mut self) {
-        let _ = self.free_object(0, self.h_client);
+        if self.owns_client {
+            let _ = self.free_object(0, self.h_client);
+        }
     }
 }
 

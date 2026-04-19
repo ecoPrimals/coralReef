@@ -359,79 +359,124 @@ pub fn build_qmd_v23(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
 /// Build a QMD v5.0 (Blackwell SM120+) for compute dispatch.
 ///
 /// QMD v5.0 is 384 bytes (96 words = 3072 bits), a completely different
-/// layout from v3.0. Field positions from `clcdc0qmd.h` (NVIDIA open headers):
+/// layout from v3.0.  Field positions from the official NVIDIA open header
+/// `clcec0qmd.h` (NVCEC0_QMDV05_00):
 ///
-/// - MW(31:0):    `GRID_WIDTH` (32 bits)
-/// - MW(47:32):   `GRID_HEIGHT` (16 bits)
-/// - MW(63:48):   `GRID_DEPTH` (16 bits)
-/// - MW(67:64):   `QMD_MINOR_VERSION`=0
-/// - MW(71:68):   `QMD_MAJOR_VERSION`=5
-/// - MW(72):      `API_VISIBLE_CALL_LIMIT` (NO_CHECK=0)
-/// - MW(559:544): `CTA_THREAD_DIMENSION0` (16 bits)
-/// - MW(575:560): `CTA_THREAD_DIMENSION1` (16 bits)
-/// - MW(591:576): `CTA_THREAD_DIMENSION2` (16 bits)
-/// - MW(596:592): `BARRIER_COUNT` (5 bits)
-/// - MW(615:608): `REGISTER_COUNT` (8 bits)
-/// - MW(650:640): `SHARED_MEMORY_SIZE_SHIFTED7` (11 bits, value >> 7)
-/// - MW(859:832): `PROGRAM_ADDRESS_LOWER_SHIFTED4` (28 bits, addr >> 4)
-/// - MW(891:860): `PROGRAM_ADDRESS_UPPER_SHIFTED4` (32 bits, addr >> 36)
-/// - Per-CBUF(i) at bit 2048+i*64:
-///   - ADDR_LOWER_SHIFTED6: 26 bits (addr >> 6)
-///   - ADDR_UPPER_SHIFTED6: 17 bits (addr >> 32)
-///   - SIZE_SHIFTED4:       17 bits (size >> 4)
-///   - VALID:                1 bit
+/// - MW(153:151): `QMD_TYPE` = GRID_CTA (2)
+/// - MW(455:448): `SASS_VERSION` (8 bits)
+/// - MW(456:456): `API_VISIBLE_CALL_LIMIT` = NO_CHECK (1)
+/// - MW(467:464): `QMD_MINOR_VERSION` = 0
+/// - MW(471:468): `QMD_MAJOR_VERSION` = 5
+/// - MW(472:477): Cache invalidation flags (6 × 1-bit)
+/// - MW(1055:1024): `PROGRAM_ADDRESS_LOWER_SHIFTED4` (32 bits)
+/// - MW(1076:1056): `PROGRAM_ADDRESS_UPPER_SHIFTED4` (21 bits)
+/// - MW(1103:1088): `CTA_THREAD_DIMENSION0` (16 bits)
+/// - MW(1119:1104): `CTA_THREAD_DIMENSION1` (16 bits)
+/// - MW(1127:1120): `CTA_THREAD_DIMENSION2` (8 bits)
+/// - MW(1136:1128): `REGISTER_COUNT` (9 bits)
+/// - MW(1141:1137): `BARRIER_COUNT` (5 bits)
+/// - MW(1162:1152): `SHARED_MEMORY_SIZE_SHIFTED7` (11 bits)
+/// - MW(1199:1184): `SHADER_LOCAL_MEMORY_LOW_SIZE_SHIFTED4` (16 bits)
+/// - MW(1279:1248): `GRID_WIDTH` (32 bits)
+/// - MW(1295:1280): `GRID_HEIGHT` (16 bits)
+/// - MW(1327:1312): `GRID_DEPTH` (16 bits)
+/// - Per-CBUF(i):
+///   - `ADDR_LOWER_SHIFTED6(i)`: MW((1375+i*64):(1344+i*64)) — 32 bits
+///   - `ADDR_UPPER_SHIFTED6(i)`: MW((1394+i*64):(1376+i*64)) — 19 bits
+///   - `SIZE_SHIFTED4(i)`:       MW((1407+i*64):(1395+i*64)) — 13 bits
+///   - `VALID(i)`:               MW((1856+i*4):(1856+i*4))   — 1 bit (separate)
+///   - `INVALIDATE(i)`:          MW((1859+i*4):(1859+i*4))   — 1 bit (separate)
 #[must_use]
 pub fn build_qmd_v50(params: &QmdParams) -> Vec<u32> {
     let mut q = vec![0u32; QMD_V4_PLUS_SIZE_WORDS];
 
-    // Grid dimensions at the top of the QMD
-    qmd_set_field_dyn(&mut q, 0, 32, u64::from(params.grid.x));
-    qmd_set_field_dyn(&mut q, 32, 16, u64::from(params.grid.y));
-    qmd_set_field_dyn(&mut q, 48, 16, u64::from(params.grid.z));
+    // QMD_GROUP_ID MW(149:144) = 0x1f (required by SKED, per NVK)
+    qmd_set_field_dyn(&mut q, 144, 6, 0x1f);
 
-    // QMD_VERSION [67:64] = 0, QMD_MAJOR_VERSION [71:68] = 5
-    qmd_set_field_dyn(&mut q, 64, 4, 0);
-    qmd_set_field_dyn(&mut q, 68, 4, 5);
+    // QMD_TYPE MW(153:151) = GRID_CTA (2)
+    qmd_set_field_dyn(&mut q, 151, 3, 2);
 
-    // API_VISIBLE_CALL_LIMIT [72] = NO_CHECK (0)
+    // SASS_VERSION MW(455:448) — set to 0 (driver-level, not ISA version)
+    // API_VISIBLE_CALL_LIMIT MW(456:456) = NO_CHECK (1)
+    qmd_set_field_dyn(&mut q, 456, 1, 1);
+    // SAMPLER_INDEX MW(457:457) = INDEPENDENTLY (0) — default
 
-    // CTA thread dimensions (workgroup)
-    qmd_set_field_dyn(&mut q, 544, 16, u64::from(params.workgroup[0]));
-    qmd_set_field_dyn(&mut q, 560, 16, u64::from(params.workgroup[1]));
-    qmd_set_field_dyn(&mut q, 576, 16, u64::from(params.workgroup[2]));
+    // QMD_MINOR_VERSION MW(467:464) = 0, QMD_MAJOR_VERSION MW(471:468) = 5
+    qmd_set_field_dyn(&mut q, 464, 4, 0);
+    qmd_set_field_dyn(&mut q, 468, 4, 5);
 
-    // BARRIER_COUNT [596:592] (5 bits)
-    qmd_set_field_dyn(&mut q, 592, 5, u64::from(params.barrier_count));
+    // Cache invalidation flags MW(472:477) — all TRUE for first dispatch
+    qmd_set_field_dyn(&mut q, 472, 1, 1); // INVALIDATE_TEXTURE_HEADER_CACHE
+    qmd_set_field_dyn(&mut q, 473, 1, 1); // INVALIDATE_TEXTURE_SAMPLER_CACHE
+    qmd_set_field_dyn(&mut q, 474, 1, 1); // INVALIDATE_TEXTURE_DATA_CACHE
+    qmd_set_field_dyn(&mut q, 475, 1, 1); // INVALIDATE_SHADER_DATA_CACHE
+    qmd_set_field_dyn(&mut q, 476, 1, 1); // INVALIDATE_INSTRUCTION_CACHE
+    qmd_set_field_dyn(&mut q, 477, 1, 1); // INVALIDATE_SHADER_CONSTANT_CACHE
 
-    // REGISTER_COUNT [615:608] (8 bits)
-    let reg_count = params.gpr_count.min(255);
-    qmd_set_field_dyn(&mut q, 608, 8, u64::from(reg_count));
-
-    // SHARED_MEMORY_SIZE_SHIFTED7 [650:640] (11 bits)
-    let shared_aligned = (params.shared_mem_bytes + 127) & !127;
-    qmd_set_field_dyn(&mut q, 640, 11, u64::from(shared_aligned >> 7));
-
-    // PROGRAM_ADDRESS shifted by 4: lower 28 bits at 832, upper 32 bits at 860
+    // PROGRAM_ADDRESS_LOWER_SHIFTED4 MW(1055:1024) — 32 bits
+    // PROGRAM_ADDRESS_UPPER_SHIFTED4 MW(1076:1056) — 21 bits
     let addr_shifted4 = params.shader_va >> 4;
-    qmd_set_field_dyn(&mut q, 832, 28, addr_shifted4 & ((1 << 28) - 1));
-    qmd_set_field_dyn(&mut q, 860, 32, addr_shifted4 >> 28);
+    qmd_set_field_dyn(&mut q, 1024, 32, addr_shifted4 & 0xFFFF_FFFF);
+    qmd_set_field_dyn(&mut q, 1056, 21, addr_shifted4 >> 32);
 
-    // SHADER_LOCAL_MEMORY_LOW_SIZE_SHIFTED4 [1491:1472] (20 bits)
-    qmd_set_field_dyn(&mut q, 1472, 20, u64::from(params.local_mem_low_bytes >> 4));
+    // CTA_THREAD_DIMENSION0 MW(1103:1088) — 16 bits
+    // CTA_THREAD_DIMENSION1 MW(1119:1104) — 16 bits
+    // CTA_THREAD_DIMENSION2 MW(1127:1120) — 8 bits
+    qmd_set_field_dyn(&mut q, 1088, 16, u64::from(params.workgroup[0]));
+    qmd_set_field_dyn(&mut q, 1104, 16, u64::from(params.workgroup[1]));
+    qmd_set_field_dyn(&mut q, 1120, 8, u64::from(params.workgroup[2]));
 
-    // Constant buffer bindings: v5.0 layout at bit 2048+i*64
+    // REGISTER_COUNT MW(1136:1128) — 9 bits
+    let reg_count = params.gpr_count.min(511);
+    qmd_set_field_dyn(&mut q, 1128, 9, u64::from(reg_count));
+
+    // BARRIER_COUNT MW(1141:1137) — 5 bits
+    qmd_set_field_dyn(&mut q, 1137, 5, u64::from(params.barrier_count));
+
+    // SHARED_MEMORY_SIZE_SHIFTED7 MW(1162:1152) — 11 bits
+    let shared_aligned = (params.shared_mem_bytes + 127) & !127;
+    qmd_set_field_dyn(&mut q, 1152, 11, u64::from(shared_aligned >> 7));
+
+    // MIN/MAX/TARGET_SM_CONFIG_SHARED_MEM_SIZE (6 bits each)
+    // HW encoding: (size_kb / 4) + 1, where 1 means 0KB.
+    // Per NVK, even shaders with 0 shared memory need a valid config.
+    let smem_kb = shared_aligned / 1024;
+    let smem_hw = u64::from((smem_kb / 4) + 1).min(63);
+    // MIN_SM_CONFIG_SHARED_MEM_SIZE MW(1168:1163) — smallest partition
+    qmd_set_field_dyn(&mut q, 1163, 6, smem_hw);
+    // MAX_SM_CONFIG_SHARED_MEM_SIZE MW(1174:1169) — largest available (0x3f = 248KB)
+    qmd_set_field_dyn(&mut q, 1169, 6, 0x3f);
+    // TARGET_SM_CONFIG_SHARED_MEM_SIZE MW(1180:1175)
+    qmd_set_field_dyn(&mut q, 1175, 6, smem_hw);
+
+    // SHADER_LOCAL_MEMORY_LOW_SIZE_SHIFTED4 MW(1199:1184) — 16 bits
+    qmd_set_field_dyn(&mut q, 1184, 16, u64::from(params.local_mem_low_bytes >> 4));
+
+    // GRID_WIDTH MW(1279:1248) — 32 bits
+    // GRID_HEIGHT MW(1295:1280) — 16 bits
+    // GRID_DEPTH MW(1327:1312) — 16 bits
+    qmd_set_field_dyn(&mut q, 1248, 32, u64::from(params.grid.x));
+    qmd_set_field_dyn(&mut q, 1280, 16, u64::from(params.grid.y));
+    qmd_set_field_dyn(&mut q, 1312, 16, u64::from(params.grid.z));
+
+    // Constant buffer bindings — v5.0 layout per clcec0qmd.h
     for cb in &params.cbufs {
         let idx = cb.index as usize;
         if idx < MAX_CBUFS {
-            let base = 2048 + idx * 64;
-            // ADDR_LOWER_SHIFTED6: [base+25:base] (26 bits)
-            qmd_set_field_dyn(&mut q, base, 26, u64::from((cb.addr as u32) >> 6));
-            // ADDR_UPPER_SHIFTED6: [base+42:base+26] (17 bits)
-            qmd_set_field_dyn(&mut q, base + 26, 17, cb.addr >> 32);
-            // SIZE_SHIFTED4: [base+59:base+43] (17 bits)
-            qmd_set_field_dyn(&mut q, base + 43, 17, u64::from(cb.size >> 4));
-            // VALID: [base+60] (1 bit)
-            qmd_set_field_dyn(&mut q, base + 60, 1, 1);
+            let addr_shifted6 = cb.addr >> 6;
+
+            // ADDR_LOWER_SHIFTED6(i): MW((1375+i*64):(1344+i*64)) — 32 bits
+            let addr_base = 1344 + idx * 64;
+            qmd_set_field_dyn(&mut q, addr_base, 32, addr_shifted6 & 0xFFFF_FFFF);
+            // ADDR_UPPER_SHIFTED6(i): MW((1394+i*64):(1376+i*64)) — 19 bits
+            qmd_set_field_dyn(&mut q, addr_base + 32, 19, addr_shifted6 >> 32);
+            // SIZE_SHIFTED4(i): MW((1407+i*64):(1395+i*64)) — 13 bits
+            qmd_set_field_dyn(&mut q, addr_base + 51, 13, u64::from(cb.size >> 4));
+
+            // VALID(i): MW((1856+i*4):(1856+i*4)) — 1 bit (separate section)
+            qmd_set_field_dyn(&mut q, 1856 + idx * 4, 1, 1);
+            // NVK does NOT set per-CBUF INVALIDATE; the global
+            // INVALIDATE_SHADER_CONSTANT_CACHE (MW 477) suffices.
         }
     }
 
@@ -478,15 +523,39 @@ fn qmd_set_field_dyn(q: &mut [u32], bit_start: usize, width: usize, value: u64) 
 
 /// Select the appropriate QMD builder for a given SM architecture.
 ///
-/// Returns a Vec<u32> — 64 words for pre-Hopper, 96 words for Hopper+/Blackwell.
+/// Returns a `Vec<u32>` — 64 words for SM < 100, 96 words for SM >= 100.
+///
+/// Blackwell (SM 100+) requires QMD v5.0 per NVK/Mesa (`clcec0qmd.h`).
+/// QMD v3.0 is silently accepted by Blackwell hardware but does not
+/// actually launch compute threads — stores never materialise.
 #[must_use]
 pub fn build_qmd_for_sm(sm: u32, params: &QmdParams) -> Vec<u32> {
     match sm {
         0..=69 => build_qmd_v21(params).to_vec(),
         70..=79 => build_qmd_v22(params).to_vec(),
         80..=99 => build_qmd_v30(params).to_vec(),
-        _ => build_qmd_v50(params),
+        // SM 100+ (Blackwell) requires QMD v5.0.
+        _ => build_qmd_v50_with_sm(params, sm),
     }
+}
+
+/// Encode the SM version as a SASS_VERSION byte for QMD v5.0.
+///
+/// NVIDIA uses `(major << 4) | minor` — e.g. SM 8.9 = 0x89, SM 12.0 = 0xC0.
+/// Our internal SM numbering is `major * 10 + minor`, so SM 120 → 12.0.
+#[must_use]
+const fn sm_to_sass_version(sm: u32) -> u64 {
+    let major = sm / 10;
+    let minor = sm % 10;
+    ((major << 4) | minor) as u64
+}
+
+/// Build QMD v5.0 with the correct SASS_VERSION for the target SM.
+fn build_qmd_v50_with_sm(params: &QmdParams, sm: u32) -> Vec<u32> {
+    let mut q = build_qmd_v50(params);
+    // SASS_VERSION MW(455:448) — 8 bits
+    qmd_set_field_dyn(&mut q, 448, 8, sm_to_sass_version(sm));
+    q
 }
 
 /// Legacy builder — wraps `build_qmd_v30` with minimal params.
@@ -757,11 +826,13 @@ mod tests {
         let q_90 = build_qmd_for_sm(90, &params);
         assert_eq!(get_field(&q_90, 580, 4), 3, "SM 90 major = 3 (v3.0)");
         assert_eq!(get_field(&q_90, 576, 4), 0, "SM 90 minor = 0 (v3.0)");
+        let q_99 = build_qmd_for_sm(99, &params);
+        assert_eq!(q_99.len(), QMD_SIZE_WORDS, "SM 99 = 64-word QMD (v3.0)");
         // SM 100+ → v5.0 (Blackwell)
         let q_120 = build_qmd_for_sm(120, &params);
         assert_eq!(q_120.len(), QMD_V4_PLUS_SIZE_WORDS, "Blackwell QMD = 96 words");
-        assert_eq!(get_field(&q_120, 68, 4), 5, "SM 120 major = 5 (v5.0)");
-        assert_eq!(get_field(&q_120, 64, 4), 0, "SM 120 minor = 0 (v5.0)");
+        assert_eq!(get_field(&q_120, 468, 4), 5, "SM 120 major = 5 (v5.0)");
+        assert_eq!(get_field(&q_120, 464, 4), 0, "SM 120 minor = 0 (v5.0)");
     }
 
     #[test]
@@ -854,7 +925,7 @@ mod tests {
         let q_100 = build_qmd_for_sm(100, &params);
         assert_eq!(q_99.len(), QMD_SIZE_WORDS, "SM 99 = 64-word QMD");
         assert_eq!(q_100.len(), QMD_V4_PLUS_SIZE_WORDS, "SM 100 = 96-word QMD");
-        assert_eq!(get_field(&q_100, 68, 4), 5, "SM 100 major = 5 (v5.0)");
+        assert_eq!(get_field(&q_100, 468, 4), 5, "SM 100 major = 5 (v5.0)");
     }
 
     #[test]
@@ -918,17 +989,47 @@ mod tests {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q = build_qmd_v50(&params);
         assert_eq!(q.len(), QMD_V4_PLUS_SIZE_WORDS);
-        assert_eq!(get_field(&q, 68, 4), 5, "major version");
-        assert_eq!(get_field(&q, 64, 4), 0, "minor version");
+        // MW(471:468) = QMD_MAJOR_VERSION = 5, MW(467:464) = QMD_MINOR_VERSION = 0
+        assert_eq!(get_field(&q, 468, 4), 5, "major version");
+        assert_eq!(get_field(&q, 464, 4), 0, "minor version");
     }
 
     #[test]
-    fn qmd_v50_grid_at_top() {
+    fn qmd_v50_qmd_type_grid_cta() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_v50(&params);
+        // MW(153:151) = QMD_TYPE = GRID_CTA (2)
+        assert_eq!(get_field(&q, 151, 3), 2, "QMD_TYPE = GRID_CTA");
+    }
+
+    #[test]
+    fn qmd_v50_api_visible_call_limit() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_v50(&params);
+        // MW(456:456) = API_VISIBLE_CALL_LIMIT = NO_CHECK (1)
+        assert_eq!(get_field(&q, 456, 1), 1, "API_VISIBLE_CALL_LIMIT = NO_CHECK");
+    }
+
+    #[test]
+    fn qmd_v50_cache_invalidation_flags() {
+        let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        let q = build_qmd_v50(&params);
+        assert_eq!(get_field(&q, 472, 1), 1, "INVALIDATE_TEXTURE_HEADER_CACHE");
+        assert_eq!(get_field(&q, 473, 1), 1, "INVALIDATE_TEXTURE_SAMPLER_CACHE");
+        assert_eq!(get_field(&q, 474, 1), 1, "INVALIDATE_TEXTURE_DATA_CACHE");
+        assert_eq!(get_field(&q, 475, 1), 1, "INVALIDATE_SHADER_DATA_CACHE");
+        assert_eq!(get_field(&q, 476, 1), 1, "INVALIDATE_INSTRUCTION_CACHE");
+        assert_eq!(get_field(&q, 477, 1), 1, "INVALIDATE_SHADER_CONSTANT_CACHE");
+    }
+
+    #[test]
+    fn qmd_v50_grid_dimensions() {
         let params = QmdParams::simple(0, DispatchDims::new(64, 8, 2), 32);
         let q = build_qmd_v50(&params);
-        assert_eq!(get_field(&q, 0, 32), 64, "GRID_WIDTH");
-        assert_eq!(get_field(&q, 32, 16), 8, "GRID_HEIGHT");
-        assert_eq!(get_field(&q, 48, 16), 2, "GRID_DEPTH");
+        // MW(1279:1248) GRID_WIDTH, MW(1295:1280) GRID_HEIGHT, MW(1327:1312) GRID_DEPTH
+        assert_eq!(get_field(&q, 1248, 32), 64, "GRID_WIDTH");
+        assert_eq!(get_field(&q, 1280, 16), 8, "GRID_HEIGHT");
+        assert_eq!(get_field(&q, 1312, 16), 2, "GRID_DEPTH");
     }
 
     #[test]
@@ -936,9 +1037,10 @@ mod tests {
         let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         params.workgroup = [128, 4, 2];
         let q = build_qmd_v50(&params);
-        assert_eq!(get_field(&q, 544, 16), 128, "CTA_THREAD_DIMENSION0");
-        assert_eq!(get_field(&q, 560, 16), 4, "CTA_THREAD_DIMENSION1");
-        assert_eq!(get_field(&q, 576, 16), 2, "CTA_THREAD_DIMENSION2");
+        // MW(1103:1088), MW(1119:1104), MW(1127:1120)
+        assert_eq!(get_field(&q, 1088, 16), 128, "CTA_THREAD_DIMENSION0");
+        assert_eq!(get_field(&q, 1104, 16), 4, "CTA_THREAD_DIMENSION1");
+        assert_eq!(get_field(&q, 1120, 8), 2, "CTA_THREAD_DIMENSION2");
     }
 
     #[test]
@@ -946,9 +1048,10 @@ mod tests {
         let va = 0x0001_0000_0000_u64;
         let params = QmdParams::simple(va, DispatchDims::linear(1), 32);
         let q = build_qmd_v50(&params);
-        let lo_shifted = get_field(&q, 832, 28);
-        let hi_shifted = get_field(&q, 860, 32);
-        let reconstructed = (lo_shifted | (hi_shifted << 28)) << 4;
+        // MW(1055:1024) lower 32 bits, MW(1076:1056) upper 21 bits
+        let lo_shifted = get_field(&q, 1024, 32);
+        let hi_shifted = get_field(&q, 1056, 21);
+        let reconstructed = (lo_shifted | (hi_shifted << 32)) << 4;
         assert_eq!(reconstructed, va);
     }
 
@@ -956,7 +1059,8 @@ mod tests {
     fn qmd_v50_register_count() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 48);
         let q = build_qmd_v50(&params);
-        assert_eq!(get_field(&q, 608, 8), 48, "REGISTER_COUNT");
+        // MW(1136:1128) — 9 bits
+        assert_eq!(get_field(&q, 1128, 9), 48, "REGISTER_COUNT");
     }
 
     #[test]
@@ -964,11 +1068,12 @@ mod tests {
         let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         params.shared_mem_bytes = 1024;
         let q = build_qmd_v50(&params);
-        assert_eq!(get_field(&q, 640, 11), 1024 >> 7, "SHARED_MEMORY_SIZE_SHIFTED7");
+        // MW(1162:1152) — 11 bits
+        assert_eq!(get_field(&q, 1152, 11), 1024 >> 7, "SHARED_MEMORY_SIZE_SHIFTED7");
     }
 
     #[test]
-    fn qmd_v50_cbuf_at_2048() {
+    fn qmd_v50_cbuf_correct_positions() {
         let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         params.cbufs.push(CbufBinding {
             index: 0,
@@ -976,12 +1081,61 @@ mod tests {
             size: 4096,
         });
         let q = build_qmd_v50(&params);
-        let base = 2048;
-        assert_eq!(get_field(&q, base + 60, 1), 1, "CBUF 0 valid");
-        let addr_lo_shifted6 = get_field(&q, base, 26);
-        let addr_hi = get_field(&q, base + 26, 17);
-        let reconstructed = ((addr_hi << 26) | addr_lo_shifted6) << 6;
+
+        // VALID(0) at MW(1856) — separate from CBUF descriptor
+        assert_eq!(get_field(&q, 1856, 1), 1, "CBUF 0 valid");
+        // INVALIDATE(0) at MW(1859)
+        assert_eq!(get_field(&q, 1859, 1), 1, "CBUF 0 invalidate");
+
+        // ADDR_LOWER_SHIFTED6(0): MW(1375:1344) — 32 bits
+        let addr_lo = get_field(&q, 1344, 32);
+        // ADDR_UPPER_SHIFTED6(0): MW(1394:1376) — 19 bits
+        let addr_hi = get_field(&q, 1376, 19);
+        let reconstructed = (addr_lo | (addr_hi << 32)) << 6;
         assert_eq!(reconstructed, 0x2_0000_0040, "CBUF 0 addr");
-        assert_eq!(get_field(&q, base + 43, 17), u64::from(4096_u32 >> 4));
+
+        // SIZE_SHIFTED4(0): MW(1407:1395) — 13 bits
+        assert_eq!(get_field(&q, 1395, 13), u64::from(4096_u32 >> 4), "CBUF 0 size");
+    }
+
+    #[test]
+    fn qmd_v50_cbuf_slot1() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.cbufs.push(CbufBinding {
+            index: 1,
+            addr: 0x3_0000_0080,
+            size: 8192,
+        });
+        let q = build_qmd_v50(&params);
+
+        // VALID(1) at MW(1860)
+        assert_eq!(get_field(&q, 1860, 1), 1, "CBUF 1 valid");
+
+        // ADDR_LOWER_SHIFTED6(1): MW(1375+64:1344+64) = MW(1439:1408)
+        let addr_lo = get_field(&q, 1408, 32);
+        let addr_hi = get_field(&q, 1440, 19);
+        let reconstructed = (addr_lo | (addr_hi << 32)) << 6;
+        assert_eq!(reconstructed, 0x3_0000_0080, "CBUF 1 addr");
+
+        // SIZE_SHIFTED4(1): MW(1407+64:1395+64) = MW(1471:1459)
+        assert_eq!(get_field(&q, 1459, 13), u64::from(8192_u32 >> 4), "CBUF 1 size");
+    }
+
+    #[test]
+    fn qmd_v50_cbuf_addr_high_bits() {
+        let mut params = QmdParams::simple(0, DispatchDims::linear(1), 32);
+        params.cbufs.push(CbufBinding {
+            index: 0,
+            addr: 0x1_2000_F000,
+            size: 256,
+        });
+        let q = build_qmd_v50(&params);
+        let addr_lo = get_field(&q, 1344, 32);
+        let addr_hi = get_field(&q, 1376, 19);
+        let reconstructed = (addr_lo | (addr_hi << 32)) << 6;
+        assert_eq!(
+            reconstructed, 0x1_2000_F000,
+            "CBUF addr must survive upper bits"
+        );
     }
 }

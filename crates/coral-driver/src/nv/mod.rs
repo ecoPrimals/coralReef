@@ -14,6 +14,8 @@
 //!   Compute dispatch pending UVM integration. The compatibility path.
 
 pub mod bar0;
+#[cfg(feature = "nvidia-drm")]
+pub mod coral_kmod;
 pub mod identity;
 pub mod ioctl;
 pub mod kepler_falcon;
@@ -634,12 +636,17 @@ impl NvDevice {
         self.upload(qmd_handle, 0, qmd_bytes)?;
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
+        // Nouveau submits each push buffer as an independent DRM ioctl —
+        // no persistent channel state between submissions, so we must
+        // include SET_OBJECT + memory windows alongside every dispatch.
         let local_mem_window = if self.sm_version >= 70 {
             LOCAL_MEM_WINDOW_VOLTA
         } else {
             LOCAL_MEM_WINDOW_LEGACY
         };
-        let pb = pushbuf::PushBuf::compute_dispatch(self.compute_class, qmd_va, local_mem_window);
+        let mut pb = pushbuf::PushBuf::compute_init(self.compute_class, local_mem_window, 0, 0);
+        let dispatch = pushbuf::PushBuf::compute_dispatch(self.compute_class, qmd_va);
+        pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
 
         let pb_size = u64::try_from(pb_bytes.len())

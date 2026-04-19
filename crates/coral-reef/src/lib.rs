@@ -566,7 +566,11 @@ pub fn compile_glsl_full_with(
 }
 
 fn emit_binary(compiled: &CompiledShader, target: GpuTarget) -> Vec<u8> {
-    let include_header = target.as_nvidia().is_some();
+    // Compute shaders have no SPH — all dispatch metadata lives in the QMD.
+    // The all-zeros header produced by encode_header for Compute is a sentinel
+    // that must be stripped; graphics SPH always has non-zero SPH_TYPE/VERSION.
+    let include_header =
+        target.as_nvidia().is_some() && compiled.header.iter().any(|&w| w != 0);
     let header_size = if include_header {
         compiled.header.len() * 4
     } else {

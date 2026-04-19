@@ -69,6 +69,9 @@ pub fn compile_shader(
     shader.lower_par_copies();
     shader.lower_copy_swap();
 
+    // Ensure global stores are visible to the CPU before thread retirement.
+    shader.insert_exit_system_membar();
+
     // Dependency calculation
     shader.assign_deps_serial();
 
