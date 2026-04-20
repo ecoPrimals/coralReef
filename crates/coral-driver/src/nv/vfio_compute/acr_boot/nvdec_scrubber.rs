@@ -46,14 +46,17 @@ pub fn boot_nvdec_scrubber(
         notes.push("scrubber.bin too small".to_string());
         return (false, notes);
     }
-    let magic = u32::from_le_bytes(scrubber_fw[0..4].try_into().unwrap());
+    let magic = u32::from_le_bytes(scrubber_fw[0..4].try_into().expect("4-byte slice"));
     if magic != 0x10DE {
         notes.push(format!("bad magic: {magic:#x} (expected 0x10DE)"));
         return (false, notes);
     }
-    let total_sz = u32::from_le_bytes(scrubber_fw[8..12].try_into().unwrap()) as usize;
-    let data_off = u32::from_le_bytes(scrubber_fw[16..20].try_into().unwrap()) as usize;
-    let data_sz = u32::from_le_bytes(scrubber_fw[20..24].try_into().unwrap()) as usize;
+    let total_sz =
+        u32::from_le_bytes(scrubber_fw[8..12].try_into().expect("4-byte slice")) as usize;
+    let data_off =
+        u32::from_le_bytes(scrubber_fw[16..20].try_into().expect("4-byte slice")) as usize;
+    let data_sz =
+        u32::from_le_bytes(scrubber_fw[20..24].try_into().expect("4-byte slice")) as usize;
     notes.push(format!(
         "scrubber: total={total_sz:#x} data_off={data_off:#x} data_sz={data_sz:#x}"
     ));
@@ -105,17 +108,17 @@ pub fn boot_nvdec_scrubber(
     let imemc_val = (1u32 << 24) | (1u32 << 25);
     w(falcon::IMEMC, imemc_val);
     for i in 0..code_words {
-        let word = u32::from_le_bytes(code[i * 4..(i + 1) * 4].try_into().unwrap());
+        let word = u32::from_le_bytes(code[i * 4..(i + 1) * 4].try_into().expect("4-byte slice"));
         w(falcon::IMEMD, word);
     }
     notes.push(format!("NVDEC IMEM: {code_words} words loaded"));
 
     // Verify first few words
-    let imemc_read = (1u32 << 24); // auto-inc, read mode
+    let imemc_read = 1u32 << 24; // auto-inc, read mode
     w(falcon::IMEMC, imemc_read);
     let v0 = r(falcon::IMEMD);
     let v1 = r(falcon::IMEMD);
-    let expected0 = u32::from_le_bytes(code[0..4].try_into().unwrap());
+    let expected0 = u32::from_le_bytes(code[0..4].try_into().expect("4-byte slice"));
     notes.push(format!(
         "IMEM verify: [{v0:#010x},{v1:#010x}] expected={expected0:#010x} match={}",
         v0 == expected0
@@ -140,14 +143,17 @@ pub fn boot_nvdec_scrubber(
     // Step 4: Configure DMA (PHYS_OVERRIDE for VRAM access)
     w(falcon::DMACTL, 0);
     let fbif_cur = r(falcon::FBIF_TRANSCFG);
-    w(falcon::FBIF_TRANSCFG, fbif_cur | falcon::FBIF_PHYSICAL_OVERRIDE);
+    w(
+        falcon::FBIF_TRANSCFG,
+        fbif_cur | falcon::FBIF_PHYSICAL_OVERRIDE,
+    );
 
     // Step 5: Set BOOTVEC and start
     w(falcon::BOOTVEC, 0);
     w(falcon::MAILBOX0, 0);
     w(falcon::MAILBOX1, 0);
 
-    let cpuctl_before = r(falcon::CPUCTL);
+    let _cpuctl_before = r(falcon::CPUCTL);
     w(falcon::CPUCTL, falcon::CPUCTL_STARTCPU);
     std::thread::sleep(std::time::Duration::from_millis(10));
 

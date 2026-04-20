@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![cfg(target_os = "linux")]
 //! Integration tests for [`coral_ember::handle_swap_device`] (non-hardware paths).
 
 use std::collections::HashMap;

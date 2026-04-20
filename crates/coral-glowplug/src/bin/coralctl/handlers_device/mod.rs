@@ -20,7 +20,7 @@ pub(crate) fn rpc_status(socket: &str) {
     let result = match response.get("result") {
         Some(r) => r,
         None => {
-            eprintln!("error: no result in response");
+            tracing::error!("no result in RPC response");
             std::process::exit(1);
         }
     };
@@ -139,8 +139,9 @@ pub(crate) fn rpc_reset(socket: &str, bdf: &str, method: &str) {
             println!("ok: {bdf} reset complete (method={actual_method})");
         }
         other => {
-            eprintln!(
-                "error: unknown reset method '{other}' (use: auto, flr, sbr, bridge-sbr, remove-rescan)"
+            tracing::error!(
+                %other,
+                "unknown reset method (use: auto, flr, sbr, bridge-sbr, remove-rescan)"
             );
             std::process::exit(1);
         }
@@ -420,7 +421,7 @@ pub(crate) fn rpc_dispatch(
     let b64 = STANDARD;
 
     let shader_bytes = std::fs::read(shader_path).unwrap_or_else(|e| {
-        eprintln!("error: cannot read shader {shader_path}: {e}");
+        tracing::error!(path = %shader_path, error = %e, "cannot read shader");
         std::process::exit(1);
     });
     let shader_b64 = b64.encode(&shader_bytes);
@@ -429,7 +430,7 @@ pub(crate) fn rpc_dispatch(
         .iter()
         .map(|p| {
             let data = std::fs::read(p).unwrap_or_else(|e| {
-                eprintln!("error: cannot read input {p}: {e}");
+                tracing::error!(path = %p, error = %e, "cannot read dispatch input");
                 std::process::exit(1);
             });
             b64.encode(&data)
@@ -448,16 +449,18 @@ pub(crate) fn rpc_dispatch(
         "workgroup": wg,
     });
 
-    eprintln!(
-        "dispatching on {bdf}: shader={shader_path} inputs={} outputs={} grid={}x{}x{} block={}x{}x{}",
-        input_paths.len(),
-        output_sizes.len(),
-        dims[0],
-        dims[1],
-        dims[2],
-        wg[0],
-        wg[1],
-        wg[2],
+    tracing::info!(
+        %bdf,
+        shader = %shader_path,
+        inputs = input_paths.len(),
+        outputs = output_sizes.len(),
+        grid_x = dims[0],
+        grid_y = dims[1],
+        grid_z = dims[2],
+        block_x = wg[0],
+        block_y = wg[1],
+        block_z = wg[2],
+        "dispatching compute work",
     );
 
     let response = rpc_call(socket, "device.dispatch", params);
@@ -471,25 +474,25 @@ pub(crate) fn rpc_dispatch(
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    eprintln!("dispatch complete: {} output buffer(s)", outputs.len());
+    tracing::info!(count = outputs.len(), "dispatch complete");
 
     for (i, out) in outputs.iter().enumerate() {
         let Some(encoded) = out.as_str() else {
             continue;
         };
         let data = b64.decode(encoded).unwrap_or_else(|e| {
-            eprintln!("error: base64 decode output {i}: {e}");
+            tracing::error!(index = i, error = %e, "base64 decode dispatch output");
             std::process::exit(1);
         });
-        eprintln!("  output[{i}]: {} bytes", data.len());
+        tracing::info!(index = i, bytes = data.len(), "dispatch output buffer");
 
         if let Some(dir) = output_dir {
             let path = format!("{dir}/output_{i}.bin");
             std::fs::write(&path, &data).unwrap_or_else(|e| {
-                eprintln!("error: write {path}: {e}");
+                tracing::error!(path = %path, error = %e, "write dispatch output");
                 std::process::exit(1);
             });
-            eprintln!("  written to {path}");
+            println!("  written to {path}");
         }
     }
 }
@@ -529,10 +532,7 @@ pub(crate) fn rpc_health(socket: &str) {
 
 /// Resolve the ember socket path for direct journal access.
 pub(super) fn ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/run/coralreef/ember.sock".to_string())
+    coral_ember::ember_socket_path()
 }
 
 pub(crate) fn rpc_journal_query(
@@ -744,7 +744,11 @@ fn sysfs_write_privileged(path: &str, value: &str) {
     match status {
         Ok(s) if s.success() => {}
         Ok(s) => {
-            eprintln!("warning: coralreef-sysfs-write {path} exited with {s}, trying direct write");
+            tracing::warn!(
+                path,
+                status = %s,
+                "coralreef-sysfs-write exited unsuccessfully, trying direct write"
+            );
             let _ = std::fs::write(path, value);
         }
         Err(_) => {

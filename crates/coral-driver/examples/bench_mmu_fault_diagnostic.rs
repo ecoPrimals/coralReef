@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 //! MMU fault diagnostic — opens VFIO device, creates channel + page tables,
 //! submits NOP GPFIFO, then captures structured MMU fault state.
 //!

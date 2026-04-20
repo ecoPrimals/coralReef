@@ -163,7 +163,7 @@ pub(crate) fn reacquire(
     } else {
         match coral_driver::vfio::VfioDevice::open(bdf) {
             Ok(device) => {
-                let req_eventfd = crate::arm_req_irq(&device, bdf);
+                let req_eventfd = crate::background::arm_req_irq(&device, bdf);
                 tracing::info!(
                     bdf,
                     backend = ?device.backend_kind(),
@@ -176,7 +176,7 @@ pub(crate) fn reacquire(
                     HeldDevice {
                         bdf: bdf.to_string(),
                         device,
-                        ring_meta: crate::hold::RingMeta::default(),
+                        ring_meta: crate::ring_meta::RingMeta::default(),
                         req_eventfd,
                     },
                 );
@@ -388,7 +388,7 @@ pub(crate) fn ring_meta_set(
         .ok_or(EmberIpcError::InvalidRequest(
             "missing 'ring_meta' parameter",
         ))?;
-    let meta: crate::hold::RingMeta = serde_json::from_value(meta_val.clone())
+    let meta: crate::ring_meta::RingMeta = serde_json::from_value(meta_val.clone())
         .map_err(|e| EmberIpcError::JsonSerialize(format!("invalid ring_meta: {e}")))?;
     let mut map = held.write().map_err(|_| EmberIpcError::LockPoisoned)?;
     if let Some(device) = map.get_mut(bdf) {

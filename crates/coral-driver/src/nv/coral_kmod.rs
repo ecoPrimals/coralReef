@@ -223,7 +223,12 @@ const fn coral_ior(nr: u32, size: usize) -> u64 {
         | ((size as u64) << crate::drm::IOC_SIZESHIFT as u64)
 }
 
-fn coral_ioctl<T>(fd: std::os::fd::RawFd, request: u64, arg: &mut T, name: &'static str) -> DriverResult<()> {
+fn coral_ioctl<T>(
+    fd: std::os::fd::RawFd,
+    request: u64,
+    arg: &mut T,
+    name: &'static str,
+) -> DriverResult<()> {
     crate::drm::drm_ioctl_named(fd, request, arg, name)
 }
 
@@ -258,30 +263,17 @@ impl CoralKmod {
     }
 
     /// Initialize a kernel-privileged compute channel.
-    pub fn init_compute(
-        &self,
-        gpu_index: u32,
-        sm_version: u32,
-    ) -> DriverResult<KmodChannelInfo> {
+    pub fn init_compute(&self, gpu_index: u32, sm_version: u32) -> DriverResult<KmodChannelInfo> {
         // SAFETY: repr(C) struct, zeroed is valid.
         let mut params: CoralInitComputeParams = unsafe { std::mem::zeroed() };
         params.gpu_index = gpu_index;
         params.sm_version = sm_version;
 
         let cmd = coral_iowr(1, std::mem::size_of::<CoralInitComputeParams>());
-        coral_ioctl(
-            self.fd.as_raw_fd(),
-            cmd,
-            &mut params,
-            "CORAL_INIT_COMPUTE",
-        )?;
+        coral_ioctl(self.fd.as_raw_fd(), cmd, &mut params, "CORAL_INIT_COMPUTE")?;
         if params.status != 0 {
             return Err(DriverError::SubmitFailed(
-                format!(
-                    "CORAL_INIT_COMPUTE: RM status=0x{:08X}",
-                    params.status
-                )
-                .into(),
+                format!("CORAL_INIT_COMPUTE: RM status=0x{:08X}", params.status).into(),
             ));
         }
 
@@ -384,19 +376,10 @@ impl CoralKmod {
         params.sm_version = sm_version;
 
         let cmd = coral_iowr(5, std::mem::size_of::<CoralBindChannelParams>());
-        coral_ioctl(
-            self.fd.as_raw_fd(),
-            cmd,
-            &mut params,
-            "CORAL_BIND_CHANNEL",
-        )?;
+        coral_ioctl(self.fd.as_raw_fd(), cmd, &mut params, "CORAL_BIND_CHANNEL")?;
         if params.status != 0 {
             return Err(DriverError::SubmitFailed(
-                format!(
-                    "CORAL_BIND_CHANNEL: RM status=0x{:08X}",
-                    params.status
-                )
-                .into(),
+                format!("CORAL_BIND_CHANNEL: RM status=0x{:08X}", params.status).into(),
             ));
         }
 
@@ -422,11 +405,7 @@ impl CoralKmod {
 
     /// Allocate a VRAM buffer and map it into the GPU VA space from kernel
     /// context. Returns `(h_memory, gpu_va)`.
-    pub fn alloc_gpu_buffer(
-        &self,
-        h_client: u32,
-        size: u64,
-    ) -> DriverResult<(u32, u64)> {
+    pub fn alloc_gpu_buffer(&self, h_client: u32, size: u64) -> DriverResult<(u32, u64)> {
         let mut params: CoralAllocGpuBufferParams = unsafe { std::mem::zeroed() };
         params.h_client = h_client;
         params.size = size;
@@ -440,11 +419,7 @@ impl CoralKmod {
         )?;
         if params.status != 0 {
             return Err(DriverError::SubmitFailed(
-                format!(
-                    "CORAL_ALLOC_GPU_BUFFER: RM status=0x{:08X}",
-                    params.status
-                )
-                .into(),
+                format!("CORAL_ALLOC_GPU_BUFFER: RM status=0x{:08X}", params.status).into(),
             ));
         }
 
@@ -452,12 +427,7 @@ impl CoralKmod {
     }
 
     /// Free a VRAM buffer previously allocated with `alloc_gpu_buffer`.
-    pub fn free_gpu_buffer(
-        &self,
-        h_client: u32,
-        h_memory: u32,
-        gpu_va: u64,
-    ) -> DriverResult<()> {
+    pub fn free_gpu_buffer(&self, h_client: u32, h_memory: u32, gpu_va: u64) -> DriverResult<()> {
         let mut params = CoralFreeGpuBufferParams {
             h_client,
             h_memory,
@@ -524,7 +494,7 @@ pub fn kmod_map_rm_memory(
     length: u64,
 ) -> DriverResult<u64> {
     use crate::nv::uvm::structs::NvRmMapMemoryParams;
-    use crate::nv::uvm::{nv_ioctl_rw, NV_ESC_RM_MAP_MEMORY};
+    use crate::nv::uvm::{NV_ESC_RM_MAP_MEMORY, nv_ioctl_rw};
 
     let mut params = NvRmMapMemoryParams {
         h_client,
@@ -540,7 +510,10 @@ pub fn kmod_map_rm_memory(
         pad2: 0,
     };
 
-    let ioctl_nr = nv_ioctl_rw(NV_ESC_RM_MAP_MEMORY, std::mem::size_of::<NvRmMapMemoryParams>());
+    let ioctl_nr = nv_ioctl_rw(
+        NV_ESC_RM_MAP_MEMORY,
+        std::mem::size_of::<NvRmMapMemoryParams>(),
+    );
     crate::drm::drm_ioctl_named(ctl_fd, ioctl_nr, &mut params, "RM_MAP_MEMORY(kmod_fd)")?;
 
     if params.status != 0 {
@@ -554,8 +527,8 @@ pub fn kmod_map_rm_memory(
     }
 
     let rm_addr = params.p_linear_address;
-    let len = usize::try_from(length)
-        .map_err(|_| DriverError::SubmitFailed("length overflow".into()))?;
+    let len =
+        usize::try_from(length).map_err(|_| DriverError::SubmitFailed("length overflow".into()))?;
 
     // SAFETY: rm_addr and length were validated by RM_MAP_MEMORY.
     // MAP_FIXED replaces the RM-reserved VMA with a page-backed mapping.

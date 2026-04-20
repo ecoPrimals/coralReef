@@ -19,10 +19,11 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
-## Project status (Iteration 81)
+## Project status (Iteration 84)
 
-- **Tests**: 4506 workspace tests, 0 failed, ~153 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
+- **Tests**: 4541 workspace tests, 0 failed, ~155 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
 - **Compliance (Iter 80)**: Wire contract documented (`SHADER_COMPILE_WIRE_CONTRACT.md`); `CompilationInfo` in IPC responses; crypto socket discovery aligned; ecoBin v3 `deny.toml` C/FFI bans; zero hardcoded primal names; all mocks test-isolated. Details in `CHANGELOG.md` and `STATUS.md`.
+- **ecoBin cross-arch (Iter 84)**: coral-ember, coral-glowplug, and coral-gpu pass `cargo check` on macOS x86_64, macOS aarch64, and Linux aarch64-musl (0 errors across target triples).
 
 ## Architecture
 

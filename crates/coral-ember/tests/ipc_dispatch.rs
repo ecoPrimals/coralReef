@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![cfg(target_os = "linux")]
 //! Integration tests for JSON-RPC dispatch via the public `handle_client` API.
 
 use std::collections::{HashMap, HashSet};

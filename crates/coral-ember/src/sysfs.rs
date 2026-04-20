@@ -514,7 +514,8 @@ fn pci_remove_rescan_inner(bdf: &str, target_driver: Option<&str>) -> Result<(),
                 let current = read_current_driver(bdf);
                 if current.as_deref() == Some(driver) {
                     tracing::info!(
-                        bdf, driver,
+                        bdf,
+                        driver,
                         "target driver already bound after rescan — nothing to do"
                     );
                 } else {
@@ -530,7 +531,8 @@ fn pci_remove_rescan_inner(bdf: &str, target_driver: Option<&str>) -> Result<(),
                         std::thread::sleep(Duration::from_millis(500));
                     }
                     tracing::info!(
-                        bdf, driver,
+                        bdf,
+                        driver,
                         "setting driver_override before probe (autoprobe disabled)"
                     );
                     let _ = sysfs_write_direct(

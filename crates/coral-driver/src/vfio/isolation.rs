@@ -134,10 +134,7 @@ fn read_pipe(pipe_fd: &impl AsFd, max_bytes: usize) -> Vec<u8> {
     }
 }
 
-fn classify_exit(
-    status: rustix::process::WaitStatus,
-    bytes: Vec<u8>,
-) -> IsolationResult<Vec<u8>> {
+fn classify_exit(status: rustix::process::WaitStatus, bytes: Vec<u8>) -> IsolationResult<Vec<u8>> {
     if status.exited() && status.exit_status() == Some(0) {
         IsolationResult::Ok(bytes)
     } else if status.signaled() {

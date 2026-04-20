@@ -79,45 +79,46 @@ pub(crate) fn sovereign_init(
         o
     };
 
-    if opts.golden_state.is_none() {
-        if let Some(path) = opts.golden_state_path.as_deref().or_else(|| {
-            params.get("golden_state_path").and_then(|v| v.as_str())
-        }) {
-            match load_golden_state(path) {
-                Ok(gs) => {
-                    tracing::info!(path, writes = gs.len(), "loaded golden state from file");
-                    opts.golden_state = Some(gs);
-                }
-                Err(e) => {
-                    tracing::warn!(path, error = %e, "failed to load golden state");
-                    write_jsonrpc_error(stream, id, -32000, &e)
-                        .map_err(EmberIpcError::from)?;
-                    return Ok(());
-                }
+    if opts.golden_state.is_none()
+        && let Some(path) = opts
+            .golden_state_path
+            .as_deref()
+            .or_else(|| params.get("golden_state_path").and_then(|v| v.as_str()))
+    {
+        match load_golden_state(path) {
+            Ok(gs) => {
+                tracing::info!(path, writes = gs.len(), "loaded golden state from file");
+                opts.golden_state = Some(gs);
+            }
+            Err(e) => {
+                tracing::warn!(path, error = %e, "failed to load golden state");
+                write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+                return Ok(());
             }
         }
     }
 
-    if opts.vbios_rom.is_none() {
-        if let Some(path) = opts.vbios_rom_path.as_deref().or_else(|| {
-            params.get("vbios_rom_path").and_then(|v| v.as_str())
-        }) {
-            match std::fs::read(path) {
-                Ok(rom) => {
-                    tracing::info!(path, bytes = rom.len(), "loaded VBIOS ROM from file");
-                    opts.vbios_rom = Some(rom);
-                }
-                Err(e) => {
-                    tracing::warn!(path, error = %e, "failed to load VBIOS ROM");
-                    write_jsonrpc_error(
-                        stream,
-                        id,
-                        -32000,
-                        &format!("cannot read VBIOS ROM {path}: {e}"),
-                    )
-                    .map_err(EmberIpcError::from)?;
-                    return Ok(());
-                }
+    if opts.vbios_rom.is_none()
+        && let Some(path) = opts
+            .vbios_rom_path
+            .as_deref()
+            .or_else(|| params.get("vbios_rom_path").and_then(|v| v.as_str()))
+    {
+        match std::fs::read(path) {
+            Ok(rom) => {
+                tracing::info!(path, bytes = rom.len(), "loaded VBIOS ROM from file");
+                opts.vbios_rom = Some(rom);
+            }
+            Err(e) => {
+                tracing::warn!(path, error = %e, "failed to load VBIOS ROM");
+                write_jsonrpc_error(
+                    stream,
+                    id,
+                    -32000,
+                    &format!("cannot read VBIOS ROM {path}: {e}"),
+                )
+                .map_err(EmberIpcError::from)?;
+                return Ok(());
             }
         }
     }
@@ -140,13 +141,8 @@ pub(crate) fn sovereign_init(
         let b = match dev.device.map_bar(0) {
             Ok(b) => b,
             Err(e) => {
-                write_jsonrpc_error(
-                    stream,
-                    id,
-                    -32000,
-                    &format!("BAR0 map failed: {e}"),
-                )
-                .map_err(EmberIpcError::from)?;
+                write_jsonrpc_error(stream, id, -32000, &format!("BAR0 map failed: {e}"))
+                    .map_err(EmberIpcError::from)?;
                 return Ok(());
             }
         };

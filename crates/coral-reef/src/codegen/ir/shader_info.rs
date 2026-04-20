@@ -283,7 +283,7 @@ impl Shader<'_> {
             return;
         }
         for func in &mut self.functions {
-            for block in func.blocks.iter_mut() {
+            for block in &mut func.blocks {
                 let mut new_instrs = Vec::with_capacity(block.instrs.len() + 4);
                 for instr in block.instrs.drain(..) {
                     if matches!(instr.op, Op::Exit(_)) {

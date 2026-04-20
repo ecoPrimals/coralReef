@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 
 //! Default `/sys` and `/proc` roots. Single `#[test]` avoids `OnceLock` races when
 //! parallel test threads set or read `CORALREEF_*` env vars.

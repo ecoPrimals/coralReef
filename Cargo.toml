@@ -82,9 +82,9 @@ coral-reef-stubs = { path = "crates/coral-reef-stubs" }
 
 [workspace.lints.rust]
 missing_docs = "warn"
-# coral-driver opts out (no [lints] workspace = true) and manages unsafe
-# locally — it requires unsafe for kernel ioctl/mmap/MMIO with SAFETY docs.
-# All other crates inherit this deny and use #![forbid(unsafe_code)].
+# All crates inherit this deny. coral-driver overrides with
+# #![allow(unsafe_code)] — it requires unsafe for kernel ioctl/mmap/MMIO
+# with SAFETY docs. All other crates use #![forbid(unsafe_code)].
 unsafe_code = "deny"
 
 [workspace.lints.clippy]

@@ -178,7 +178,7 @@ pub const FALCON_PT0_VRAM: u32 = 0x15000;
 /// GP100+ (GV100) PDE format (from nouveau `gp100_vmm_pgd_pde`):
 ///   bit 0:      VALID (1 = valid)
 ///   `bits[2:1]`:  target/aperture (0 = VRAM, 1 = NCOH, 2 = COH)
-///   `bits[N:12]`: page-aligned physical address (bits[11:0] = 0)
+///   `bits[N:12]`: page-aligned physical address (`bits[11:0]` = 0)
 ///
 /// Unlike PTEs which use `addr >> 4`, PDEs keep the address at its
 /// natural page-aligned position: `phys_addr | VALID`.

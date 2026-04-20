@@ -41,10 +41,12 @@ pub mod ioctl;
 pub mod irq;
 pub mod isolation;
 pub mod memory;
-pub mod sovereign_init;
 pub mod nv_metal;
 pub(crate) mod pci_config;
 pub mod pci_discovery;
+pub mod sovereign_init;
+mod sovereign_stages;
+mod sovereign_types;
 pub mod sysfs_bar0;
 pub mod types;
 

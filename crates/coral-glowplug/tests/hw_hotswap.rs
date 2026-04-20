@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![cfg(target_os = "linux")]
 //! Hot-swap integration tests — exercise glowPlug's personality swap,
 //! device lend/reclaim, and health monitoring on live hardware.
 //!
 //! # Prerequisites
 //!
 //! - `coral-glowplug` daemon running with VFIO-bound GPU(s)
-//! - Socket at `/run/coralreef/glowplug.sock` (or `CORALREEF_GLOWPLUG_SOCK`)
+//! - Socket at default daemon path (or `CORALREEF_GLOWPLUG_SOCK` / `CORALREEF_GLOWPLUG_SOCKET`)
 //! - User has socket and VFIO group permissions
 //!
 //! Run: `cargo test --test hw_hotswap -p coral-glowplug -- --ignored --test-threads=1`
@@ -17,11 +18,14 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
+use coral_glowplug::config::default_daemon_socket_path;
+
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn socket_path() -> String {
     std::env::var("CORALREEF_GLOWPLUG_SOCK")
-        .unwrap_or_else(|_| "/run/coralreef/glowplug.sock".to_owned())
+        .or_else(|_| std::env::var("CORALREEF_GLOWPLUG_SOCKET"))
+        .unwrap_or_else(|_| default_daemon_socket_path())
 }
 
 fn connect() -> BufReader<UnixStream> {

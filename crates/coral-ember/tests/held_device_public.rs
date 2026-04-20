@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![cfg(target_os = "linux")]
 //! Integration-level checks for [`coral_ember::HeldDevice`] public surface.
 //!
 //! A real [`coral_driver::vfio::VfioDevice`] is required to construct a [`coral_ember::HeldDevice`];

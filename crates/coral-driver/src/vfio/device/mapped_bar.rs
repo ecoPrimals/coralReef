@@ -112,9 +112,7 @@ impl MappedBar {
         ops: &[(u32, Option<u32>)],
         timeout: std::time::Duration,
     ) -> crate::vfio::isolation::IsolationResult<Vec<u32>> {
-        unsafe {
-            crate::vfio::isolation::fork_isolated_mmio_batch(self.base_ptr(), ops, timeout)
-        }
+        unsafe { crate::vfio::isolation::fork_isolated_mmio_batch(self.base_ptr(), ops, timeout) }
     }
 }
 

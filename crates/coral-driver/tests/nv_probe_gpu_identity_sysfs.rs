@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 //! [`coral_driver::nv::identity::probe_gpu_identity`] against a fake sysfs tree (single test per
 //! binary so `CORALREEF_SYSFS_ROOT` applies before [`coral_driver::linux_paths::sysfs_root`] locks).
 

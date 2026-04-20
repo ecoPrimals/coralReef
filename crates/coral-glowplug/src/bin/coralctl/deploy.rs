@@ -19,7 +19,7 @@ pub(crate) fn try_load_config(
         match config::Config::load(path) {
             Ok(cfg) => return Ok(cfg),
             Err(e) => {
-                eprintln!("note: skipping {path}: {e}");
+                tracing::debug!(path = %path, error = %e, "skipping config path");
             }
         }
     }
@@ -31,13 +31,13 @@ fn load_config(config_path: Option<String>) -> config::Config {
     match try_load_config(config_path) {
         Ok(cfg) => cfg,
         Err(err) => {
-            eprintln!("error: no valid config found. Tried:");
+            tracing::error!("no valid config found");
             for path in &err.paths {
-                eprintln!("  - {path}");
+                tracing::error!(%path, "tried path");
             }
-            eprintln!(
-                "hint: pass --config <path> or create {}",
-                config::system_config_path()
+            tracing::error!(
+                hint_path = %config::system_config_path(),
+                "hint: pass --config <path> or create the system config path"
             );
             std::process::exit(1);
         }
@@ -48,7 +48,7 @@ pub(crate) fn deploy_udev(config_path: Option<String>, output: &str, dry_run: bo
     let cfg = load_config(config_path);
 
     if cfg.device.is_empty() {
-        eprintln!("error: no devices configured in glowplug.toml");
+        tracing::error!("no devices configured in glowplug.toml");
         std::process::exit(1);
     }
 
@@ -57,18 +57,20 @@ pub(crate) fn deploy_udev(config_path: Option<String>, output: &str, dry_run: bo
     rules.push_str("# Re-run: coralctl deploy-udev\n\n");
 
     rules.push_str("# /dev/vfio/vfio (container fd) — needed by all VFIO users\n");
-    rules.push_str(&format!(
-        "SUBSYSTEM==\"vfio\", KERNEL==\"vfio\", GROUP=\"{group}\", MODE=\"0660\"\n\n"
-    ));
+    use std::fmt::Write;
+    let _ = writeln!(
+        rules,
+        "SUBSYSTEM==\"vfio\", KERNEL==\"vfio\", GROUP=\"{group}\", MODE=\"0660\"\n"
+    );
 
     let mut seen_groups = std::collections::BTreeSet::new();
 
     for dev in &cfg.device {
         let group_id = sysfs::read_iommu_group(&dev.bdf);
         if group_id == 0 {
-            eprintln!(
-                "warning: {}: no IOMMU group found (device missing or IOMMU disabled), skipping",
-                dev.bdf
+            tracing::warn!(
+                bdf = %dev.bdf,
+                "no IOMMU group found (device missing or IOMMU disabled), skipping"
             );
             continue;
         }
@@ -81,17 +83,15 @@ pub(crate) fn deploy_udev(config_path: Option<String>, output: &str, dry_run: bo
         let chip = sysfs::identify_chip(vendor_id, device_id);
         let name = dev.name.as_deref().unwrap_or(&chip);
 
-        rules.push_str(&format!(
-            "# {name} ({}) — IOMMU group {group_id}\n",
-            dev.bdf
-        ));
-        rules.push_str(&format!(
-            "SUBSYSTEM==\"vfio\", KERNEL==\"{group_id}\", GROUP=\"{group}\", MODE=\"0660\"\n\n"
-        ));
+        let _ = writeln!(rules, "# {name} ({}) — IOMMU group {group_id}", dev.bdf);
+        let _ = writeln!(
+            rules,
+            "SUBSYSTEM==\"vfio\", KERNEL==\"{group_id}\", GROUP=\"{group}\", MODE=\"0660\"\n"
+        );
     }
 
     if seen_groups.is_empty() {
-        eprintln!("error: no IOMMU groups resolved — are devices present and IOMMU enabled?");
+        tracing::error!("no IOMMU groups resolved — are devices present and IOMMU enabled?");
         std::process::exit(1);
     }
 
@@ -101,26 +101,23 @@ pub(crate) fn deploy_udev(config_path: Option<String>, output: &str, dry_run: bo
         if let Some(parent) = std::path::Path::new(output).parent()
             && !parent.exists()
         {
-            eprintln!(
-                "error: parent directory {} does not exist",
-                parent.display()
+            tracing::error!(
+                parent = %parent.display(),
+                "parent directory does not exist"
             );
             std::process::exit(1);
         }
         match std::fs::write(output, &rules) {
             Ok(()) => {
-                eprintln!(
-                    "wrote {} rules for {} IOMMU group(s) to {output}",
-                    seen_groups.len(),
-                    seen_groups.len()
-                );
-                eprintln!(
+                let n = seen_groups.len();
+                println!("wrote {n} rules for {n} IOMMU group(s) to {output}");
+                println!(
                     "reload udev: sudo udevadm control --reload-rules && sudo udevadm trigger"
                 );
             }
             Err(e) => {
-                eprintln!("error: failed to write {output}: {e}");
-                eprintln!("hint: run with sudo or use --dry-run to preview");
+                tracing::error!(path = %output, error = %e, "failed to write udev rules");
+                tracing::error!("hint: run with sudo or use --dry-run to preview");
                 std::process::exit(1);
             }
         }

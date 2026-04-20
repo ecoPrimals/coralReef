@@ -173,10 +173,15 @@ pub const FBIF_TRANSCFG: usize = 0x624;
 pub const FBIF_TRANSCFG_IDX_BASE: usize = 0x604;
 pub const FBIF_TRANSCFG_IDX_STRIDE: usize = 0x10;
 /// DMA index names used by falcon firmware.
+#[expect(dead_code, reason = "hardware register map — DMA index for reference")]
 pub const FBIF_DMAIDX_UCODE: usize = 0;
+#[expect(dead_code, reason = "hardware register map — DMA index for reference")]
 pub const FBIF_DMAIDX_VIRT: usize = 1;
+#[expect(dead_code, reason = "hardware register map — DMA index for reference")]
 pub const FBIF_DMAIDX_PHYS_VID: usize = 2;
+#[expect(dead_code, reason = "hardware register map — DMA index for reference")]
 pub const FBIF_DMAIDX_PHYS_SYS_COH: usize = 3;
+#[expect(dead_code, reason = "hardware register map — DMA index for reference")]
 pub const FBIF_DMAIDX_PHYS_SYS_NCOH: usize = 4;
 /// FBIF target mode: virtual addressing (requires active instance block bind).
 #[expect(
@@ -187,8 +192,16 @@ pub const FBIF_TARGET_VIRT: u32 = 0x00;
 /// FBIF target mode: physical video memory (bypasses MMU).
 pub const FBIF_TARGET_PHYS_VID: u32 = 0x01;
 /// FBIF target mode: physical system memory coherent.
+#[expect(
+    dead_code,
+    reason = "hardware register map — target mode for reference"
+)]
 pub const FBIF_TARGET_PHYS_SYS_COH: u32 = 0x02;
 /// FBIF target mode: physical system memory non-coherent.
+#[expect(
+    dead_code,
+    reason = "hardware register map — target mode for reference"
+)]
 pub const FBIF_TARGET_PHYS_SYS_NCOH: u32 = 0x03;
 /// FBIF physical addressing override bit (nouveau `0x80` mask).
 pub const FBIF_PHYSICAL_OVERRIDE: u32 = 0x80;

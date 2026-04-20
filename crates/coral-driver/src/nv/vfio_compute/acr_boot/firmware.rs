@@ -525,7 +525,6 @@ pub struct ParsedAcrFirmware {
 impl ParsedAcrFirmware {
     /// Parse bl.bin and ucode_load.bin into structured form.
     pub fn parse(fw: &AcrFirmwareSet) -> DriverResult<Self> {
-        let _bl_bin_hdr = &fw.acr_bl_parsed.bin_hdr;
         let bl_sub = &fw.acr_bl_parsed.raw;
         let bl_desc = HsBlDesc::parse(bl_sub)?;
 
@@ -537,7 +536,6 @@ impl ParsedAcrFirmware {
             bl_payload.to_vec()
         };
 
-        let _ucode_bin_hdr = &fw.acr_ucode_parsed.bin_hdr;
         let ucode_sub = &fw.acr_ucode_parsed.raw;
         let hs_header = HsHeader::parse(ucode_sub)?;
 

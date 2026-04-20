@@ -24,8 +24,7 @@ fn test_ipc_error_display() {
 #[tokio::test]
 async fn test_cross_protocol_health_consistency() {
     let (_tx1, rx1) = test_helpers::test_shutdown_channel();
-    let (rpc_addr, _rpc_handle) =
-        start_newline_tcp_jsonrpc("127.0.0.1:0", rx1).await.unwrap();
+    let (rpc_addr, _rpc_handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", rx1).await.unwrap();
     let (_tx2, rx2) = test_helpers::test_shutdown_channel();
     let (tarpc_addr, _tarpc_handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx2)
         .await

@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#![allow(
-    unsafe_code,
-    reason = "set_var/remove_var are unsafe in Rust 2024; serialized by test mutex"
-)]
+#![allow(unsafe_code)]
 //! Integration tests for ecosystem discovery and registration.
 //!
 //! Environment mutation uses `unsafe` (Rust 1.85+); the `coralreef-core` library

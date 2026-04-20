@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 
 //! Empty env strings fall back to defaults (separate test binary).
 

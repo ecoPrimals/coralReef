@@ -2,6 +2,7 @@
 // Copyright © 2026 ecoPrimals
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![allow(clippy::doc_markdown)]
 //! Pure Rust AMD ISA table generator — replaces `gen_rdna2_opcodes.py`.
 //!
 //! Parses AMD's machine-readable ISA XML specification and generates

@@ -5,7 +5,8 @@
 #   /etc/coralreef/glowplug.toml       (system service)
 
 [daemon]
-socket = "$XDG_RUNTIME_DIR/coralreef/glowplug.sock"
+# Reference: `$XDG_RUNTIME_DIR/<BIOMEOS_ECOSYSTEM_NAMESPACE>/coral-glowplug-<BIOMEOS_FAMILY_ID>.sock`
+socket = "$XDG_RUNTIME_DIR/biomeos/coral-glowplug-default.sock"
 log_level = "info"
 health_interval_ms = 5000
 

@@ -250,7 +250,9 @@ impl FalconBootSolver {
 
         match gpu_gen {
             GpuGeneration::Kepler => {
-                tracing::info!("Kepler: ACR solver not applicable — PIO boot handled by sovereign_init");
+                tracing::info!(
+                    "Kepler: ACR solver not applicable — PIO boot handled by sovereign_init"
+                );
                 Ok(Vec::new())
             }
             GpuGeneration::CpuRm => {

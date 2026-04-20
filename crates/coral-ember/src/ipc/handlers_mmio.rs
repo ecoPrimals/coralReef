@@ -175,20 +175,20 @@ pub(crate) fn batch(
         .get("bdf")
         .and_then(|v| v.as_str())
         .ok_or(EmberIpcError::InvalidRequest("missing 'bdf'"))?;
-    let ops_json = params
-        .get("ops")
-        .and_then(|v| v.as_array())
-        .ok_or(EmberIpcError::InvalidRequest(
-            "missing 'ops' array of {offset, value?}",
-        ))?;
+    let ops_json =
+        params
+            .get("ops")
+            .and_then(|v| v.as_array())
+            .ok_or(EmberIpcError::InvalidRequest(
+                "missing 'ops' array of {offset, value?}",
+            ))?;
 
     let mut ops: Vec<(u32, Option<u32>)> = Vec::with_capacity(ops_json.len());
     for op in ops_json {
-        let offset = op
-            .get("offset")
-            .and_then(|v| v.as_u64())
-            .ok_or(EmberIpcError::InvalidRequest("op missing 'offset'"))?
-            as u32;
+        let offset =
+            op.get("offset")
+                .and_then(|v| v.as_u64())
+                .ok_or(EmberIpcError::InvalidRequest("op missing 'offset'"))? as u32;
         let value = op.get("value").and_then(|v| v.as_u64()).map(|v| v as u32);
         ops.push((offset, value));
     }
@@ -290,9 +290,7 @@ pub(crate) fn pramin_read32(
                 stream,
                 id,
                 -32001,
-                &format!(
-                    "PRAMIN read at VRAM 0x{vram_offset:x} timed out (BAR0 window D-state)"
-                ),
+                &format!("PRAMIN read at VRAM 0x{vram_offset:x} timed out (BAR0 window D-state)"),
             )
             .map_err(EmberIpcError::from)?;
         }

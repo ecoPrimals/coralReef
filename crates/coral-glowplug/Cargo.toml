@@ -26,7 +26,7 @@ no-ember = []
 [dependencies]
 base64 = "0.22"
 clap.workspace = true
-coral-driver = { path = "../coral-driver", features = ["vfio"] }
+coral-driver = { path = "../coral-driver" }
 coral-ember = { path = "../coral-ember" }
 rustix = { workspace = true, features = ["net"] }
 serde.workspace = true
@@ -37,6 +37,14 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "signal", "time"] }
 
-[dev-dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 coral-driver = { path = "../coral-driver", features = ["vfio"] }
+
+[dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+coral-driver = { path = "../coral-driver", features = ["vfio"] }
+
+[lints]
+workspace = true

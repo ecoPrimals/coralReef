@@ -230,7 +230,6 @@ impl Sec2Queues {
                     let q1_offset = block[2];
                     let q1_meta = block[3];
                     let q1_size = (q1_meta & 0xFFFF) as u16;
-                    let _q1_id = ((q1_meta >> 24) & 0xFF) as u8;
 
                     let (cmdq_offset, cmdq_size, msgq_offset, msgq_size) = if q0_id == 0 {
                         (q0_offset, q0_size, q1_offset, q1_size)

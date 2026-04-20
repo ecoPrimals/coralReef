@@ -30,6 +30,9 @@ serde_json.workspace = true
 tempfile.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+[lints]
+workspace = true
+
 [[test]]
 name = "exp123k_k80_sovereign"
 path = "tests/exp123k_k80_sovereign/mod.rs"

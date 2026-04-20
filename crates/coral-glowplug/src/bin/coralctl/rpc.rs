@@ -12,16 +12,18 @@ pub(crate) fn rpc_call(socket_path: &str, method: &str, params: Value) -> Value 
         Ok(s) => s,
         Err(e) => {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
-                eprintln!("error: permission denied connecting to {socket_path}");
-                eprintln!("hint: add yourself to the coralreef group:");
-                eprintln!("  sudo groupadd -r coralreef");
-                eprintln!("  sudo usermod -aG coralreef $USER");
-                eprintln!("  newgrp coralreef  # or log out and back in");
+                tracing::error!(%socket_path, "permission denied connecting to glowplug socket");
+                tracing::error!("hint: add yourself to the coralreef group:");
+                tracing::error!("  sudo groupadd -r coralreef");
+                tracing::error!("  sudo usermod -aG coralreef $USER");
+                tracing::error!("  newgrp coralreef  # or log out and back in");
             } else if e.kind() == std::io::ErrorKind::NotFound {
-                eprintln!("error: socket not found at {socket_path}");
-                eprintln!("hint: is coral-glowplug running?  systemctl status coral-glowplug");
+                tracing::error!(%socket_path, "socket not found");
+                tracing::error!(
+                    "hint: is coral-glowplug running?  systemctl status coral-glowplug"
+                );
             } else {
-                eprintln!("error: failed to connect to {socket_path}: {e}");
+                tracing::error!(%socket_path, error = %e, "failed to connect to glowplug socket");
             }
             std::process::exit(1);
         }
@@ -39,22 +41,22 @@ pub(crate) fn rpc_call(socket_path: &str, method: &str, params: Value) -> Value 
     payload.push('\n');
 
     if let Err(e) = stream.write_all(payload.as_bytes()) {
-        eprintln!("error: failed to send RPC: {e}");
+        tracing::error!(error = %e, "failed to send RPC");
         std::process::exit(1);
     }
 
     let mut reader = std::io::BufReader::new(&stream);
     let mut response_line = String::new();
     if let Err(e) = reader.read_line(&mut response_line) {
-        eprintln!("error: failed to read RPC response: {e}");
+        tracing::error!(error = %e, "failed to read RPC response");
         std::process::exit(1);
     }
 
     match serde_json::from_str::<Value>(&response_line) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("error: invalid JSON response: {e}");
-            eprintln!("raw: {response_line}");
+            tracing::error!(error = %e, "invalid JSON response");
+            tracing::error!(raw = %response_line.trim_end(), "RPC response body");
             std::process::exit(1);
         }
     }
@@ -68,7 +70,7 @@ pub(crate) fn check_rpc_error(response: &Value) {
             .get("message")
             .and_then(|m| m.as_str())
             .unwrap_or("unknown error");
-        eprintln!("error [{code}]: {message}");
+        tracing::error!(code, %message, "JSON-RPC error");
         std::process::exit(1);
     }
 }

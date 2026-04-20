@@ -63,10 +63,10 @@ impl GpuIdentity for AmdVegaIdentity {
     fn vendor(&self) -> GpuVendor {
         GpuVendor::Amd
     }
-    fn chip_name(&self) -> &str {
+    fn chip_name(&self) -> &'static str {
         "Vega 20 (MI50)"
     }
-    fn architecture(&self) -> &str {
+    fn architecture(&self) -> &'static str {
         "GFX906"
     }
     fn implementation(&self) -> u8 {

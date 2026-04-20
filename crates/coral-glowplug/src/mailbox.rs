@@ -129,7 +129,7 @@ pub struct Completion {
 ///
 /// Not `Send`/`Sync` by design — each mailbox is owned by the device
 /// slot that manages the corresponding engine. Cross-thread access
-/// goes through the [`DeviceSlot`](crate::device::DeviceSlot) lock.
+/// goes through the per-device slot lock (Linux `device` stack).
 #[derive(Debug)]
 pub struct Mailbox {
     name: String,

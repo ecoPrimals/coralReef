@@ -10,10 +10,21 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::time::Duration;
 
-const DEFAULT_SOCKET: &str = "/run/coralreef/glowplug.sock";
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+fn default_glowplug_socket_path() -> String {
+    let base =
+        std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
+    let ns = std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into());
+    let family = std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into());
+    base.join(ns)
+        .join(format!("coral-glowplug-{family}.sock"))
+        .display()
+        .to_string()
+}
 
 pub struct GlowPlugClient {
     stream: BufReader<UnixStream>,
@@ -22,8 +33,9 @@ pub struct GlowPlugClient {
 
 impl GlowPlugClient {
     pub fn connect() -> Result<Self, String> {
-        let path =
-            std::env::var("CORALREEF_GLOWPLUG_SOCK").unwrap_or_else(|_| DEFAULT_SOCKET.to_owned());
+        let path = std::env::var("CORALREEF_GLOWPLUG_SOCK")
+            .or_else(|_| std::env::var("CORALREEF_GLOWPLUG_SOCKET"))
+            .unwrap_or_else(|_| default_glowplug_socket_path());
         let raw = UnixStream::connect(&path)
             .map_err(|e| format!("connect to glowplug at {path}: {e}"))?;
         raw.set_read_timeout(Some(TIMEOUT))

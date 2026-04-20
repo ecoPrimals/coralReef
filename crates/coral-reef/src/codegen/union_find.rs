@@ -181,9 +181,11 @@ mod tests {
 
                     let max_expected_height = ceil_log2(root.size + 1) - 1;
                     if info.height > max_expected_height {
-                        eprintln!(
-                            "height {}\t max_expected_height {}\t size {}",
-                            info.height, max_expected_height, info.size
+                        tracing::debug!(
+                            height = info.height,
+                            max_expected_height,
+                            size = info.size,
+                            "union-find height diagnostic (pre-assert)"
                         );
                     }
                     assert!(info.height <= max_expected_height);

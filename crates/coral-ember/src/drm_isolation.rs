@@ -99,13 +99,15 @@ fn generate_udev_rules(devices: &[EmberDeviceConfig]) -> String {
             continue;
         }
         let name = dev.name.as_deref().unwrap_or("compute GPU");
-        out.push_str(&format!(
-            "\n# {} ({})\n\
+        use std::fmt::Write;
+        let _ = write!(
+            out,
+            "\n# {name} ({})\n\
              SUBSYSTEM==\"drm\", KERNELS==\"{}\", \
              ENV{{ID_SEAT}}=\"\", ENV{{ID_FOR_SEAT}}=\"\", \
              TAG-=\"seat\", TAG-=\"master-of-seat\", TAG-=\"uaccess\"\n",
-            name, dev.bdf, dev.bdf,
-        ));
+            dev.bdf, dev.bdf,
+        );
     }
     out
 }

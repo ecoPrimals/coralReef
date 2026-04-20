@@ -66,10 +66,10 @@ fn nvidia_gpu_index_from_render_node(path: &str) -> u32 {
     };
 
     for line in info.lines() {
-        if let Some(val) = line.strip_prefix("Device Minor:") {
-            if let Ok(minor) = val.trim().parse::<u32>() {
-                return minor;
-            }
+        if let Some(val) = line.strip_prefix("Device Minor:")
+            && let Ok(minor) = val.trim().parse::<u32>()
+        {
+            return minor;
         }
     }
     0

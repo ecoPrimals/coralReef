@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 
 //! Trailing-slash trimming for sysfs root (separate test binary).
 

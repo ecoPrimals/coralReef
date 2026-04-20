@@ -19,3 +19,6 @@ syn = { version = "2", features = ["full"] }
 bitview = { path = "../coral-reef-bitview" }
 coral-reef-stubs = { path = "../coral-reef-stubs" }
 trybuild = "1.0.101"
+
+[lints]
+workspace = true

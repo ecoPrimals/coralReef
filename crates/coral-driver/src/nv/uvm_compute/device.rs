@@ -6,7 +6,7 @@ use std::os::fd::AsRawFd;
 
 use crate::error::{DriverError, DriverResult};
 use crate::mmio::VolatilePtr;
-use crate::nv::uvm::{NvGpuDevice, NvUvmDevice, RmClient, VOLTA_USERMODE_A};
+use crate::nv::uvm::{NvGpuDevice, NvUvmDevice, RmClient};
 
 use super::types::{
     CtxBuffer, GPFIFO_ENTRIES, GPFIFO_SIZE, GpuGen, USERD_GP_GET_OFFSET, USERD_GP_PUT_OFFSET,
@@ -34,10 +34,6 @@ pub struct NvUvmComputeDevice {
         reason = "held for lifetime — UVM fd needed for GPU VA operations"
     )]
     pub(super) uvm: NvUvmDevice,
-    #[expect(
-        dead_code,
-        reason = "held for lifetime — GPU fd needed for mmap and RM operations"
-    )]
     pub(super) gpu: NvGpuDevice,
     pub(super) gpu_gen: GpuGen,
     pub(super) h_device: u32,
@@ -127,15 +123,16 @@ impl NvUvmComputeDevice {
     /// Returns [`DriverError`] if any step in the initialization chain fails.
     pub fn open(gpu_index: u32, sm: u32) -> DriverResult<Self> {
         // Blackwell+ benefits from kernel-privileged channel setup (GPU_PROMOTE_CTX).
-        if sm >= 100 {
-            if let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open() {
-                match Self::open_via_kmod(kmod, gpu_index, sm) {
-                    Ok(dev) => return Ok(dev),
-                    Err(e) => {
-                        eprintln!(
-                            "[coral-driver] coral-kmod init failed ({e}), falling back to userspace RM"
-                        );
-                    }
+        if sm >= 100
+            && let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open()
+        {
+            match Self::open_via_kmod(kmod, gpu_index, sm) {
+                Ok(dev) => return Ok(dev),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "coral-kmod init failed, falling back to userspace RM"
+                    );
                 }
             }
         }
@@ -187,21 +184,33 @@ impl NvUvmComputeDevice {
 
         let userd_mmap_file = open_mmap_fd()?;
         let userd_cpu_addr = kmod_map_rm_memory(
-            ctl_fd, userd_mmap_file.as_raw_fd(),
-            info.h_client, info.h_device, info.h_userd_mem,
-            0, info.userd_size,
+            ctl_fd,
+            userd_mmap_file.as_raw_fd(),
+            info.h_client,
+            info.h_device,
+            info.h_userd_mem,
+            0,
+            info.userd_size,
         )?;
         let gpfifo_mmap_file = open_mmap_fd()?;
         let gpfifo_cpu_addr = kmod_map_rm_memory(
-            ctl_fd, gpfifo_mmap_file.as_raw_fd(),
-            info.h_client, info.h_device, info.h_gpfifo_mem,
-            0, info.gpfifo_size,
+            ctl_fd,
+            gpfifo_mmap_file.as_raw_fd(),
+            info.h_client,
+            info.h_device,
+            info.h_gpfifo_mem,
+            0,
+            info.gpfifo_size,
         )?;
         let errnotif_mmap_file = open_mmap_fd()?;
         let errnotif_cpu_addr = kmod_map_rm_memory(
-            ctl_fd, errnotif_mmap_file.as_raw_fd(),
-            info.h_client, info.h_device, info.h_errnotif_mem,
-            0, 4096,
+            ctl_fd,
+            errnotif_mmap_file.as_raw_fd(),
+            info.h_client,
+            info.h_device,
+            info.h_errnotif_mem,
+            0,
+            4096,
         )?;
 
         // USERMODE doorbell is BAR-mapped — needs the GPU device fd as mmap target.
@@ -210,14 +219,16 @@ impl NvUvmComputeDevice {
             .write(true)
             .open(format!("/dev/nvidia{gpu_index}"))
             .map_err(|e| {
-                DriverError::DeviceNotFound(
-                    format!("nvidia{gpu_index} for doorbell: {e}").into(),
-                )
+                DriverError::DeviceNotFound(format!("nvidia{gpu_index} for doorbell: {e}").into())
             })?;
         let doorbell_addr = kmod_map_rm_memory(
-            ctl_fd, gpu_dev_file.as_raw_fd(),
-            info.h_client, info.h_device, info.h_usermode,
-            0, 4096,
+            ctl_fd,
+            gpu_dev_file.as_raw_fd(),
+            info.h_client,
+            info.h_device,
+            info.h_usermode,
+            0,
+            4096,
         )?;
 
         let ctx_buffers: Vec<CtxBuffer> = info
@@ -231,7 +242,7 @@ impl NvUvmComputeDevice {
             })
             .collect();
 
-        let uses_semaphore_fence = matches!(gpu_gen, GpuGen::BlackwellA | GpuGen::BlackwellB);
+        let uses_semaphore_fence = super::ctx_buffers::uses_semaphore_fence_for_gen(gpu_gen);
 
         // SAFETY: ctl_fd is a valid kernel-module-opened fd.
         let client = unsafe { RmClient::wrap_kmod_fd(ctl_fd, info.h_client) }?;
@@ -244,33 +255,43 @@ impl NvUvmComputeDevice {
         // UVM setup: CUDA's order is REGISTER_GPU → PAGEABLE_MEM_ACCESS.
         // Register GPU with UVM (reuse the UUID from kmod).
         {
+            use crate::nv::uvm::UVM_REGISTER_GPU;
             use crate::nv::uvm::nv_status::NV_OK;
             use crate::nv::uvm::structs::UvmRegisterGpuParams;
-            use crate::nv::uvm::UVM_REGISTER_GPU;
             let mut reg = UvmRegisterGpuParams::default();
             reg.gpu_uuid = info.gpu_uuid;
             reg.rm_ctrl_fd = ctl_fd;
             reg.h_client = info.h_client;
             match uvm.raw_ioctl(UVM_REGISTER_GPU, &mut reg, "UVM_REGISTER_GPU") {
                 Ok(()) if reg.rm_status == NV_OK => {
-                    eprintln!("[coral-driver] UVM_REGISTER_GPU OK");
+                    tracing::info!("UVM_REGISTER_GPU OK");
                 }
                 Ok(()) => {
-                    eprintln!(
-                        "[coral-driver] UVM_REGISTER_GPU status=0x{:08X} (continuing)",
-                        reg.rm_status
+                    tracing::warn!(
+                        rm_status = format_args!("0x{:08X}", reg.rm_status),
+                        "UVM_REGISTER_GPU non-OK status (continuing)"
                     );
                 }
                 Err(e) => {
-                    eprintln!("[coral-driver] UVM_REGISTER_GPU ioctl failed: {e} (continuing)");
+                    tracing::warn!(
+                        error = %e,
+                        "UVM_REGISTER_GPU ioctl failed (continuing)"
+                    );
                 }
             }
         }
 
         // Query pageable memory access support (CUDA calls this after REGISTER_GPU).
         match uvm.pageable_mem_access() {
-            Ok(supported) => eprintln!("[coral-driver] UVM_PAGEABLE_MEM_ACCESS OK (supported={supported})"),
-            Err(e) => eprintln!("[coral-driver] UVM_PAGEABLE_MEM_ACCESS FAILED: {e} (continuing)"),
+            Ok(supported) => {
+                tracing::debug!(supported, "UVM_PAGEABLE_MEM_ACCESS OK");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "UVM_PAGEABLE_MEM_ACCESS failed (continuing)"
+                );
+            }
         }
 
         // Skip register_gpu_vaspace — CUDA on Blackwell (R580) does NOT call
@@ -372,12 +393,15 @@ impl NvUvmComputeDevice {
         // on user allocations). Falls back to flags=0 if rejected.
         let h_vaspace = match client.alloc_vaspace_for_uvm(h_device) {
             Ok(h) => {
-                eprintln!("[coral-driver] alloc_vaspace_for_uvm OK: h_vaspace=0x{h:08X}");
+                tracing::info!(
+                    h_vaspace = format_args!("0x{h:08X}"),
+                    "alloc_vaspace_for_uvm OK"
+                );
                 h
             }
             Err(e) => {
-                eprintln!("[coral-driver] alloc_vaspace_for_uvm FAILED: {e}");
-                eprintln!("[coral-driver] falling back to alloc_vaspace (flags=0)");
+                tracing::warn!(error = %e, "alloc_vaspace_for_uvm failed");
+                tracing::warn!("falling back to alloc_vaspace (flags=0)");
                 client.alloc_vaspace(h_device)?
             }
         };
@@ -385,371 +409,74 @@ impl NvUvmComputeDevice {
         // Attempt UVM VA space registration for demand-paged fault servicing.
         // Currently fails with NV_ERR_GPU_IN_FULL (0x5D) on desktop systems
         // where the compositor already consumes fault-handling capacity.
-        match uvm.register_gpu_vaspace(
-            &gpu_uuid,
-            client.ctl_fd(),
-            client.handle(),
-            h_vaspace,
-        ) {
-            Ok(()) => eprintln!("[coral-driver] register_gpu_vaspace OK"),
-            Err(e) => eprintln!("[coral-driver] register_gpu_vaspace FAILED: {e} (continuing)"),
+        match uvm.register_gpu_vaspace(&gpu_uuid, client.ctl_fd(), client.handle(), h_vaspace) {
+            Ok(()) => tracing::info!("register_gpu_vaspace OK"),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "register_gpu_vaspace failed (continuing)"
+                );
+            }
         }
 
-        let h_changrp = client.alloc_channel_group(h_device, h_vaspace)?;
-
-        let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, h_subdevice)?;
-
-        client.alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)?;
-
-        let gpfifo_gpu_va =
-            client.rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, GPFIFO_SIZE)?;
-
-        let (h_channel, hw_channel_id) = client.alloc_gpfifo_channel(
-            h_changrp,
-            h_userd_mem,
-            h_errnotif_mem,
-            h_ctxshare,
-            gpfifo_gpu_va,
-            GPFIFO_ENTRIES,
-            gpu_gen.channel_class(),
-        )?;
-
-        // CPU-map USERD and GPFIFO on dedicated nvidiactl fds.
-        let open_ctl = || -> DriverResult<std::fs::File> {
-            std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open("/dev/nvidiactl")
-                .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into()))
-        };
-        // VRAM buffers must be mapped on the GPU device fd (BAR1), not nvidiactl.
-        let userd_mmap_fd = if userd_in_vram {
-            std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(format!("/dev/nvidia{gpu_index}"))
-                .map_err(|e| {
-                    DriverError::DeviceNotFound(format!("nvidia{gpu_index} for USERD: {e}").into())
-                })?
-        } else {
-            open_ctl()?
-        };
-        let userd_cpu_addr = client.rm_map_memory_on_fd(
-            userd_mmap_fd.as_raw_fd(),
+        let ch = super::channel_setup::userspace_setup_gpfifo_channel(
+            &mut client,
+            gpu_index,
+            gpu_gen,
             h_device,
+            h_subdevice,
+            h_vaspace,
             h_userd_mem,
-            0,
-            USERD_SIZE,
-        )?;
-        let gpfifo_mmap_fd = open_ctl()?;
-        let gpfifo_cpu_addr = client.rm_map_memory_on_fd(
-            gpfifo_mmap_fd.as_raw_fd(),
-            h_device,
             h_gpfifo_mem,
-            0,
-            GPFIFO_SIZE,
+            h_virt_mem,
+            h_errnotif_mem,
+            userd_in_vram,
         )?;
 
-        // CPU-map the error notifier so we can read GPU error codes on timeout.
-        let errnotif_mmap_fd = open_ctl()?;
-        let errnotif_cpu_addr = client.rm_map_memory_on_fd(
-            errnotif_mmap_fd.as_raw_fd(),
+        let (ctx_buffers, kmod_bind_ok) = super::ctx_buffers::promote_ctx_buffers_userspace(
+            &mut client,
+            sm,
+            &gpu_uuid,
             h_device,
-            h_errnotif_mem,
-            0,
-            4096,
+            h_subdevice,
+            h_vaspace,
+            ch.h_channel,
+            h_virt_mem,
+        )?;
+
+        super::ctx_buffers::gr_ctxsw_setup_after_promotion(
+            &mut client,
+            kmod_bind_ok,
+            &ctx_buffers,
+            h_subdevice,
+            ch.h_channel,
+        )?;
+
+        let doorbell_fence = super::channel_setup::userspace_schedule_tsg_doorbell_and_fence(
+            &mut client,
+            gpu_index,
+            gpu_gen,
+            h_device,
+            h_subdevice,
+            ch.h_changrp,
+            ch.h_channel,
+            ch.hw_channel_id,
+            h_virt_mem,
         )?;
 
         let compute_class = gpu_gen.compute_class();
-        let h_compute = client.alloc_compute_engine(h_channel, compute_class)?;
-
-        // BIND the compute engine to the channel — without this the GPU
-        // cannot route push buffer methods to the compute engine.
-        client.channel_bind_engine(h_channel, h_compute, compute_class, 1)?;
-        tracing::info!(
-            h_compute = format_args!("0x{h_compute:08X}"),
-            "Compute engine bound to channel"
-        );
-
-        // ── Context buffer binding ────────────────────────────────────
-        //
-        // Blackwell+ requires kernel privilege for context buffer promotion
-        // (GPU_PROMOTE_CTX returns INSUFFICIENT_PERMISSIONS from userspace).
-        //
-        // Hybrid approach: if coral-kmod is loaded, use CORAL_IOCTL_BIND_CHANNEL
-        // which calls nvUvmInterface{RetainChannel,BindChannelResources} from
-        // kernel context. Falls back to userspace GPU_PROMOTE_CTX for older GPUs.
-        let (ctx_buffers, kmod_bind_ok) = 'promote: {
-            // Try kernel-privileged binding via coral-kmod (Blackwell+).
-            if sm >= 100 {
-                if let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open() {
-                    match kmod.bind_channel(
-                        &gpu_uuid,
-                        client.handle(),
-                        h_vaspace,
-                        h_channel,
-                        sm,
-                    ) {
-                        Ok(result) => {
-                            eprintln!(
-                                "[coral-driver] BIND_CHANNEL via kmod: {} resources bound, \
-                                 chId={} engineType={} tsgId={}",
-                                result.resource_count,
-                                result.hw_channel_id,
-                                result.channel_engine_type,
-                                result.tsg_id,
-                            );
-                            let ctx = result
-                                .resources
-                                .iter()
-                                .map(|r| {
-                                    eprintln!(
-                                        "[coral-driver]   kmod resource id={} gpu_va=0x{:016X} \
-                                         size=0x{:X} align=0x{:X}",
-                                        r.resource_id, r.gpu_va, r.size, r.alignment,
-                                    );
-                                    CtxBuffer {
-                                        buffer_id: r.resource_id as u16,
-                                        h_memory: 0,
-                                        size: r.size,
-                                        gpu_va: r.gpu_va,
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            break 'promote (ctx, true);
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "[coral-driver] BIND_CHANNEL via kmod failed: {e}, \
-                                 falling back to GPU_PROMOTE_CTX"
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Userspace GPU_PROMOTE_CTX path (works on pre-Blackwell).
-            let descs = match client.query_gr_context_buffers_info(h_subdevice) {
-                Ok(d) if !d.is_empty() => {
-                    eprintln!(
-                        "[coral-driver] GPU_PROMOTE_CTX: {} buffers from RM query",
-                        d.len()
-                    );
-                    d
-                }
-                other => {
-                    if let Err(e) = &other {
-                        eprintln!("[coral-driver] KGR_GET_CONTEXT_BUFFERS_INFO failed: {e}");
-                    }
-                    eprintln!(
-                        "[coral-driver] Using hardcoded Blackwell context buffer sizes"
-                    );
-                    crate::nv::uvm::rm_client::alloc::hardcoded_blackwell_ctx_buffers()
-                }
-            };
-
-            use crate::nv::uvm::structs::PromoteCtxBufferEntry;
-
-            let mut promote_entries: Vec<PromoteCtxBufferEntry> = Vec::new();
-            let mut allocated: Vec<CtxBuffer> = Vec::new();
-            let mut ctx_handle_counter = h_device + 0x7000_u32;
-
-            for desc in &descs {
-                let h_mem = ctx_handle_counter;
-                ctx_handle_counter += 1;
-
-                if let Err(e) = client.alloc_system_memory(h_device, h_mem, desc.size) {
-                    eprintln!(
-                        "[coral-driver]   FAILED alloc ctx_buf id={}: {e}",
-                        desc.buffer_id
-                    );
-                    continue;
-                }
-
-                let gpu_va = if desc.is_nonmapped {
-                    0_u64
-                } else {
-                    match client.rm_map_memory_dma(h_device, h_virt_mem, h_mem, 0, desc.size) {
-                        Ok(va) => va,
-                        Err(e) => {
-                            eprintln!(
-                                "[coral-driver]   FAILED map ctx_buf id={}: {e}",
-                                desc.buffer_id
-                            );
-                            client.free_object(h_device, h_mem).ok();
-                            continue;
-                        }
-                    }
-                };
-
-                eprintln!(
-                    "[coral-driver]   ctx_buf id={} gpu_va=0x{gpu_va:016X} size=0x{:X}",
-                    desc.buffer_id, desc.size
-                );
-
-                let mut entry = PromoteCtxBufferEntry::default();
-                entry.gpu_virt_addr = gpu_va;
-                entry.buffer_id = desc.buffer_id;
-                entry.b_initialize = u8::from(desc.needs_init);
-                entry.b_nonmapped = u8::from(desc.is_nonmapped);
-                if desc.needs_init {
-                    entry.size = desc.size;
-                    entry.phys_attr = 4;
-                }
-                promote_entries.push(entry);
-
-                allocated.push(CtxBuffer {
-                    buffer_id: desc.buffer_id,
-                    h_memory: h_mem,
-                    size: desc.size,
-                    gpu_va,
-                });
-            }
-
-            if !promote_entries.is_empty() {
-                match client.gpu_promote_ctx(h_subdevice, h_channel, &promote_entries) {
-                    Ok(()) => {
-                        eprintln!(
-                            "[coral-driver] GPU_PROMOTE_CTX: {} buffers promoted OK",
-                            promote_entries.len()
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[coral-driver] GPU_PROMOTE_CTX FAILED: {e} \
-                             (kernel-only — will fall back to gr_ctxsw_setup_bind)"
-                        );
-                        for cb in &allocated {
-                            if cb.gpu_va != 0 {
-                                client
-                                    .rm_unmap_memory_dma(h_device, h_virt_mem, cb.h_memory, cb.gpu_va)
-                                    .ok();
-                            }
-                            client.free_object(h_device, cb.h_memory).ok();
-                        }
-                        break 'promote (Vec::new(), false);
-                    }
-                }
-            }
-
-            (allocated, false)
-        };
-
-        // Bind GR context-switch state. If kmod BindChannelResources succeeded,
-        // the context is already bound — skip. Otherwise, if GPU_PROMOTE_CTX
-        // succeeded pass the MAIN buffer VA; else use vMemPtr=0 (RM demand-pages).
-        if kmod_bind_ok {
-            eprintln!(
-                "[coral-driver] Skipping gr_ctxsw_setup_bind \
-                 (kmod BindChannelResources already bound context)"
-            );
-        } else {
-            let main_ctx_va = ctx_buffers
-                .iter()
-                .find(|cb| cb.buffer_id == crate::nv::uvm::PROMOTE_CTX_BUFFER_ID_MAIN)
-                .map_or(0_u64, |cb| cb.gpu_va);
-            client.gr_ctxsw_setup_bind_with_mem(h_subdevice, h_channel, main_ctx_va)?;
-        }
-
-        client.tsg_gpfifo_schedule(h_changrp)?;
-
-        let work_submit_token = match client.get_work_submit_token(h_channel) {
-            Ok(t) => {
-                tracing::info!(
-                    token = format_args!("0x{t:08X}"),
-                    "Work submit token acquired"
-                );
-                t
-            }
-            Err(e) => {
-                tracing::warn!("get_work_submit_token failed ({e}), using cid");
-                hw_channel_id
-            }
-        };
-
-        // Allocate VOLTA_USERMODE_A to get the doorbell register mapping.
-        let h_usermode = h_device + 0x5003;
-        client.rm_alloc_simple(
-            h_subdevice,
-            h_usermode,
-            VOLTA_USERMODE_A,
-            "RM_ALLOC(VOLTA_USERMODE_A)",
-        )?;
-
-        // Map the usermode object to get the doorbell page in CPU space.
-        // USERMODE is a BAR-mapped object — must use the GPU device fd.
-        let usermode_mmap_fd = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(format!("/dev/nvidia{gpu_index}"))
-            .map_err(|e| {
-                DriverError::DeviceNotFound(format!("nvidia{gpu_index} for doorbell: {e}").into())
-            })?;
-        let doorbell_addr = client.rm_map_memory_on_fd(
-            usermode_mmap_fd.as_raw_fd(),
-            h_device,
-            h_usermode,
-            0,
-            4096,
-        )?;
-
-        // Blackwell (clca6f) removed GP_GET from the USERD control struct —
-        // the GPU no longer writes GP_GET to USERD. We must use a semaphore
-        // release written by the GPU into a separate fence buffer.
-        let uses_semaphore_fence = matches!(gpu_gen, GpuGen::BlackwellA | GpuGen::BlackwellB);
-
-        let (fence_cpu_addr, fence_gpu_va, fence_mmap_fd, fence_pb_cpu_addr, fence_pb_gpu_va, fence_pb_mmap_fd) = if uses_semaphore_fence {
-            // Fence value buffer: GPU writes semaphore payload here.
-            let h_fence_mem = h_device + 0x5005;
-            client.alloc_system_memory(h_device, h_fence_mem, 4096)?;
-            let fence_va =
-                client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_mem, 0, 4096)?;
-            let fence_fd = open_ctl()?;
-            let fence_cpu = client.rm_map_memory_on_fd(
-                fence_fd.as_raw_fd(),
-                h_device,
-                h_fence_mem,
-                0,
-                4096,
-            )?;
-            unsafe { VolatilePtr::new(fence_cpu as *mut u32).write(0) };
-
-            // Fence push buffer: rewritten before each fence submission.
-            let h_fence_pb = h_device + 0x5006;
-            client.alloc_system_memory(h_device, h_fence_pb, 4096)?;
-            let fpb_va =
-                client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_pb, 0, 4096)?;
-            let fpb_fd = open_ctl()?;
-            let fpb_cpu = client.rm_map_memory_on_fd(
-                fpb_fd.as_raw_fd(),
-                h_device,
-                h_fence_pb,
-                0,
-                4096,
-            )?;
-
-            tracing::info!(
-                fence_va = format_args!("0x{fence_va:016X}"),
-                fpb_va = format_args!("0x{fpb_va:016X}"),
-                "Blackwell semaphore fence allocated (GP_GET unavailable)"
-            );
-            (fence_cpu, fence_va, Some(fence_fd), fpb_cpu, fpb_va, Some(fpb_fd))
-        } else {
-            (0, 0, None, 0, 0, None)
-        };
 
         tracing::info!(
             gpu_index,
             sm,
             h_device = format_args!("0x{h_device:08X}"),
-            h_channel = format_args!("0x{h_channel:08X}"),
-            h_compute = format_args!("0x{h_compute:08X}"),
-            work_submit_token = format_args!("0x{work_submit_token:08X}"),
-            uses_semaphore_fence,
+            h_channel = format_args!("0x{:08X}", ch.h_channel),
+            h_compute = format_args!("0x{:08X}", ch.h_compute),
+            work_submit_token = format_args!("0x{:08X}", doorbell_fence.work_submit_token),
+            uses_semaphore_fence = doorbell_fence.uses_semaphore_fence,
             "NvUvmComputeDevice fully initialized"
         );
 
-        // Smoke-test: submit a NOP push buffer to verify the GPFIFO mechanism.
         let mut dev = Self {
             client,
             uvm,
@@ -758,9 +485,9 @@ impl NvUvmComputeDevice {
             h_device,
             h_subdevice,
             h_vaspace,
-            h_changrp,
-            h_channel,
-            h_compute,
+            h_changrp: ch.h_changrp,
+            h_channel: ch.h_channel,
+            h_compute: ch.h_compute,
             gpu_uuid,
             buffers: HashMap::new(),
             ctx_buffers,
@@ -768,172 +495,35 @@ impl NvUvmComputeDevice {
             next_mem_handle: h_device + 0x6000,
             inflight: Vec::new(),
             deferred_free: Vec::new(),
-            userd_cpu_addr,
-            gpfifo_cpu_addr,
+            userd_cpu_addr: ch.userd_cpu_addr,
+            gpfifo_cpu_addr: ch.gpfifo_cpu_addr,
             gp_put: 0,
             h_virt_mem,
-            userd_mmap_fd,
-            gpfifo_mmap_fd,
-            errnotif_cpu_addr,
-            errnotif_mmap_fd,
-            usermode_mmap_fd,
-            doorbell_addr,
-            work_submit_token,
-            uses_semaphore_fence,
-            fence_cpu_addr,
-            fence_gpu_va,
+            userd_mmap_fd: ch.userd_mmap_fd,
+            gpfifo_mmap_fd: ch.gpfifo_mmap_fd,
+            errnotif_cpu_addr: ch.errnotif_cpu_addr,
+            errnotif_mmap_fd: ch.errnotif_mmap_fd,
+            usermode_mmap_fd: doorbell_fence.usermode_mmap_fd,
+            doorbell_addr: doorbell_fence.doorbell_addr,
+            work_submit_token: doorbell_fence.work_submit_token,
+            uses_semaphore_fence: doorbell_fence.uses_semaphore_fence,
+            fence_cpu_addr: doorbell_fence.fence_cpu_addr,
+            fence_gpu_va: doorbell_fence.fence_gpu_va,
             fence_value: 0,
-            fence_mmap_fd,
-            fence_pb_cpu_addr,
-            fence_pb_gpu_va,
-            fence_pb_mmap_fd,
+            fence_mmap_fd: doorbell_fence.fence_mmap_fd,
+            fence_pb_cpu_addr: doorbell_fence.fence_pb_cpu_addr,
+            fence_pb_gpu_va: doorbell_fence.fence_pb_gpu_va,
+            fence_pb_mmap_fd: doorbell_fence.fence_pb_mmap_fd,
             coral_kmod: None,
             kmod_h_client: 0,
         };
 
-        // NOP smoke test: submit a push buffer to verify the GPFIFO mechanism.
-        // On Blackwell+, we embed a semaphore release so the fence value
-        // advances (since GP_GET is no longer in USERD).
-        let nop_h_mem = h_device + 0x5FFF;
-        dev.client.alloc_system_memory(h_device, nop_h_mem, 4096)?;
-        let nop_gpu_va = dev
-            .client
-            .rm_map_memory_dma(h_device, h_virt_mem, nop_h_mem, 0, 4096)?;
-        let nop_fd = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open("/dev/nvidiactl")
-            .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl: {e}").into()))?;
-        let nop_cpu =
-            dev.client
-                .rm_map_memory_on_fd(nop_fd.as_raw_fd(), h_device, nop_h_mem, 0, 4096)?;
-
-        let pb_dwords = if dev.uses_semaphore_fence {
-            dev.fence_value += 1;
-            let fv = dev.fence_value;
-            let fva = dev.fence_gpu_va;
-            // Build a semaphore release push buffer:
-            //   SEM_ADDR_LO, SEM_ADDR_HI, SEM_PAYLOAD_LO, SEM_PAYLOAD_HI, SEM_EXECUTE
-            // Method header: incrementing method, subchannel 0, address 0x5c>>2=0x17,
-            //   count=5, SEC_OP=INC_METHOD (1<<29)
-            let pb = nop_cpu as *mut u32;
-            // SAFETY: pb is valid for at least 4096 bytes; we write 6 dwords (24 bytes).
-            unsafe {
-                // Method header: SEC_OP=1 (INC_METHOD), count=5, subchannel=0, address=0x17
-                // Bits [31:29]=001, [28:16]=5, [15:13]=0, [11:0]=0x17
-                VolatilePtr::new(pb).write((1 << 29) | (5 << 16) | 0x17);
-                // SEM_ADDR_LO = lower 32 bits of fence_gpu_va (bits [31:2], dword-aligned)
-                VolatilePtr::new(pb.add(1)).write((fva & 0xFFFF_FFFC) as u32);
-                // SEM_ADDR_HI = upper bits
-                VolatilePtr::new(pb.add(2)).write((fva >> 32) as u32);
-                // SEM_PAYLOAD_LO = fence value
-                VolatilePtr::new(pb.add(3)).write(fv);
-                // SEM_PAYLOAD_HI = 0
-                VolatilePtr::new(pb.add(4)).write(0);
-                // SEM_EXECUTE: OPERATION=RELEASE(1), PAYLOAD_SIZE=32BIT(0)
-                VolatilePtr::new(pb.add(5)).write(1);
-            }
-            6_u32
-        } else {
-            // Pre-Blackwell: a single NOP dword suffices.
-            // SAFETY: nop_cpu is valid for 4096 bytes.
-            unsafe { VolatilePtr::new(nop_cpu as *mut u32).write(0) };
-            1_u32
-        };
-
-        dev.submit_gpfifo(nop_gpu_va, pb_dwords)?;
-        dev.poll_gpfifo_completion()?;
-        tracing::info!("NOP smoke test passed — GPFIFO pipeline operational");
-
-        // Allocate a Shader Local Memory (SLM) buffer for per-warp scratch
-        // and call/return stack (CRS). Even shaders that don't use local
-        // memory need a valid SLM base address — the SM reads it during warp
-        // launch and faults if it's unmapped.
-        //
-        // NVK computes per-TPC size as `bytes_per_warp * max_warps_per_sm * sms_per_tpc`.
-        // We allocate a generous 2 MiB buffer and set per-TPC to 32 KiB * 0xFF.
-        let h_slm_mem = h_device + 0x5FFD;
-        let slm_size: u64 = 2 * 1024 * 1024; // 2 MiB
-        dev.client
-            .alloc_system_memory(h_device, h_slm_mem, slm_size)?;
-        let slm_gpu_va =
-            dev.gpu_map_buffer(h_slm_mem, slm_size)?;
-        tracing::info!(
-            slm_gpu_va = format_args!("0x{slm_gpu_va:016X}"),
-            slm_size,
-            "SLM buffer allocated for per-warp scratch/CRS"
-        );
-
-        // per-TPC limit: align to 0x8000 (32 KiB, NVK convention).
-        let slm_per_tpc: u64 = 0x8000;
-
-        // One-time compute init: bind the compute class to subchannel 1 and
-        // configure shared/local memory windows + SLM base. This must happen
-        // exactly once per channel — repeated SET_OBJECT calls on Blackwell
-        // corrupt the channel state (GR_CLASS_ERROR 0x0D).
-        {
-            use crate::nv::pushbuf::PushBuf;
-
-            let init_pb =
-                PushBuf::compute_init(compute_class, 0xFF00_0000, slm_gpu_va, slm_per_tpc);
-            let init_bytes = init_pb.as_bytes();
-            let init_len = u32::try_from(init_pb.as_words().len())
-                .map_err(|_| DriverError::platform_overflow("init pb dwords fits u32"))?;
-
-            let h_init_mem = h_device + 0x5FFE;
-            dev.client
-                .alloc_system_memory(h_device, h_init_mem, 4096)?;
-            let init_gpu_va = dev
-                .client
-                .rm_map_memory_dma(h_device, h_virt_mem, h_init_mem, 0, 4096)?;
-            let init_fd = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open("/dev/nvidiactl")
-                .map_err(|e| {
-                    DriverError::DeviceNotFound(format!("nvidiactl: {e}").into())
-                })?;
-            let init_cpu = dev.client.rm_map_memory_on_fd(
-                init_fd.as_raw_fd(),
-                h_device,
-                h_init_mem,
-                0,
-                4096,
-            )?;
-
-            // SAFETY: init_cpu is a valid 4096-byte mapping; init_bytes is <= 4096.
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    init_bytes.as_ptr(),
-                    init_cpu as *mut u8,
-                    init_bytes.len(),
-                );
-            }
-
-            dev.submit_gpfifo(init_gpu_va, init_len)?;
-
-            if dev.uses_semaphore_fence {
-                dev.submit_fence_release()?;
-            }
-
-            dev.poll_gpfifo_completion()?;
-            tracing::info!(
-                compute_class = format_args!("0x{compute_class:04X}"),
-                "Compute init submitted — SET_OBJECT + memory windows on subchannel 1"
-            );
-
-            dev.client
-                .rm_unmap_memory(h_device, h_init_mem, init_cpu)
-                .ok();
-            dev.client.free_object(h_device, h_init_mem).ok();
-            drop(init_fd);
-        }
-
-        dev.client
-            .rm_unmap_memory(h_device, nop_h_mem, nop_cpu)
-            .ok();
-        dev.client.free_object(h_device, nop_h_mem).ok();
-        drop(nop_fd);
+        super::channel_setup::userspace_nop_smoke_slq_compute_init(
+            &mut dev,
+            h_device,
+            h_virt_mem,
+            compute_class,
+        )?;
 
         Ok(dev)
     }
@@ -1148,10 +738,10 @@ impl NvUvmComputeDevice {
         // We read 4 dwords (16 bytes) — one NvNotification entry.
         let (ts_lo, ts_hi, info32, status_word) = unsafe {
             (
-                VolatilePtr::new(base as *mut u32).read(),
-                VolatilePtr::new(base.add(1) as *mut u32).read(),
-                VolatilePtr::new(base.add(2) as *mut u32).read(),
-                VolatilePtr::new(base.add(3) as *mut u32).read(),
+                VolatilePtr::new(base.cast_mut()).read(),
+                VolatilePtr::new(base.add(1).cast_mut()).read(),
+                VolatilePtr::new(base.add(2).cast_mut()).read(),
+                VolatilePtr::new(base.add(3).cast_mut()).read(),
             )
         };
         let info16 = status_word & 0xFFFF;

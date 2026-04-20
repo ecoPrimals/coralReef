@@ -14,7 +14,7 @@ pub(crate) fn rpc_probe(socket: &str, bdf: &str) {
     let result = match response.get("result") {
         Some(r) => r,
         None => {
-            eprintln!("error: no result in response");
+            tracing::error!("no result in RPC response");
             std::process::exit(1);
         }
     };
@@ -159,7 +159,7 @@ pub(crate) fn rpc_mmio_read(socket: &str, bdf: &str, offset: usize) {
         let val_str = reg.get("value").and_then(|v| v.as_str()).unwrap_or("?");
         println!("{off_str} = {val_str}");
     } else {
-        eprintln!("error: no value returned for offset {offset:#010x}");
+        tracing::error!("no value returned for offset {offset:#010x}");
         std::process::exit(1);
     }
 }
@@ -192,7 +192,7 @@ pub(crate) fn rpc_snapshot_save(socket: &str, bdf: &str, file: Option<String>) {
     let result = match response.get("result") {
         Some(r) => r,
         None => {
-            eprintln!("error: no result in response");
+            tracing::error!("no result in RPC response");
             std::process::exit(1);
         }
     };
@@ -225,7 +225,7 @@ pub(crate) fn rpc_snapshot_save(socket: &str, bdf: &str, file: Option<String>) {
             println!("saved {count} registers to {filename}");
         }
         Err(e) => {
-            eprintln!("error: failed to write {filename}: {e}");
+            tracing::error!(path = %filename, error = %e, "failed to write snapshot");
             std::process::exit(1);
         }
     }
@@ -235,14 +235,14 @@ pub(crate) fn rpc_snapshot_diff(socket: &str, bdf: &str, file: &str) {
     let saved_json = match std::fs::read_to_string(file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("error: failed to read {file}: {e}");
+            tracing::error!(path = %file, error = %e, "failed to read snapshot");
             std::process::exit(1);
         }
     };
     let saved: serde_json::Value = match serde_json::from_str(&saved_json) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("error: invalid JSON in {file}: {e}");
+            tracing::error!(path = %file, error = %e, "invalid JSON in snapshot");
             std::process::exit(1);
         }
     };

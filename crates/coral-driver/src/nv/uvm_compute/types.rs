@@ -3,8 +3,8 @@
 
 use crate::nv::uvm::{
     ADA_COMPUTE_A, AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B,
-    BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, HOPPER_COMPUTE_A,
-    VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
+    BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_CHANNEL_GPFIFO_B, BLACKWELL_COMPUTE_A,
+    BLACKWELL_COMPUTE_B, HOPPER_COMPUTE_A, VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
 };
 
 /// Flush a single CPU cache line containing the given address.
@@ -67,7 +67,8 @@ impl GpuGen {
 
     pub(super) const fn channel_class(self) -> u32 {
         match self {
-            Self::BlackwellA | Self::BlackwellB => BLACKWELL_CHANNEL_GPFIFO_A,
+            Self::BlackwellB => BLACKWELL_CHANNEL_GPFIFO_B,
+            Self::BlackwellA => BLACKWELL_CHANNEL_GPFIFO_A,
             Self::AmpereA | Self::AmpereB | Self::Ada | Self::Hopper => AMPERE_CHANNEL_GPFIFO_A,
             Self::Volta | Self::Turing => VOLTA_CHANNEL_GPFIFO_A,
         }

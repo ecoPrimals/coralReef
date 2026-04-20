@@ -205,7 +205,14 @@ pub fn lower_f64_exp2(
 
     // For normal path, this is the final result.
     // For subnormal path, multiply by 2^n2 where n2 = n + 1022.
-    let n2 = emit_iadd(&mut out, alloc, pred, n_i32.into(), Src::new_imm_u32(1022), sm);
+    let n2 = emit_iadd(
+        &mut out,
+        alloc,
+        pred,
+        n_i32.into(),
+        Src::new_imm_u32(1022),
+        sm,
+    );
 
     // Build 2^n2 as f64: high word = (n2 + 1023) << 20, low word = 0
     let n2_biased = emit_iadd(&mut out, alloc, pred, n2.into(), Src::new_imm_u32(1023), sm);

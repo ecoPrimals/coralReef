@@ -266,7 +266,7 @@ mod tests {
             },
             Transport {
                 protocol: "tarpc".into(),
-                address: "unix:///run/coralreef.sock".into(),
+                address: "unix:///run/user/1000/biomeos/coralreef-default.sock".into(),
             },
         ];
         let desc = with_transports(desc, transports);
@@ -274,7 +274,10 @@ mod tests {
         assert_eq!(desc.transports[0].protocol, "jsonrpc");
         assert_eq!(desc.transports[0].address, "127.0.0.1:12345");
         assert_eq!(desc.transports[1].protocol, "tarpc");
-        assert_eq!(desc.transports[1].address, "unix:///run/coralreef.sock");
+        assert_eq!(
+            desc.transports[1].address,
+            "unix:///run/user/1000/biomeos/coralreef-default.sock"
+        );
         assert!(desc.provides.iter().any(|c| c.id == "shader.compile"));
         assert!(desc.requires.iter().any(|c| c.id == "gpu.dispatch"));
     }

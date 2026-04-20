@@ -90,8 +90,7 @@ pub(crate) fn devinit_execute(
 
     let before = coral_driver::vfio::channel::devinit::DevinitStatus::probe(&bar0);
 
-    match coral_driver::vfio::channel::devinit::execute_devinit_with_diagnostics(&bar0, Some(bdf))
-    {
+    match coral_driver::vfio::channel::devinit::execute_devinit_with_diagnostics(&bar0, Some(bdf)) {
         Ok(ran) => {
             let after = coral_driver::vfio::channel::devinit::DevinitStatus::probe(&bar0);
             write_jsonrpc_ok(
@@ -108,13 +107,8 @@ pub(crate) fn devinit_execute(
             .map_err(EmberIpcError::from)?;
         }
         Err(e) => {
-            write_jsonrpc_error(
-                stream,
-                id,
-                -32001,
-                &format!("devinit failed: {e}"),
-            )
-            .map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32001, &format!("devinit failed: {e}"))
+                .map_err(EmberIpcError::from)?;
         }
     }
     Ok(())
@@ -163,10 +157,7 @@ pub(crate) fn vbios_read(
     match result {
         Ok((actual_source, rom)) => {
             let sig = if rom.len() >= 4 {
-                format!(
-                    "0x{:02x}{:02x}{:02x}{:02x}",
-                    rom[3], rom[2], rom[1], rom[0]
-                )
+                format!("0x{:02x}{:02x}{:02x}{:02x}", rom[3], rom[2], rom[1], rom[0])
             } else {
                 "too_short".into()
             };
@@ -185,13 +176,8 @@ pub(crate) fn vbios_read(
             .map_err(EmberIpcError::from)?;
         }
         Err(e) => {
-            write_jsonrpc_error(
-                stream,
-                id,
-                -32001,
-                &format!("VBIOS read failed: {e}"),
-            )
-            .map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32001, &format!("VBIOS read failed: {e}"))
+                .map_err(EmberIpcError::from)?;
         }
     }
     Ok(())

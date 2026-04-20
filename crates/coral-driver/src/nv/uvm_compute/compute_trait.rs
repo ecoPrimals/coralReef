@@ -10,7 +10,7 @@ use crate::nv::qmd;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 use super::device::NvUvmComputeDevice;
-use super::types::{GpuGen, UvmBuffer, page_align, u32_slice_as_bytes, uvm_cache_line_flush};
+use super::types::{UvmBuffer, page_align, u32_slice_as_bytes, uvm_cache_line_flush};
 
 impl ComputeDevice for NvUvmComputeDevice {
     fn alloc(&mut self, size: u64, _domain: MemoryDomain) -> DriverResult<BufferHandle> {
@@ -64,9 +64,7 @@ impl ComputeDevice for NvUvmComputeDevice {
             .read(true)
             .write(true)
             .open("/dev/nvidiactl")
-            .map_err(|e| {
-                DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into())
-            })?;
+            .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into()))?;
         let cpu_addr = self.client.rm_map_memory_on_fd(
             mmap_file.as_raw_fd(),
             self.h_device,
@@ -217,7 +215,9 @@ impl ComputeDevice for NvUvmComputeDevice {
             let exit_shader: [u32; 4] = [0x0000794D, 0x00000000, 0x03800000, 0x03FFC000];
             let exit_bytes = bytemuck::cast_slice::<u32, u8>(&exit_shader);
             self.upload(shader_handle, 0, exit_bytes)?;
-            eprintln!("    DIAG_EXIT_ONLY: replaced shader with single EXIT instruction (16 bytes)");
+            tracing::debug!(
+                "DIAG_EXIT_ONLY: replaced shader with single EXIT instruction (16 bytes)"
+            );
         }
 
         // DIAG_DIRECT_ADDR: patch the first two LDC instructions into MOV
@@ -229,12 +229,15 @@ impl ComputeDevice for NvUvmComputeDevice {
                 let va_lo = (va & 0xFFFF_FFFF) as u32;
                 let va_hi = (va >> 32) as u32;
                 let mut patched = shader.to_vec();
-                let words: &mut [u32] =
-                    bytemuck::cast_slice_mut(&mut patched);
+                let words: &mut [u32] = bytemuck::cast_slice_mut(&mut patched);
                 if words.len() >= 8 {
                     // Use the same 128-bit encoding as the existing MOV R2
                     // (instruction 2 at words[8..12]) for correct flag/sched bits.
-                    let mov_w2 = if words.len() > 10 { words[10] } else { 0x0000_0F00 };
+                    let mov_w2 = if words.len() > 10 {
+                        words[10]
+                    } else {
+                        0x0000_0F00
+                    };
 
                     // Instr 0: MOV R0, va_lo
                     words[0] = 0x0000_7802; // opcode=MOV, pred=PT, dst=R0
@@ -254,11 +257,16 @@ impl ComputeDevice for NvUvmComputeDevice {
                     // Strong(System) = 0xa → bits 13=0, 14=1, 15=0, 16=1.
                     if words.len() > 14 {
                         words[14] = (words[14] & !(0xF << 13)) | (0xa << 13);
-                        eprintln!("    DIAG_DIRECT_ADDR: also patched STG mem_order → Strong(System)");
+                        tracing::debug!(
+                            "DIAG_DIRECT_ADDR: also patched STG mem_order → Strong(System)"
+                        );
                     }
 
-                    eprintln!(
-                        "    DIAG_DIRECT_ADDR: patched LDC→MOV, R0=0x{va_lo:08X} R1=0x{va_hi:08X} (VA=0x{va:016X})"
+                    tracing::debug!(
+                        r0 = format_args!("0x{va_lo:08X}"),
+                        r1 = format_args!("0x{va_hi:08X}"),
+                        va = format_args!("0x{va:016X}"),
+                        "DIAG_DIRECT_ADDR: patched LDC→MOV"
                     );
                 }
                 self.upload(shader_handle, 0, &patched)?;
@@ -297,7 +305,6 @@ impl ComputeDevice for NvUvmComputeDevice {
             &desc_data,
         )?;
         let desc_va = shader_va + desc_offset as u64;
-        let desc_handle = shader_handle; // same buffer; for inflight tracking
         let desc_buf_size = desc_data_len as u64;
 
         // Set ALL 8 CBUFs to the descriptor table to diagnose which
@@ -321,40 +328,77 @@ impl ComputeDevice for NvUvmComputeDevice {
             cbufs,
         };
 
-        eprintln!(
-            "    DISPATCH: shader_va=0x{shader_va:016X} desc_va=0x{desc_va:016X} desc_size={desc_buf_size} \
-             grid={dims:?} wg={:?} gpr={} sm={}",
-            info.workgroup, info.gpr_count, self.sm_version()
+        tracing::debug!(
+            shader_va = format_args!("0x{shader_va:016X}"),
+            desc_va = format_args!("0x{desc_va:016X}"),
+            desc_size = desc_buf_size,
+            grid = ?dims,
+            workgroup = ?info.workgroup,
+            gpr_count = info.gpr_count,
+            sm = self.sm_version(),
+            "dispatch layout"
         );
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
-                eprintln!("      buf[{i}]: gpu_va=0x{:016X} size={}", buf.gpu_va, buf.size);
+                tracing::debug!(
+                    index = i,
+                    gpu_va = format_args!("0x{:016X}", buf.gpu_va),
+                    size = buf.size,
+                    "dispatch buffer"
+                );
             }
         }
 
         // Hex dump descriptor table for debugging address loading issues
-        eprintln!("    DESC TABLE ({} bytes):", desc_data.len());
+        tracing::debug!(byte_len = desc_data.len(), "descriptor table hex dump");
         for chunk in desc_data.chunks(16) {
-            let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
-            eprintln!("      {}", hex.join(" "));
+            let hex: String = chunk
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            tracing::debug!(row = %hex, "desc row");
         }
 
         // Hex dump first 128 bytes of shader binary
         let shader_preview = shader.len().min(128);
-        eprintln!("    SHADER BINARY (first {} of {} bytes):", shader_preview, shader.len());
+        tracing::debug!(
+            preview_len = shader_preview,
+            total_len = shader.len(),
+            "shader binary hex dump (prefix)"
+        );
         for chunk in shader[..shader_preview].chunks(16) {
-            let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
-            eprintln!("      {}", hex.join(" "));
+            let hex: String = chunk
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            tracing::debug!(row = %hex, "shader row");
         }
 
         let qmd_words = qmd::build_qmd_for_sm(self.sm_version(), &qmd_params);
         let qmd_bytes = u32_slice_as_bytes(&qmd_words);
 
         // Hex dump QMD for debugging field encoding
-        eprintln!("    QMD ({} words = {} bytes):", qmd_words.len(), qmd_bytes.len());
+        tracing::debug!(
+            word_count = qmd_words.len(),
+            byte_len = qmd_bytes.len(),
+            "QMD hex dump"
+        );
         for (i, chunk) in qmd_words.chunks(8).enumerate() {
-            let hex: Vec<String> = chunk.iter().map(|w| format!("{w:08x}")).collect();
-            eprintln!("      [{:2}..{:2}] {}", i * 8, i * 8 + chunk.len() - 1, hex.join(" "));
+            let hex: String = chunk
+                .iter()
+                .map(|w| format!("{w:08x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let lo = i * 8;
+            let hi = i * 8 + chunk.len() - 1;
+            tracing::debug!(
+                range_lo = lo,
+                range_hi = hi,
+                words = %hex,
+                "QMD row"
+            );
         }
 
         let qmd_handle = self.alloc(
@@ -386,17 +430,18 @@ impl ComputeDevice for NvUvmComputeDevice {
         #[cfg(target_arch = "x86_64")]
         {
             for &h in &[shader_handle, qmd_handle, pb_handle] {
-                if let Some(buf) = self.buffers.get(&h.0) {
-                    if buf.cpu_addr != 0 && buf.size > 0 {
-                        let base = buf.cpu_addr as *const u8;
-                        let mut off = 0_u64;
-                        while off < buf.size {
-                            // SAFETY: cpu_addr is valid mmap for buf.size bytes.
-                            unsafe {
-                                uvm_cache_line_flush(base.add(off as usize));
-                            }
-                            off += 64; // cache line size
+                if let Some(buf) = self.buffers.get(&h.0)
+                    && buf.cpu_addr != 0
+                    && buf.size > 0
+                {
+                    let base = buf.cpu_addr as *const u8;
+                    let mut off = 0_u64;
+                    while off < buf.size {
+                        // SAFETY: cpu_addr is valid mmap for buf.size bytes.
+                        unsafe {
+                            uvm_cache_line_flush(base.add(off as usize));
                         }
+                        off += 64; // cache line size
                     }
                 }
             }

@@ -2,10 +2,10 @@
 //! Trait-based abstraction over sysfs and related kernel interfaces for testability.
 //!
 //! Production code uses [`RealSysfs`]; unit tests can inject `MockSysfs` via
-//! [`crate::device::DeviceSlot::with_sysfs`].
+//! [`crate::device::DeviceSlot::with_sysfs`] (Linux targets).
 
-use crate::device::PowerState;
 use crate::error::SysfsError;
+use crate::power_state::PowerState;
 use coral_driver::linux_paths;
 
 /// Operations that mirror [`crate::sysfs`] free functions for dependency injection.
@@ -253,7 +253,7 @@ pub use mock::MockSysfs;
 mod sysfs_ops_tests {
     use std::sync::atomic::Ordering;
 
-    use crate::device::PowerState;
+    use crate::power_state::PowerState;
 
     use super::MockSysfs;
     use super::SysfsOps;

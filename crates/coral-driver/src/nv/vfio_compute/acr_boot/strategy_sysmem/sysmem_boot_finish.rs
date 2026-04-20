@@ -247,7 +247,9 @@ pub(super) fn sec2_reset_bind_load_and_poll(
                 4 => "PHYS_SYS_NCOH",
                 _ => "?",
             };
-            notes.push(format!("FBIF_TRANSCFG[{idx}]({name})@{fbif_off:#05x}={val:#010x}"));
+            notes.push(format!(
+                "FBIF_TRANSCFG[{idx}]({name})@{fbif_off:#05x}={val:#010x}"
+            ));
         }
 
         // Map a large DMA catch-all covering the top of the 32-bit IOVA space.
@@ -275,9 +277,7 @@ pub(super) fn sec2_reset_bind_load_and_poll(
                 dma._4gib_catch = Some(buf);
             }
             Err(e) => {
-                notes.push(format!(
-                    "4GiB catch alloc FAILED at {catch_base:#x}: {e}"
-                ));
+                notes.push(format!("4GiB catch alloc FAILED at {catch_base:#x}: {e}"));
             }
         }
     }

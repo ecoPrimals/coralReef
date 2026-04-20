@@ -30,7 +30,7 @@ pub struct Hbm2Controller<'a, S: Hbm2Phase> {
     pub(super) _phase: PhantomData<S>,
 }
 
-impl<'a, S: Hbm2Phase> fmt::Debug for Hbm2Controller<'a, S> {
+impl<S: Hbm2Phase> fmt::Debug for Hbm2Controller<'_, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Hbm2Controller")
             .field("phase", &std::any::type_name::<S>())
@@ -504,7 +504,7 @@ impl<'a> Hbm2Controller<'a, DramReady> {
     }
 }
 
-impl<'a> Hbm2Controller<'a, Verified> {
+impl Hbm2Controller<'_, Verified> {
     /// The training log from the completed sequence.
     pub fn training_log(&self) -> &TrainingLog {
         &self.log

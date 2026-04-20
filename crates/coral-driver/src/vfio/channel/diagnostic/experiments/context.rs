@@ -55,7 +55,7 @@ pub(in crate::vfio::channel::diagnostic) struct ExperimentContext<'a> {
     pub gpu_caps: GpuCapabilities,
 }
 
-impl<'a> ExperimentContext<'a> {
+impl ExperimentContext<'_> {
     /// Read BAR0 register at `reg`.
     #[inline]
     pub fn r(&self, reg: usize) -> u32 {

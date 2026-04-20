@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 // Copyright © 2026 ecoPrimals
-#![allow(
-    unsafe_code,
-    reason = "set_var/remove_var are unsafe in Rust 2024; serialized by ENV_LOCK"
-)]
 
 //! Integration tests for `CORALREEF_DEFAULT_SM`, `CORALREEF_DEFAULT_SM_NOUVEAU`, and
 //! `CORALREEF_DRIVER_PREFERENCE` (Rust 2024 `set_var` / `remove_var` are `unsafe`).

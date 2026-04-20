@@ -2,6 +2,7 @@
 //! RM (Resource Manager) client — allocates and manages NVIDIA GPU objects.
 
 pub(crate) mod alloc;
+mod alloc_channel;
 mod memory;
 
 use crate::error::{DriverError, DriverResult};
@@ -68,7 +69,10 @@ impl RmClient {
     ///
     /// `ctl_fd` must be a valid open `/dev/nvidiactl` file descriptor.
     pub unsafe fn wrap_kmod_fd(ctl_fd: i32, h_client: u32) -> DriverResult<Self> {
-        let dup_fd = rustix::io::dup(std::os::unix::io::BorrowedFd::borrow_raw(ctl_fd))
+        // SAFETY: Caller guarantees `ctl_fd` is a valid open fd; `borrow_raw`
+        // creates a non-owning reference that does not close the descriptor.
+        let borrowed = unsafe { std::os::unix::io::BorrowedFd::borrow_raw(ctl_fd) };
+        let dup_fd = rustix::io::dup(borrowed)
             .map_err(|e| DriverError::DeviceNotFound(format!("dup kmod ctl_fd: {e}").into()))?;
         let file = std::fs::File::from(dup_fd);
         let ctl = NvCtlDevice::from_file(file);

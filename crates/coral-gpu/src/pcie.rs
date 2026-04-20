@@ -3,6 +3,7 @@
 
 use coral_reef::GpuTarget;
 
+#[cfg(target_os = "linux")]
 use crate::driver;
 
 /// `PCIe` topology information for multi-GPU device grouping.
@@ -90,8 +91,17 @@ pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
     devices
 }
 
+/// Probe `PCIe` topology for all available GPU render nodes.
+///
+/// On non-Linux targets there is no sysfs-based discovery; returns an empty list.
+#[cfg(not(target_os = "linux"))]
+#[must_use]
+pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
+    Vec::new()
+}
+
 /// Group devices by shared `PCIe` switch based on bus address prefix.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[expect(clippy::redundant_pub_crate, reason = "needed by crate::tests::pcie")]
 pub(crate) fn assign_switch_groups(devices: &mut [PcieDeviceInfo]) {
     let mut group_map: std::collections::HashMap<String, u32> = std::collections::HashMap::new();

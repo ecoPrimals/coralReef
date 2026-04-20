@@ -102,18 +102,16 @@ pub fn probe_dma(
     let pramin_ok: bool;
     let vram_inst_addr: u32;
     {
-        let bar2_inst_0;
-        let bar2_inst_4;
-        let bar2_pdb_lo;
-        if let Ok(region) = PraminRegion::new(bar0, BAR2_VRAM_BASE, 0x1000) {
-            bar2_inst_0 = region.read_u32(0).unwrap_or(0xDEAD_DEAD);
-            bar2_inst_4 = region.read_u32(4).unwrap_or(0xDEAD_DEAD);
-            bar2_pdb_lo = region.read_u32(0x200).unwrap_or(0xDEAD_DEAD);
-        } else {
-            bar2_inst_0 = 0xDEAD_DEAD;
-            bar2_inst_4 = 0xDEAD_DEAD;
-            bar2_pdb_lo = 0xDEAD_DEAD;
-        }
+        let (bar2_inst_0, bar2_inst_4, bar2_pdb_lo) =
+            if let Ok(region) = PraminRegion::new(bar0, BAR2_VRAM_BASE, 0x1000) {
+                (
+                    region.read_u32(0).unwrap_or(0xDEAD_DEAD),
+                    region.read_u32(4).unwrap_or(0xDEAD_DEAD),
+                    region.read_u32(0x200).unwrap_or(0xDEAD_DEAD),
+                )
+            } else {
+                (0xDEAD_DEAD, 0xDEAD_DEAD, 0xDEAD_DEAD)
+            };
         let is_bad = (bar2_inst_0 >> 16) == 0xBAD0 || bar2_inst_0 == 0xBAD0_AC00;
         tracing::trace!(
             base = format!("{:#x}", BAR2_VRAM_BASE),

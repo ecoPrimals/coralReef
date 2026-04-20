@@ -228,11 +228,7 @@ impl PushBuf {
                 method::SET_SHADER_LOCAL_MEMORY_A,
                 (slm_base_addr >> 32) as u32,
             );
-            pb.push_1(
-                sub,
-                method::SET_SHADER_LOCAL_MEMORY_B,
-                slm_base_addr as u32,
-            );
+            pb.push_1(sub, method::SET_SHADER_LOCAL_MEMORY_B, slm_base_addr as u32);
 
             // Per-TPC SLM allocation limit — NVK sets this to
             // `bytes_per_warp * max_warps_per_sm * sms_per_tpc`.

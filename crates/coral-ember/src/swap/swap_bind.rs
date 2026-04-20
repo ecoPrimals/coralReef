@@ -57,7 +57,7 @@ pub(super) fn bind_vfio(
 
     match coral_driver::vfio::VfioDevice::open(bdf) {
         Ok(device) => {
-            let req_eventfd = crate::arm_req_irq(&device, bdf);
+            let req_eventfd = crate::background::arm_req_irq(&device, bdf);
             tracing::info!(
                 bdf,
                 backend = ?device.backend_kind(),
@@ -70,7 +70,7 @@ pub(super) fn bind_vfio(
                 HeldDevice {
                     bdf: bdf.to_string(),
                     device,
-                    ring_meta: crate::hold::RingMeta::default(),
+                    ring_meta: crate::ring_meta::RingMeta::default(),
                     req_eventfd,
                 },
             );
@@ -164,7 +164,11 @@ pub(super) fn bind_native(
     match strategy {
         RebindStrategy::SimpleBind => {
             if skip_unbind && sysfs::read_current_driver(bdf).is_some() {
-                tracing::info!(bdf, target, "skip_sysfs_unbind + old driver bound — PCI rescan for SimpleBind");
+                tracing::info!(
+                    bdf,
+                    target,
+                    "skip_sysfs_unbind + old driver bound — PCI rescan for SimpleBind"
+                );
                 pci_remove_rescan(bdf, Some(target))?;
             } else {
                 let _ = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
@@ -172,10 +176,15 @@ pub(super) fn bind_native(
         }
         RebindStrategy::SimpleWithRescanFallback => {
             if skip_unbind && sysfs::read_current_driver(bdf).is_some() {
-                tracing::info!(bdf, target, "skip_sysfs_unbind + old driver bound — direct PCI rescan");
+                tracing::info!(
+                    bdf,
+                    target,
+                    "skip_sysfs_unbind + old driver bound — direct PCI rescan"
+                );
                 pci_remove_rescan(bdf, Some(target))?;
             } else {
-                let bind_result = sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
+                let bind_result =
+                    sysfs::sysfs_write(&linux_paths::sysfs_pci_driver_bind(target), bdf);
 
                 if bind_result.is_err() {
                     tracing::warn!(

@@ -12,14 +12,26 @@ use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 
 use coral_driver::vfio::ReceivedVfioFds;
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
 
-const DEFAULT_EMBER_SOCKET: &str = "/run/coralreef/ember.sock";
-
 fn ember_socket_path() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| DEFAULT_EMBER_SOCKET.to_string())
+    std::env::var("CORALREEF_EMBER_SOCKET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            let base = std::env::var("XDG_RUNTIME_DIR")
+                .map_or_else(|_| std::env::temp_dir(), PathBuf::from);
+            let ns =
+                std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| "biomeos".into());
+            let family = std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into());
+            base.join(ns)
+                .join(format!("coral-ember-{family}.sock"))
+                .display()
+                .to_string()
+        })
 }
 
 /// Request a PCI device reset from Ember (which runs as root).

@@ -81,7 +81,7 @@ pub(crate) async fn quota_info_async(
         (
             slot.config.role.clone(),
             slot.config.is_protected(),
-            slot.config.shared.as_ref().cloned().unwrap_or_default(),
+            slot.config.shared.clone().unwrap_or_default(),
         )
     };
 

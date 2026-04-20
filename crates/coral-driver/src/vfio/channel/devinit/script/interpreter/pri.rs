@@ -2,7 +2,7 @@
 
 use super::VbiosInterpreter;
 
-impl<'a> VbiosInterpreter<'a> {
+impl VbiosInterpreter<'_> {
     pub(super) fn bar0_rd32(&mut self, reg: u32) -> u32 {
         let r = reg as usize;
         if !r.is_multiple_of(4) || r >= 0x0100_0000 {

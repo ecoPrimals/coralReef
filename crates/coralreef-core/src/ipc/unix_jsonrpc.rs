@@ -6,8 +6,8 @@
 //! capability-domain symlink is also created in that directory:
 //! `{CORALREEF_CAPABILITY_DOMAIN}.sock` → `<primal>-<family_id>.sock` (relative),
 //! per wateringHole `CAPABILITY_BASED_DISCOVERY_STANDARD` v1.1. The symlink is
-//! only installed when the socket path includes the shared `biomeos` directory segment
-//! (production layout); ad-hoc test paths skip it to avoid collisions.
+//! only installed when the socket path includes the ecosystem namespace directory segment
+//! (default `biomeos` via [`crate::config::ecosystem_namespace`]); ad-hoc test paths skip it.
 //! This module serves the same `shader.compile.*` and `health.*` methods as the
 //! TCP/HTTP server but over newline-delimited JSON on a Unix domain socket.
 //!

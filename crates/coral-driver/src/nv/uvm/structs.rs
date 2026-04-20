@@ -8,7 +8,10 @@
 use bytemuck::Zeroable;
 
 use super::NV_MAX_SUBDEVICES;
-use super::{ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT, GPU_PROMOTE_CONTEXT_MAX_ENTRIES, INTERNAL_GR_MAX_ENGINES};
+use super::{
+    ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT, GPU_PROMOTE_CONTEXT_MAX_ENTRIES,
+    INTERNAL_GR_MAX_ENGINES,
+};
 
 /// Arguments for `UVM_INITIALIZE`.
 #[repr(C)]
@@ -795,7 +798,7 @@ pub struct GpuPromoteCtxParams {
     /// Number of valid entries in `promote_entry`.
     pub entry_count: u32,
     /// Explicit padding for 8-byte alignment of `promote_entry`.
-    pub _pad: u32,
+    pub pad: u32,
     /// Buffer entries to promote to RM.
     pub promote_entry: [PromoteCtxBufferEntry; GPU_PROMOTE_CONTEXT_MAX_ENTRIES],
 }

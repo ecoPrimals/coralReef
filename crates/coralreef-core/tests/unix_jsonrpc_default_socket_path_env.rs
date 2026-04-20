@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#![allow(
-    unsafe_code,
-    reason = "set_var/remove_var are unsafe in Rust 2024; serialized by test mutex"
-)]
+#![allow(unsafe_code)]
 //! `default_unix_socket_path` vs `$XDG_RUNTIME_DIR` (integration tests; may use `unsafe` env).
 
 #![cfg(unix)]

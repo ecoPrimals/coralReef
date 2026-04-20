@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 //! `CORALREEF_SYSFS_ROOT` / `CORALREEF_PROC_ROOT` are captured once per process; keep a single
 //! test in this binary so the override is observed before the first read.
 

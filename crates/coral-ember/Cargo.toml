@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
-coral-driver = { path = "../coral-driver", features = ["vfio"] }
+coral-driver = { path = "../coral-driver" }
 rustix = { workspace = true, features = ["net", "event", "time"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -25,5 +25,11 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+coral-driver = { path = "../coral-driver", features = ["vfio"] }
+
 [dev-dependencies]
 tempfile.workspace = true
+
+[lints]
+workspace = true

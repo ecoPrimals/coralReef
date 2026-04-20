@@ -80,24 +80,7 @@ pub(crate) const fn is_faulted_read(val: u32) -> bool {
         || (val >> 16) as u16 == PCI_FAULT_BAD1
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PowerState {
-    D0,
-    D3Hot,
-    D3Cold,
-    Unknown,
-}
-
-impl std::fmt::Display for PowerState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::D0 => write!(f, "D0"),
-            Self::D3Hot => write!(f, "D3hot"),
-            Self::D3Cold => write!(f, "D3cold"),
-            Self::Unknown => write!(f, "unknown"),
-        }
-    }
-}
+pub use crate::power_state::PowerState;
 
 #[derive(Debug, Clone)]
 pub struct DeviceHealth {

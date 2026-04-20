@@ -5,7 +5,9 @@
 //! `/dev/nvidiactl` and UVM through `/dev/nvidia-uvm` for memory management.
 //! Reuses the identical QMD and push buffer formats from the nouveau path.
 
+mod channel_setup;
 mod compute_trait;
+mod ctx_buffers;
 mod device;
 mod types;
 

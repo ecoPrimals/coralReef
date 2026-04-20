@@ -440,7 +440,11 @@ fn test_emit_binary_nvidia_compute_omits_zeroed_header() {
         code: vec![0xCAFE],
     };
     let binary = emit_binary(&compiled, GpuTarget::Nvidia(NvArch::Sm70));
-    assert_eq!(binary.len(), 4, "compute binary has no SPH, only code words");
+    assert_eq!(
+        binary.len(),
+        4,
+        "compute binary has no SPH, only code words"
+    );
     assert_eq!(
         u32::from_le_bytes(binary[0..4].try_into().unwrap()),
         0xCAFE,

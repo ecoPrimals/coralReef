@@ -508,7 +508,7 @@ fn handle_client_ember_vfio_fds_with_hardware() {
         crate::hold::HeldDevice {
             bdf: bdf.clone(),
             device,
-            ring_meta: crate::hold::RingMeta::default(),
+            ring_meta: crate::ring_meta::RingMeta::default(),
             req_eventfd: None,
         },
     );

@@ -169,8 +169,8 @@ pub fn find_render_node(bdf: &str) -> Option<String> {
     None
 }
 
-fn power_state_from_sysfs_line(trimmed: &str) -> super::device::PowerState {
-    use super::device::PowerState;
+fn power_state_from_sysfs_line(trimmed: &str) -> crate::power_state::PowerState {
+    use crate::power_state::PowerState;
     match trimmed {
         "D0" => PowerState::D0,
         "D3hot" => PowerState::D3Hot,
@@ -180,9 +180,9 @@ fn power_state_from_sysfs_line(trimmed: &str) -> super::device::PowerState {
 }
 
 /// Read a PCI power state from sysfs.
-pub fn read_power_state(bdf: &str) -> super::device::PowerState {
+pub fn read_power_state(bdf: &str) -> crate::power_state::PowerState {
     let path = linux_paths::sysfs_pci_device_file(bdf, "power_state");
-    std::fs::read_to_string(&path).map_or(super::device::PowerState::Unknown, |s| {
+    std::fs::read_to_string(&path).map_or(crate::power_state::PowerState::Unknown, |s| {
         power_state_from_sysfs_line(s.trim())
     })
 }
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_read_power_state_nonexistent() {
         let state = read_power_state("9999:99:99.9");
-        assert_eq!(state, crate::device::PowerState::Unknown);
+        assert_eq!(state, crate::power_state::PowerState::Unknown);
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn power_state_from_sysfs_line_maps_known_states() {
-        use crate::device::PowerState;
+        use crate::power_state::PowerState;
         assert_eq!(super::power_state_from_sysfs_line("D0"), PowerState::D0);
         assert_eq!(
             super::power_state_from_sysfs_line("D3hot"),

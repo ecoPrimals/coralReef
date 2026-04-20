@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![cfg(target_os = "linux")]
 //! Integration tests for [`coral_ember::detect_lifecycle`] and [`coral_ember::VendorLifecycle`].
 
 use coral_ember::{RebindStrategy, detect_lifecycle};

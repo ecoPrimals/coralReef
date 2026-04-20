@@ -243,7 +243,7 @@ const ECOSYSTEM_NAMESPACE: &str = "biomeos";
 
 /// Runtime filesystem segment for IPC socket layout per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
 ///
-/// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default [`ECOSYSTEM_NAMESPACE`]).
+/// Reads `$BIOMEOS_ECOSYSTEM_NAMESPACE` at runtime (default `"biomeos"`).
 /// This is a protocol-defined path component, not a capability registry or primal lookup key.
 pub fn ecosystem_namespace() -> &'static str {
     use std::sync::OnceLock;
@@ -305,6 +305,15 @@ fn default_socket() -> String {
     {
         default_tcp_fallback()
     }
+}
+
+/// Default socket path for the glowplug daemon JSON-RPC server.
+///
+/// Same value as [`DaemonConfig::default`].`socket` on Unix. On non-Unix,
+/// returns the TCP loopback fallback bind string.
+#[must_use]
+pub fn default_daemon_socket_path() -> String {
+    default_socket()
 }
 fn default_log_level() -> String {
     "info".into()

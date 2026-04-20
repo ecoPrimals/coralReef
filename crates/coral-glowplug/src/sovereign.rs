@@ -158,17 +158,12 @@ pub fn sovereign_boot(bdf: &str) -> BootResult {
     } else if is_vfio {
         // On vfio-pci — probe BAR0 to see if warm or cold
         let step_start = std::time::Instant::now();
-        let probe_result = ember.simple_rpc(
-            "mmio.bar0.probe",
-            serde_json::json!({"bdf": bdf}),
-        );
+        let probe_result = ember.simple_rpc("mmio.bar0.probe", serde_json::json!({"bdf": bdf}));
         match probe_result {
             Ok(probe) => {
                 let pmc = probe["pmc_enable"].as_str().unwrap_or("0x0");
-                let pmc_val = u32::from_str_radix(
-                    pmc.strip_prefix("0x").unwrap_or(pmc),
-                    16,
-                ).unwrap_or(0);
+                let pmc_val =
+                    u32::from_str_radix(pmc.strip_prefix("0x").unwrap_or(pmc), 16).unwrap_or(0);
                 let is_cold = pmc_val.count_ones() < 8;
 
                 steps.push(BootStep {
@@ -189,10 +184,7 @@ pub fn sovereign_boot(bdf: &str) -> BootResult {
                             steps.push(BootStep {
                                 name: "warm_swap_nouveau".into(),
                                 status: StepStatus::Ok,
-                                detail: Some(format!(
-                                    "total_ms={}",
-                                    obs.timing.total_ms
-                                )),
+                                detail: Some(format!("total_ms={}", obs.timing.total_ms)),
                                 duration_ms: step_start.elapsed().as_millis() as u64,
                             });
                         }
@@ -225,10 +217,7 @@ pub fn sovereign_boot(bdf: &str) -> BootResult {
                             steps.push(BootStep {
                                 name: "swap_back_vfio".into(),
                                 status: StepStatus::Ok,
-                                detail: Some(format!(
-                                    "total_ms={}",
-                                    obs.timing.total_ms
-                                )),
+                                detail: Some(format!("total_ms={}", obs.timing.total_ms)),
                                 duration_ms: step_start.elapsed().as_millis() as u64,
                             });
                         }
@@ -330,14 +319,16 @@ pub fn sovereign_boot(bdf: &str) -> BootResult {
             };
             (Some(result), all_ok || warm, summary)
         }
-        Err(e) => {
-            (None, false, format!("sovereign init RPC failed: {e}"))
-        }
+        Err(e) => (None, false, format!("sovereign init RPC failed: {e}")),
     };
 
     steps.push(BootStep {
         name: "sovereign_init".into(),
-        status: if init_ok { StepStatus::Ok } else { StepStatus::Failed },
+        status: if init_ok {
+            StepStatus::Ok
+        } else {
+            StepStatus::Failed
+        },
         detail: Some(init_summary.clone()),
         duration_ms: step_start.elapsed().as_millis() as u64,
     });

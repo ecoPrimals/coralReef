@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 //! `CORALREEF_GROUP_FILE` override for [`coral_glowplug::group_unix`].
 
 #[cfg(unix)]

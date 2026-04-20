@@ -10,9 +10,10 @@ use std::sync::{Arc, RwLock};
 use crate::background::{arm_req_irq, spawn_req_watcher, spawn_watchdog};
 use crate::config::{EmberRunOptions, find_config, parse_glowplug_config};
 use crate::drm_isolation;
-use crate::hold::{self, HeldDevice};
+use crate::hold::HeldDevice;
 use crate::ipc;
 use crate::journal;
+use crate::ring_meta::RingMeta;
 use crate::sysfs;
 use crate::vendor_lifecycle;
 
@@ -170,7 +171,7 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
                     HeldDevice {
                         bdf: dev_config.bdf.clone(),
                         device,
-                        ring_meta: hold::RingMeta::default(),
+                        ring_meta: RingMeta::default(),
                         req_eventfd,
                     },
                 );
@@ -219,7 +220,9 @@ pub fn run_with_options(opts: EmberRunOptions) -> Result<(), i32> {
     };
 
     let _ = std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o660));
-    set_socket_group(&socket_path, "coralreef");
+    let socket_group =
+        std::env::var("CORALREEF_SOCKET_GROUP").unwrap_or_else(|_| "coralreef".into());
+    set_socket_group(&socket_path, &socket_group);
 
     tracing::info!("╔══════════════════════════════════════════════════════════╗");
     tracing::info!("║ coral-ember — Immortal VFIO fd Holder (threaded)        ║");

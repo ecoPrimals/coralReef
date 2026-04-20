@@ -4,11 +4,37 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 83
+**Current status**: Phase 10 — Iteration 84
 
 ---
 
 ## [Unreleased]
+
+### Iteration 84 — ecoBin Cross-Arch Evolution + Deep Debt Solutions (2026-04-19)
+
+#### Cross-Architecture Compliance (ecoBin v3)
+- coral-glowplug: Linux-specific modules (capture, sec2_bridge, device, ember, health) gated behind `#[cfg(target_os = "linux")]`. PowerState extracted to portable `power_state` module. Stub main for non-Linux.
+- coral-gpu: `probe_pcie_topology()` cross-platform stub (returns empty Vec on non-Linux)
+- All 3 daemon crates pass `cargo check` on x86_64-apple-darwin, aarch64-apple-darwin, aarch64-unknown-linux-musl — 0 errors
+- coral-driver dependency made target-specific in coral-glowplug Cargo.toml (vfio feature Linux-only)
+
+#### Smart File Refactoring (>800L → Cohesive Modules)
+- alloc.rs (996L → 536 + 473 alloc_channel.rs): extracted GPFIFO/compute/channel methods
+- sovereign_init.rs (984L → 457 + 411 + 132): extracted pipeline stages and types
+- uvm/mod.rs (869L → 481 + 397 constants.rs): extracted ioctl/RM/UVM constant surface
+- runner.rs (815L → 589 + 269 matrix_support.rs): extracted diagnostic matrix support
+
+#### Code Hygiene
+- 62 eprintln!/println! → tracing structured logging across coralctl handlers + union_find.rs
+- All production `.unwrap()` eliminated (nvdec_scrubber.rs → `.expect("4-byte slice")`)
+- coral-ember socket group hardcoding → `CORALREEF_SOCKET_GROUP` env var override
+- All mocks verified `#[cfg(test)]`-gated (MockSysfs, MockFirmwareSource, MockBar0, MockRegs)
+
+#### Metrics
+- 4541 passing, 0 failed, 155 ignored (hardware-gated)
+- Zero clippy warnings (pedantic + nursery)
+- Zero fmt drift
+- Cross-compile: 0 errors on 3 non-native target triples
 
 ### Blackwell Sovereign Dispatch — ABI fixes + kmod evolution (2026-04-19)
 

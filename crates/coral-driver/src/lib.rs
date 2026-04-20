@@ -1,6 +1,68 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2026 ecoPrimals
+//
+// Hardware driver: requires unsafe for kernel ioctl/mmap/MMIO.
+// Inherits workspace pedantic/nursery but relaxes hardware-specific patterns.
+#![allow(unsafe_code)]
 #![warn(missing_docs)]
+#![allow(
+    clippy::unreadable_literal,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_ptr_alignment,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::doc_markdown,
+    clippy::must_use_candidate,
+    clippy::return_self_not_must_use,
+    clippy::missing_const_for_fn,
+    clippy::items_after_statements,
+    clippy::similar_names,
+    clippy::wildcard_imports,
+    clippy::redundant_pub_crate,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::needless_pass_by_ref_mut,
+    clippy::option_if_let_else,
+    clippy::redundant_clone,
+    clippy::unnecessary_wraps,
+    clippy::struct_excessive_bools,
+    clippy::too_long_first_doc_paragraph,
+    clippy::implicit_clone,
+    clippy::map_unwrap_or,
+    clippy::used_underscore_binding,
+    clippy::redundant_closure_for_method_calls,
+    clippy::needless_bitwise_bool,
+    clippy::unnecessary_struct_initialization,
+    clippy::if_not_else,
+    clippy::verbose_bit_mask,
+    clippy::use_self,
+    clippy::needless_lifetimes,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::manual_let_else,
+    clippy::non_send_fields_in_send_ty,
+    clippy::uninlined_format_args,
+    clippy::cloned_instead_of_copied,
+    clippy::assigning_clones,
+    clippy::branches_sharing_code,
+    clippy::cast_precision_loss,
+    clippy::unchecked_time_subtraction,
+    clippy::single_match_else,
+    clippy::struct_field_names,
+    clippy::inconsistent_struct_constructor,
+    clippy::needless_lifetimes,
+    clippy::needless_borrows_for_generic_args,
+    clippy::or_fun_call,
+    clippy::redundant_else,
+    clippy::missing_fields_in_debug,
+    clippy::bool_to_int_with_if,
+    clippy::semicolon_if_nothing_returned,
+    clippy::unused_self,
+    clippy::used_underscore_items,
+    clippy::needless_return,
+    clippy::duplicated_attributes
+)]
 //! # coral-driver — Sovereign GPU Dispatch
 //!
 //! Userspace GPU driver for compute shader dispatch via Linux DRM.

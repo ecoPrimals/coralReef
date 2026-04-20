@@ -355,7 +355,6 @@ fn parse_cli_server_tarpc_bind_tcp() {
     }
 }
 
-
 #[test]
 fn parse_cli_compile_output_explicit() {
     let cli = parse_cli_from(["coralreef", "compile", "a.wgsl", "-o", "out.bin"]).unwrap();

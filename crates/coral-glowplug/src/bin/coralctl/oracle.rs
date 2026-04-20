@@ -36,13 +36,18 @@ pub(crate) fn oracle_capture_rpc(
             })
             .unwrap_or(0);
         let driver = result.get("driver").and_then(|v| v.as_str()).unwrap_or("?");
-        eprintln!("Captured {channel_count} channels, {total_pts} page tables (driver: {driver})");
+        tracing::info!(
+            channel_count,
+            total_pts,
+            %driver,
+            "captured MMU state (RPC)"
+        );
 
         let json = serde_json::to_string_pretty(result).expect("serialize");
         match output {
             Some(path) => {
                 std::fs::write(path, &json).expect("write output");
-                eprintln!("Written to {path}");
+                tracing::info!(%path, "wrote oracle capture");
             }
             None => println!("{json}"),
         }
@@ -51,12 +56,12 @@ pub(crate) fn oracle_capture_rpc(
 
 pub(crate) fn oracle_capture_local(bdf: &str, output: Option<&str>, max_channels: usize) {
     let driver = mmu_oracle::detect_driver(bdf);
-    eprintln!("Capturing MMU state from {bdf} (driver: {driver})...");
+    tracing::info!(%bdf, %driver, "capturing MMU state (local)");
 
     let dump = match mmu_oracle::capture_page_tables(bdf, max_channels) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("Capture failed: {e}");
+            tracing::error!(error = %e, "MMU capture failed");
             std::process::exit(1);
         }
     };
@@ -69,10 +74,15 @@ pub(crate) fn oracle_capture_local(bdf: &str, output: Option<&str>, max_channels
         .flat_map(|c| c.page_tables.iter())
         .map(|pt| pt.entries.len())
         .sum();
-    eprintln!("Captured {channel_count} channels, {total_pts} page tables, {total_ptes} PTEs");
+    tracing::info!(
+        channel_count,
+        total_pts,
+        total_ptes,
+        "captured MMU state (local)"
+    );
 
     let er = &dump.engine_registers;
-    eprintln!(
+    tracing::debug!(
         "PMU CPUCTL={:#010x} FECS CPUCTL={:#010x} SEC2 CPUCTL={:#010x}",
         er.pmu.get("PMU_FALCON_CPUCTL").unwrap_or(&0),
         er.fecs.get("FECS_FALCON_CPUCTL").unwrap_or(&0),
@@ -84,7 +94,7 @@ pub(crate) fn oracle_capture_local(bdf: &str, output: Option<&str>, max_channels
     match output {
         Some(path) => {
             std::fs::write(path, &json).expect("write output");
-            eprintln!("Written to {path}");
+            tracing::info!(%path, "wrote oracle capture");
         }
         None => println!("{json}"),
     }

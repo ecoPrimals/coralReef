@@ -25,10 +25,7 @@ fn is_device_ready() -> bool {
 }
 
 /// `ember.kmod.status` — report kernel module state.
-pub fn status(
-    stream: &mut impl Write,
-    id: serde_json::Value,
-) -> Result<(), EmberIpcError> {
+pub fn status(stream: &mut impl Write, id: serde_json::Value) -> Result<(), EmberIpcError> {
     let loaded = is_loaded();
     let device_ready = is_device_ready();
 
@@ -64,15 +61,11 @@ pub fn load(
         return Ok(());
     }
 
-    let ko_path = params
-        .get("path")
-        .and_then(serde_json::Value::as_str);
+    let ko_path = params.get("path").and_then(serde_json::Value::as_str);
 
     let output = if let Some(path) = ko_path {
         tracing::info!(path, "loading coral_kmod via insmod");
-        std::process::Command::new("insmod")
-            .arg(path)
-            .output()
+        std::process::Command::new("insmod").arg(path).output()
     } else {
         tracing::info!("loading coral_kmod via modprobe");
         std::process::Command::new("modprobe")
@@ -107,13 +100,8 @@ pub fn load(
         }
         Err(e) => {
             tracing::error!(error = %e, "failed to execute insmod/modprobe");
-            super::jsonrpc::write_jsonrpc_error(
-                stream,
-                id,
-                -32000,
-                &format!("exec failed: {e}"),
-            )
-            .map_err(EmberIpcError::from)?;
+            super::jsonrpc::write_jsonrpc_error(stream, id, -32000, &format!("exec failed: {e}"))
+                .map_err(EmberIpcError::from)?;
         }
     }
 
@@ -121,33 +109,19 @@ pub fn load(
 }
 
 /// `ember.kmod.unload` — unload `coral_kmod.ko`.
-pub fn unload(
-    stream: &mut impl Write,
-    id: serde_json::Value,
-) -> Result<(), EmberIpcError> {
+pub fn unload(stream: &mut impl Write, id: serde_json::Value) -> Result<(), EmberIpcError> {
     if !is_loaded() {
-        write_jsonrpc_ok(
-            stream,
-            id,
-            serde_json::json!({ "already_unloaded": true }),
-        )
-        .map_err(EmberIpcError::from)?;
+        write_jsonrpc_ok(stream, id, serde_json::json!({ "already_unloaded": true }))
+            .map_err(EmberIpcError::from)?;
         return Ok(());
     }
 
     tracing::info!("unloading coral_kmod");
-    match std::process::Command::new("rmmod")
-        .arg(KMOD_NAME)
-        .output()
-    {
+    match std::process::Command::new("rmmod").arg(KMOD_NAME).output() {
         Ok(out) if out.status.success() => {
             tracing::info!("coral_kmod unloaded");
-            write_jsonrpc_ok(
-                stream,
-                id,
-                serde_json::json!({ "unloaded": true }),
-            )
-            .map_err(EmberIpcError::from)?;
+            write_jsonrpc_ok(stream, id, serde_json::json!({ "unloaded": true }))
+                .map_err(EmberIpcError::from)?;
         }
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -160,13 +134,8 @@ pub fn unload(
             .map_err(EmberIpcError::from)?;
         }
         Err(e) => {
-            super::jsonrpc::write_jsonrpc_error(
-                stream,
-                id,
-                -32000,
-                &format!("exec failed: {e}"),
-            )
-            .map_err(EmberIpcError::from)?;
+            super::jsonrpc::write_jsonrpc_error(stream, id, -32000, &format!("exec failed: {e}"))
+                .map_err(EmberIpcError::from)?;
         }
     }
 

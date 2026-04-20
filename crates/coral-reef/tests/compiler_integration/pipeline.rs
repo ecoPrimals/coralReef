@@ -99,12 +99,13 @@ fn test_pipeline_minimal_compute_produces_binary() {
 
 #[test]
 fn test_pipeline_minimal_compute_binary_has_header() {
+    // Compute shaders have no SPH — dispatch metadata lives in the QMD.
+    // The binary is raw instruction stream, aligned to 4 bytes.
     let wgsl = "@compute @workgroup_size(1) fn main() {}";
     let binary = compile_wgsl(wgsl, &CompileOptions::default()).expect("should compile");
     assert!(
-        binary.len() >= super::SPH_HEADER_BYTES,
-        "binary should have at least SPH header ({} bytes), got {}",
-        super::SPH_HEADER_BYTES,
+        !binary.is_empty() && binary.len() % 4 == 0,
+        "compute binary should be non-empty and 4-byte aligned, got {} bytes",
         binary.len()
     );
 }
@@ -293,25 +294,28 @@ fn test_pipeline_cross_arch_all_produce_binary() {
 
 #[test]
 fn test_pipeline_binary_starts_with_header() {
+    // Compute shaders emit raw instruction stream (no SPH); verify the binary
+    // is well-formed: non-empty, 4-byte aligned, and first dword is non-zero
+    // (a valid SASS instruction).
     let wgsl = "@compute @workgroup_size(1) fn main() {}";
     let binary = compile_wgsl(wgsl, &CompileOptions::default()).expect("should compile");
     assert!(
-        binary.len() >= super::SPH_HEADER_BYTES,
-        "binary length {} should be >= header size {}",
+        binary.len() >= 4,
+        "binary length {} should be >= 4 bytes (at least one instruction word)",
         binary.len(),
-        super::SPH_HEADER_BYTES
     );
-    let header = &binary[..super::SPH_HEADER_BYTES.min(binary.len())];
-    assert_eq!(header.len(), super::SPH_HEADER_BYTES);
+    assert_eq!(binary.len() % 4, 0, "binary must be 4-byte aligned");
 }
 
 #[test]
-fn test_pipeline_binary_length_at_least_header() {
+fn test_pipeline_binary_length_at_least_one_instruction() {
+    // Compute shaders have no SPH; minimum binary is one SASS instruction (16 bytes).
     let wgsl = "@compute @workgroup_size(1) fn main() {}";
     let binary = compile_wgsl(wgsl, &CompileOptions::default()).expect("should compile");
     assert!(
-        binary.len() >= super::SPH_HEADER_BYTES,
-        "binary must be at least header size"
+        binary.len() >= 16,
+        "binary must be at least one SASS instruction (16 bytes), got {}",
+        binary.len()
     );
 }
 
@@ -351,5 +355,8 @@ fn test_pipeline_higher_opt_produces_smaller_or_equal() {
     )
     .expect("opt 3 should compile");
     assert!(!bin_opt0.is_empty() && !bin_opt3.is_empty());
-    assert!(bin_opt3.len() >= super::SPH_HEADER_BYTES);
+    assert!(
+        bin_opt3.len() >= 16,
+        "opt3 binary must be at least one instruction"
+    );
 }

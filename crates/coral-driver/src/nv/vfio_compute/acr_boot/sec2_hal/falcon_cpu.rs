@@ -64,7 +64,11 @@ pub fn falcon_start_cpu(bar0: &MappedBar, base: usize) {
 pub fn falcon_pio_scrub_imem(bar0: &MappedBar, base: usize) {
     let hwcfg = bar0.read_u32(base + falcon::HWCFG).unwrap_or(0);
     let imem_bytes = falcon::imem_size_bytes(hwcfg) as usize;
-    let imem_words = if imem_bytes > 0 { imem_bytes / 4 } else { 0x10000 / 4 };
+    let imem_words = if imem_bytes > 0 {
+        imem_bytes / 4
+    } else {
+        0x10000 / 4
+    };
 
     // IMEMC: bits[15:2] = address>>2, bit 24 = auto-increment, bit 25 = write mode
     let imemc_val = (1u32 << 24) | (1u32 << 25); // auto-inc + write mode, address 0
@@ -75,7 +79,11 @@ pub fn falcon_pio_scrub_imem(bar0: &MappedBar, base: usize) {
 
     // Also scrub DMEM
     let dmem_bytes = falcon::dmem_size_bytes(hwcfg) as usize;
-    let dmem_words = if dmem_bytes > 0 { dmem_bytes / 4 } else { 0x4000 / 4 };
+    let dmem_words = if dmem_bytes > 0 {
+        dmem_bytes / 4
+    } else {
+        0x4000 / 4
+    };
     let dmemc_val = (1u32 << 24) | (1u32 << 25); // auto-inc + write mode, address 0
     let _ = bar0.write_u32(base + falcon::DMEMC, dmemc_val);
     for _ in 0..dmem_words {

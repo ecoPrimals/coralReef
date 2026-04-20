@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![allow(unsafe_code)]
 //! Integration tests for config discovery and path helpers.
 
 use std::sync::Mutex;
@@ -54,12 +55,39 @@ fn with_env_cleared<F: FnOnce()>(vars: &[&str], f: F) {
 
 #[test]
 fn ember_socket_path_default_without_env() {
-    with_env_cleared(&["CORALREEF_EMBER_SOCKET"], || {
-        assert_eq!(
-            coral_ember::ember_socket_path(),
-            "/run/coralreef/ember.sock"
+    let _guard = ENV_LOCK.lock().expect("env test lock poisoned");
+    let dir = TempDir::new().expect("tempdir");
+    let saved: Vec<(&str, Option<String>)> = [
+        "CORALREEF_EMBER_SOCKET",
+        "XDG_RUNTIME_DIR",
+        "BIOMEOS_ECOSYSTEM_NAMESPACE",
+        "BIOMEOS_FAMILY_ID",
+    ]
+    .into_iter()
+    .map(|k| (k, std::env::var(k).ok()))
+    .collect();
+    for (k, _) in &saved {
+        unsafe { env_remove_var(k) };
+    }
+    unsafe {
+        env_set_var(
+            "XDG_RUNTIME_DIR",
+            dir.path().to_str().expect("utf8 runtime dir"),
         );
-    });
+    }
+    let expected = dir
+        .path()
+        .join("biomeos")
+        .join("coral-ember-default.sock")
+        .display()
+        .to_string();
+    assert_eq!(coral_ember::ember_socket_path(), expected);
+    for (k, v) in saved {
+        match v {
+            Some(val) => unsafe { env_set_var(k, &val) },
+            None => unsafe { env_remove_var(k) },
+        }
+    }
 }
 
 #[test]

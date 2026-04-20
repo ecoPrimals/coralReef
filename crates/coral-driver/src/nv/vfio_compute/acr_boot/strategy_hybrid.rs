@@ -322,10 +322,16 @@ pub fn attempt_hybrid_acr_boot(
             let fbif_off = 0x604 + (idx as usize) * 0x10;
             let val = r(fbif_off);
             let name = match idx {
-                0 => "UCODE", 1 => "VIRT", 2 => "PHYS_VID",
-                3 => "PHYS_SYS_COH", 4 => "PHYS_SYS_NCOH", _ => "?",
+                0 => "UCODE",
+                1 => "VIRT",
+                2 => "PHYS_VID",
+                3 => "PHYS_SYS_COH",
+                4 => "PHYS_SYS_NCOH",
+                _ => "?",
             };
-            notes.push(format!("FBIF_TRANSCFG[{idx}]({name})@{fbif_off:#05x}={val:#010x}"));
+            notes.push(format!(
+                "FBIF_TRANSCFG[{idx}]({name})@{fbif_off:#05x}={val:#010x}"
+            ));
         }
 
         // Fixed catch-all at top of 32-bit IOVA space (see sysmem_boot_finish.rs).

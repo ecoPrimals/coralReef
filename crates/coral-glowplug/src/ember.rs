@@ -16,19 +16,15 @@ use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg}
 use serde::Deserialize;
 
 use coral_driver::vfio::ReceivedVfioFds;
+use coral_ember::ember_socket_path;
 use coral_ember::observation::SwapObservation;
 
 use crate::error::EmberError;
 
-/// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
-fn default_ember_socket() -> String {
-    std::env::var("CORALREEF_EMBER_SOCKET").unwrap_or_else(|_| "/run/coralreef/ember.sock".into())
-}
-
 /// Returns the resolved ember socket path (for integration tests that set `CORALREEF_EMBER_SOCKET`).
 #[doc(hidden)]
 pub fn test_support_default_ember_socket() -> String {
-    default_ember_socket()
+    ember_socket_path()
 }
 const MAX_RESPONSE_SIZE: usize = 4096;
 
@@ -108,7 +104,7 @@ impl EmberClient {
             return None;
         }
 
-        let path = default_ember_socket();
+        let path = ember_socket_path();
         if !std::path::Path::new(&path).exists() {
             tracing::debug!("ember socket not found at {path}");
             return None;
@@ -409,7 +405,10 @@ impl EmberClient {
         match self.simple_rpc("ember.kmod.status", serde_json::json!({})) {
             Ok(v) => {
                 let loaded = v.get("loaded").and_then(|x| x.as_bool()).unwrap_or(false);
-                let ready = v.get("device_ready").and_then(|x| x.as_bool()).unwrap_or(false);
+                let ready = v
+                    .get("device_ready")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false);
                 (loaded, ready)
             }
             Err(_) => (false, false),
@@ -575,7 +574,7 @@ fn read_full_response(stream: &UnixStream, buf: &mut [u8]) -> std::io::Result<us
                     break;
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e),
         }
     }
@@ -611,7 +610,7 @@ impl EmberBootJournal {
 
     /// Create using the default ember socket path.
     pub fn with_default_socket(bdf: impl Into<String>) -> Self {
-        Self::new(bdf, default_ember_socket())
+        Self::new(bdf, ember_socket_path())
     }
 }
 
@@ -784,7 +783,7 @@ mod tests {
     fn ember_boot_journal_default_socket() {
         let j = EmberBootJournal::with_default_socket("0000:01:00.0");
         assert_eq!(j.bdf, "0000:01:00.0");
-        assert_eq!(j.socket_path, default_ember_socket());
+        assert_eq!(j.socket_path, ember_socket_path());
     }
 
     #[test]

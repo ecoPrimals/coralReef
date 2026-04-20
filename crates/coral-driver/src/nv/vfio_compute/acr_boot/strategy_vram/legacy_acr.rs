@@ -218,13 +218,19 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     // ORed PHYS_OVERRIDE (0x80) via falcon_prepare_physical_dma. Verify it
     // reads 0x190 (VIRT + 0x10 + PHYS_OVERRIDE + 0x100) — matching nouveau.
     let fbif_after = r(falcon::FBIF_TRANSCFG);
-    notes.push(format!("FBIF_TRANSCFG: {fbif_after:#010x} (preserved reset default)"));
+    notes.push(format!(
+        "FBIF_TRANSCFG: {fbif_after:#010x} (preserved reset default)"
+    ));
     for idx in 0u32..5 {
         let fbif_off = 0x604 + (idx as usize) * 0x10;
         let val = r(fbif_off);
         let name = match idx {
-            0 => "UCODE", 1 => "VIRT", 2 => "PHYS_VID",
-            3 => "PHYS_SYS_COH", 4 => "PHYS_SYS_NCOH", _ => "?",
+            0 => "UCODE",
+            1 => "VIRT",
+            2 => "PHYS_VID",
+            3 => "PHYS_SYS_COH",
+            4 => "PHYS_SYS_NCOH",
+            _ => "?",
         };
         notes.push(format!("FBIF[{idx}]({name})@{fbif_off:#05x}={val:#010x}"));
     }

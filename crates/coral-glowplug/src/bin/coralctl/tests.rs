@@ -7,6 +7,7 @@ use super::{
 };
 use crate::deploy::try_load_config;
 use clap::Parser;
+use coral_glowplug::config::default_daemon_socket_path;
 
 #[test]
 fn resolve_glowplug_socket_path_matches_env_set_semantics() {
@@ -19,8 +20,10 @@ fn resolve_glowplug_socket_path_matches_env_set_semantics() {
 
 #[test]
 fn resolve_glowplug_socket_path_matches_env_unset_semantics() {
-    const FALLBACK_SOCKET: &str = "/run/coralreef/glowplug.sock";
-    assert_eq!(resolve_glowplug_socket_path(None), FALLBACK_SOCKET);
+    assert_eq!(
+        resolve_glowplug_socket_path(None),
+        default_daemon_socket_path()
+    );
 }
 
 #[test]

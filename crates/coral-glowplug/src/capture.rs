@@ -11,10 +11,10 @@
 //! 6. Diff cold vs warm → extract training writes per HBM2 domain
 //! 7. Save recipe JSON to `/var/lib/coralreef/training/{chip}.json`
 
+use coral_driver::nv::identity::{boot0_to_sm, chip_name};
 use coral_driver::vfio::channel::hbm2_training::{
     DomainCapture, GoldenCapture, capture_oracle_state,
 };
-use coral_driver::nv::identity::{boot0_to_sm, chip_name};
 
 use crate::ember::EmberClient;
 use crate::sovereign::{BootStep, StepStatus};
@@ -243,7 +243,9 @@ pub fn capture_training(bdf: &str, warm_driver: Option<&str>) -> CaptureResult {
     steps.push(BootStep {
         name: "settle".into(),
         status: StepStatus::Ok,
-        detail: Some(format!("{DEFAULT_SETTLE_SECS}s settle for {warm_driver} init")),
+        detail: Some(format!(
+            "{DEFAULT_SETTLE_SECS}s settle for {warm_driver} init"
+        )),
         duration_ms: step_start.elapsed().as_millis() as u64,
     });
 
@@ -305,7 +307,11 @@ pub fn capture_training(bdf: &str, warm_driver: Option<&str>) -> CaptureResult {
     let total_writes: usize = training_writes.iter().map(|d| d.registers.len()).sum();
     steps.push(BootStep {
         name: "diff_snapshots".into(),
-        status: if total_writes > 0 { StepStatus::Ok } else { StepStatus::Failed },
+        status: if total_writes > 0 {
+            StepStatus::Ok
+        } else {
+            StepStatus::Failed
+        },
         detail: Some(format!(
             "{total_writes} training writes across {} domains",
             training_writes.len(),
@@ -314,7 +320,10 @@ pub fn capture_training(bdf: &str, warm_driver: Option<&str>) -> CaptureResult {
     });
 
     if total_writes == 0 {
-        return fail(steps, "no register differences found — driver may not have trained memory".into());
+        return fail(
+            steps,
+            "no register differences found — driver may not have trained memory".into(),
+        );
     }
 
     // Step 9: Build and save recipe

@@ -9,11 +9,7 @@ use crate::rpc::{check_rpc_error, rpc_call};
 use coral_glowplug::capture::TrainingRecipe;
 
 /// `capture.training` — capture a training recipe via glowplug.
-pub(crate) fn rpc_capture_training(
-    glowplug_socket: &str,
-    bdf: &str,
-    warm_driver: Option<&str>,
-) {
+pub(crate) fn rpc_capture_training(glowplug_socket: &str, bdf: &str, warm_driver: Option<&str>) {
     println!("================================================================");
     println!("  CAPTURE TRAINING — Trace-Capture-Replay Pipeline");
     println!("================================================================");
@@ -72,14 +68,14 @@ pub(crate) fn compare_recipes(left_path: &str, right_path: &str) {
     let left = match TrainingRecipe::load(std::path::Path::new(left_path)) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("error: cannot load left recipe: {e}");
+            tracing::error!(error = %e, "cannot load left recipe");
             std::process::exit(1);
         }
     };
     let right = match TrainingRecipe::load(std::path::Path::new(right_path)) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("error: cannot load right recipe: {e}");
+            tracing::error!(error = %e, "cannot load right recipe");
             std::process::exit(1);
         }
     };
@@ -87,8 +83,14 @@ pub(crate) fn compare_recipes(left_path: &str, right_path: &str) {
     println!("================================================================");
     println!("  TRAINING RECIPE COMPARISON");
     println!("================================================================");
-    println!("  Left:  {} ({}, {} writes)", left.chip, left.warm_driver, left.total_writes);
-    println!("  Right: {} ({}, {} writes)", right.chip, right.warm_driver, right.total_writes);
+    println!(
+        "  Left:  {} ({}, {} writes)",
+        left.chip, left.warm_driver, left.total_writes
+    );
+    println!(
+        "  Right: {} ({}, {} writes)",
+        right.chip, right.warm_driver, right.total_writes
+    );
     println!("================================================================\n");
 
     // Per-domain comparison
@@ -121,28 +123,28 @@ pub(crate) fn compare_recipes(left_path: &str, right_path: &str) {
         } else {
             ""
         };
-        println!("  {:<12} {:>8} {:>8}  {indicator}", domain, left_count, right_count);
+        println!(
+            "  {:<12} {:>8} {:>8}  {indicator}",
+            domain, left_count, right_count
+        );
     }
 
     // Overlapping register offsets
-    let left_offsets: std::collections::HashSet<usize> = left
-        .flat_writes()
-        .iter()
-        .map(|(off, _)| *off)
-        .collect();
-    let right_offsets: std::collections::HashSet<usize> = right
-        .flat_writes()
-        .iter()
-        .map(|(off, _)| *off)
-        .collect();
-    let common_offsets: Vec<usize> = left_offsets
-        .intersection(&right_offsets)
-        .copied()
-        .collect();
+    let left_offsets: std::collections::HashSet<usize> =
+        left.flat_writes().iter().map(|(off, _)| *off).collect();
+    let right_offsets: std::collections::HashSet<usize> =
+        right.flat_writes().iter().map(|(off, _)| *off).collect();
+    let common_offsets: Vec<usize> = left_offsets.intersection(&right_offsets).copied().collect();
 
     println!("\nOverlap analysis:");
-    println!("  Left-only offsets:  {}", left_offsets.len() - common_offsets.len());
-    println!("  Right-only offsets: {}", right_offsets.len() - common_offsets.len());
+    println!(
+        "  Left-only offsets:  {}",
+        left_offsets.len() - common_offsets.len()
+    );
+    println!(
+        "  Right-only offsets: {}",
+        right_offsets.len() - common_offsets.len()
+    );
     println!("  Common offsets:     {}", common_offsets.len());
 
     // PLL/timing pattern detection
@@ -156,8 +158,16 @@ pub(crate) fn compare_recipes(left_path: &str, right_path: &str) {
 
     println!("\nPLL/Timing pattern detection:");
     for &(name, start, end) in pll_ranges {
-        let left_hits: Vec<_> = left.flat_writes().into_iter().filter(|(o, _)| *o >= start && *o < end).collect();
-        let right_hits: Vec<_> = right.flat_writes().into_iter().filter(|(o, _)| *o >= start && *o < end).collect();
+        let left_hits: Vec<_> = left
+            .flat_writes()
+            .into_iter()
+            .filter(|(o, _)| *o >= start && *o < end)
+            .collect();
+        let right_hits: Vec<_> = right
+            .flat_writes()
+            .into_iter()
+            .filter(|(o, _)| *o >= start && *o < end)
+            .collect();
         if !left_hits.is_empty() || !right_hits.is_empty() {
             println!("  {name}:");
             println!("    {}: {} writes", left.chip, left_hits.len());
@@ -174,10 +184,16 @@ pub(crate) fn compare_recipes(left_path: &str, right_path: &str) {
 
     println!("\nConclusion:");
     if common_offsets.len() > 10 {
-        println!("  Significant register overlap ({} common offsets) — shared training", common_offsets.len());
+        println!(
+            "  Significant register overlap ({} common offsets) — shared training",
+            common_offsets.len()
+        );
         println!("  patterns likely exist. A native Rust training engine can target these.");
     } else if !common_offsets.is_empty() {
-        println!("  Some overlap ({} common offsets) — architectures share a few patterns.", common_offsets.len());
+        println!(
+            "  Some overlap ({} common offsets) — architectures share a few patterns.",
+            common_offsets.len()
+        );
     } else {
         println!("  No overlap — these GPU families use entirely different register layouts.");
     }
@@ -188,7 +204,7 @@ pub(crate) fn decode_recipe(file_path: &str) {
     let recipe = match TrainingRecipe::load(std::path::Path::new(file_path)) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("error: cannot load recipe: {e}");
+            tracing::error!(error = %e, "cannot load recipe");
             std::process::exit(1);
         }
     };
@@ -228,7 +244,7 @@ pub(crate) fn list_recipes() {
                 println!("  (no recipes captured yet)");
                 println!("  Run: coralctl capture training <bdf>");
             } else {
-                eprintln!("  error reading {}: {e}", training_dir.display());
+                tracing::error!(dir = %training_dir.display(), error = %e, "error reading training dir");
             }
             return;
         }
@@ -241,7 +257,8 @@ pub(crate) fn list_recipes() {
             match TrainingRecipe::load(&path) {
                 Ok(recipe) => {
                     found = true;
-                    println!("  {} — {} ({} writes via {}, captured {})",
+                    println!(
+                        "  {} — {} ({} writes via {}, captured {})",
                         path.file_name().unwrap_or_default().to_string_lossy(),
                         recipe.chip,
                         recipe.total_writes,
@@ -250,7 +267,8 @@ pub(crate) fn list_recipes() {
                     );
                 }
                 Err(e) => {
-                    println!("  {} — error: {e}",
+                    println!(
+                        "  {} — error: {e}",
                         path.file_name().unwrap_or_default().to_string_lossy(),
                     );
                 }

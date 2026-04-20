@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![cfg(target_os = "linux")]
+#![allow(unsafe_code)]
 //! Ember socket + JSON-RPC integration tests (env mutation uses `unsafe` — not allowed in the library crate).
 
 use std::io::{Read, Write};
@@ -32,7 +34,7 @@ fn default_ember_socket_respects_env() {
     }
     assert_eq!(
         coral_glowplug::test_support_default_ember_socket(),
-        "/run/coralreef/ember.sock"
+        coral_ember::ember_socket_path()
     );
     // SAFETY: same as above.
     unsafe {

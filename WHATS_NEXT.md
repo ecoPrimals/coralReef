@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 83.
+**Current position**: Phase 10 — Iteration 84.
 
-**Last completed**: Dropped jsonrpsee entirely — JSON-RPC is now pure `serde_json` manual dispatch (newline-delimited TCP/Unix), matching songBird and bearDog ecosystem standard. Added `TcpLine`/`UnixLine` NDJSON transports to `primal-rpc-client`. Eliminated transitive `async-trait`, `hyper`, `http`, `tower` from dep tree. Migrated ~30 tests + e2e from HTTP to NDJSON.
+**Last completed**: Deep debt solutions; ecoBin cross-arch compliance (macOS x86_64/aarch64, Linux aarch64-musl); large file refactoring (alloc, sovereign_init, uvm/mod, runner); eprintln→tracing migration across coralctl and union_find; mocks verified test-isolated; production `.unwrap()` eliminated from library code.
 
-**Tests**: 4509 passing, 0 failed, 153 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4541 passing, 0 failed, 155 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: musl-static verification; coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
+**Next focus**: Coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 16, 2026 (Phase 10 — Iteration 83 — drop jsonrpsee, ecosystem-standard NDJSON JSON-RPC.)
+**Last updated**: April 19, 2026 (Phase 10 — Iteration 84 — ecoBin cross-arch, deep debt solutions)
 
 ---
 
