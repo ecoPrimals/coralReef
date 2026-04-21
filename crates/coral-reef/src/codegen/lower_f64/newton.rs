@@ -55,8 +55,8 @@ pub fn lower_f64_sqrt(
     let x_hi = Src::from(x[1]);
     let x_src = Src::from(x);
 
-    let y0_src = if sm.sm() >= 100 {
-        // Blackwell path: F2F(f64→f32) + MUFU.RSQ + F2F(f32→f64)
+    let y0_src = if !sm.has_hardware_f64_rcp() {
+        // Blackwell/Kepler path: F2F(f64→f32) + MUFU.RSQ + F2F(f32→f64)
         let x_as_f32 = alloc.alloc(RegFile::GPR);
         out.push(with_pred(
             Instr::new(OpF2F {
@@ -382,8 +382,8 @@ pub fn lower_f64_rcp(
     let x_hi = Src::from(x[1]);
     let x_src = Src::from(x);
 
-    let y0_src = if sm.sm() >= 100 {
-        // Blackwell path: F2F(f64→f32) + MUFU.RCP + F2F(f32→f64)
+    let y0_src = if !sm.has_hardware_f64_rcp() {
+        // Blackwell/Kepler path: F2F(f64→f32) + MUFU.RCP + F2F(f32→f64)
         let x_as_f32 = alloc.alloc(RegFile::GPR);
         out.push(with_pred(
             Instr::new(OpF2F {

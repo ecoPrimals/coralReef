@@ -16,6 +16,7 @@
 pub mod bar0;
 #[cfg(feature = "nvidia-drm")]
 pub mod coral_kmod;
+pub mod generation;
 pub mod identity;
 pub mod ioctl;
 pub mod kepler_falcon;
@@ -106,6 +107,8 @@ pub struct NvDevice {
     exec_syncobj: Option<u32>,
     /// Temp buffers allocated during dispatch that must survive until sync.
     inflight: Vec<BufferHandle>,
+    /// Vendor-agnostic hardware capabilities (built from GenerationProfile at open time).
+    caps: crate::HardwareCapabilities,
 }
 
 /// A nouveau GEM buffer with optional mmap info.
@@ -136,10 +139,16 @@ impl NvDevice {
     #[cfg(feature = "nouveau")]
     pub fn open() -> DriverResult<Self> {
         let drm = DrmDevice::open_by_driver("nouveau")?;
-        let sm = ioctl::probe_gpu_identity(&drm.path)
-            .and_then(|id| id.nvidia_sm())
-            .unwrap_or(70);
-        tracing::info!(path = %drm.path, detected_sm = sm, "nouveau SM auto-detected");
+        let sm = match ioctl::probe_gpu_identity(&drm.path).and_then(|id| id.nvidia_sm()) {
+            Some(detected) => {
+                tracing::info!(path = %drm.path, detected_sm = detected, "nouveau SM auto-detected");
+                detected
+            }
+            None => {
+                tracing::warn!(path = %drm.path, "SM detection failed — defaulting to SM 70 (Volta)");
+                70
+            }
+        };
         Self::open_from_drm(drm, sm)
     }
 
@@ -238,6 +247,7 @@ impl NvDevice {
             None
         };
 
+        let caps = generation::profile_for_sm(sm).to_capabilities();
         let mut dev = Self {
             drm,
             channel,
@@ -250,6 +260,7 @@ impl NvDevice {
             last_submit_gem: None,
             exec_syncobj,
             inflight: Vec::new(),
+            caps,
         };
 
         // Phase 3: Submit any remaining FECS channel methods (low-address
@@ -409,6 +420,7 @@ impl NvDevice {
             last_submit_gem: None,
             exec_syncobj: None,
             inflight: Vec::new(),
+            caps: generation::profile_for_sm(70).to_capabilities(),
         })
     }
 }
@@ -551,6 +563,10 @@ impl ComputeDevice for NvDevice {
         }
         Ok(())
     }
+
+    fn capabilities(&self) -> &crate::HardwareCapabilities {
+        &self.caps
+    }
 }
 
 impl NvDevice {
@@ -573,14 +589,13 @@ impl NvDevice {
 
         // Build CBUF descriptor buffer for group 0.
         //
-        // The compiler (naga_translate/expr.rs) generates CBUF loads like:
-        //   addr_lo = c[group][binding * 8]
-        //   addr_hi = c[group][binding * 8 + 4]
-        //   size    = c[group][binding * 8 + 8]   (for arrayLength)
+        // The compiler (naga_translate/expr.rs) generates CBUF loads at a
+        // **16-byte stride** per binding on NV:
+        //   addr_lo = c[group][binding * 16]
+        //   addr_hi = c[group][binding * 16 + 4]
+        //   size    = c[group][binding * 16 + 8]   (for arrayLength)
         //
-        // All user buffers are currently in group 0. Each binding needs
-        // 12 bytes in the descriptor: [addr_lo, addr_hi, size].
-        // We round up to 16 bytes per entry for alignment.
+        // Each entry is 16 bytes: [va_lo, va_hi, size, pad].
         let desc_entry_size = 16_u64;
         let desc_buf_size = desc_entry_size
             * u64::try_from(buffers.len().max(1))
@@ -595,26 +610,34 @@ impl NvDevice {
             let Some(buf) = self.buffers.get(&bh.0) else {
                 continue;
             };
-            let off = i * 8;
+            let off = i * 16;
             let va = buf.gpu_va;
             let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
             let va_lo = u32::try_from(va & 0xFFFF_FFFF).unwrap_or(u32::MAX);
             let va_hi = u32::try_from(va >> 32).unwrap_or(u32::MAX);
             desc_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
             desc_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
-            let sz_off = off + 8;
-            if sz_off + 4 <= desc_data.len() {
-                desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
-            }
+            desc_data[off + 8..off + 12].copy_from_slice(&sz.to_le_bytes());
         }
         self.upload(desc_handle, 0, &desc_data)?;
         let desc_va = self.buffers.get(&desc_handle.0).map_or(0, |b| b.gpu_va);
 
-        let cbufs = vec![qmd::CbufBinding {
-            index: 0,
-            addr: desc_va,
-            size: u32::try_from(desc_buf_size).unwrap_or(u32::MAX),
-        }];
+        let desc_cbuf_size = u32::try_from(desc_buf_size).unwrap_or(u32::MAX);
+        let driver_const_handle =
+            self.alloc(u64::from(qmd::DRIVER_CONST_SIZE), MemoryDomain::Gtt)?;
+        temps.push(driver_const_handle);
+        let driver_consts = qmd::encode_driver_constants(&dims);
+        self.upload(driver_const_handle, 0, &driver_consts)?;
+        let driver_const_va = self
+            .buffers
+            .get(&driver_const_handle.0)
+            .map_or(0, |b| b.gpu_va);
+        let cbufs = qmd::build_standard_cbufs(
+            desc_va,
+            desc_cbuf_size,
+            driver_const_va,
+            qmd::DRIVER_CONST_SIZE,
+        );
 
         let qmd_params = qmd::QmdParams {
             shader_va,
@@ -636,16 +659,11 @@ impl NvDevice {
         self.upload(qmd_handle, 0, qmd_bytes)?;
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
-        // Nouveau submits each push buffer as an independent DRM ioctl —
-        // no persistent channel state between submissions, so we must
-        // include SET_OBJECT + memory windows alongside every dispatch.
-        let local_mem_window = if self.sm_version >= 70 {
-            LOCAL_MEM_WINDOW_VOLTA
-        } else {
-            LOCAL_MEM_WINDOW_LEGACY
-        };
-        let mut pb = pushbuf::PushBuf::compute_init(self.compute_class, local_mem_window, 0, 0);
-        let dispatch = pushbuf::PushBuf::compute_dispatch(self.compute_class, qmd_va);
+        let profile = generation::profile_for_sm(self.sm_version);
+        let mut pb =
+            pushbuf::PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
+        let dispatch =
+            pushbuf::PushBuf::compute_dispatch_with_launch(profile.launch_method, qmd_va);
         pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
 
@@ -763,9 +781,8 @@ mod tests {
             probe::compute_class_for_sm(75),
             pushbuf::class::TURING_COMPUTE_A
         );
-        assert_eq!(
-            probe::compute_class_for_sm(86),
-            pushbuf::class::AMPERE_COMPUTE_A
-        );
+        assert_eq!(probe::compute_class_for_sm(80), pushbuf::class::AMPERE_COMPUTE_A);
+        assert_eq!(probe::compute_class_for_sm(86), generation::AMPERE_B.compute_class);
+        assert_eq!(probe::compute_class_for_sm(120), generation::BLACKWELL_B.compute_class);
     }
 }

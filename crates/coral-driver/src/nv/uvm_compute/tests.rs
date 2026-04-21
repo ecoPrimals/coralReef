@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::nv::uvm::{
-    ADA_COMPUTE_A, AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B,
-    BLACKWELL_CHANNEL_GPFIFO_B, BLACKWELL_COMPUTE_A, BLACKWELL_COMPUTE_B, HOPPER_COMPUTE_A,
-    NvGpuDevice, NvUvmDevice, RmClient, VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
-};
+use crate::nv::uvm::{NvGpuDevice, NvUvmDevice, RmClient};
 use crate::{ComputeDevice, MemoryDomain};
 
 use super::device::NvUvmComputeDevice;
@@ -22,23 +18,26 @@ const fn gpfifo_length_field_mask() -> u64 {
 }
 
 #[test]
-fn gpu_gen_class_selection() {
-    assert_eq!(GpuGen::from_sm(70).channel_class(), VOLTA_CHANNEL_GPFIFO_A);
-    assert_eq!(GpuGen::from_sm(70).compute_class(), VOLTA_COMPUTE_A);
-    assert_eq!(GpuGen::from_sm(75).channel_class(), VOLTA_CHANNEL_GPFIFO_A);
-    assert_eq!(GpuGen::from_sm(75).compute_class(), VOLTA_COMPUTE_A);
-    assert_eq!(GpuGen::from_sm(80).channel_class(), AMPERE_CHANNEL_GPFIFO_A);
-    assert_eq!(GpuGen::from_sm(80).compute_class(), AMPERE_COMPUTE_A);
-    assert_eq!(GpuGen::from_sm(86).channel_class(), AMPERE_CHANNEL_GPFIFO_A);
-    assert_eq!(GpuGen::from_sm(86).compute_class(), AMPERE_COMPUTE_B);
-    assert_eq!(GpuGen::from_sm(89).compute_class(), ADA_COMPUTE_A);
-    assert_eq!(GpuGen::from_sm(90).compute_class(), HOPPER_COMPUTE_A);
-    assert_eq!(GpuGen::from_sm(100).compute_class(), BLACKWELL_COMPUTE_A);
-    assert_eq!(GpuGen::from_sm(120).compute_class(), BLACKWELL_COMPUTE_B);
-    assert_eq!(
-        GpuGen::from_sm(120).channel_class(),
-        BLACKWELL_CHANNEL_GPFIFO_B
-    );
+fn gpu_gen_class_via_profile() {
+    use crate::nv::generation;
+    let cases: &[(u32, u32, u32)] = &[
+        (70, 0xC3C0, 0xC36F),  // Volta
+        (75, 0xC5C0, 0xC36F),  // Turing
+        (80, 0xC6C0, 0xC56F),  // Ampere A
+        (86, 0xC7C0, 0xC56F),  // Ampere B
+        (89, 0xC9C0, 0xC56F),  // Ada
+        (90, 0xCBC0, 0xC56F),  // Hopper
+        (100, 0xCDC0, 0xC96F), // Blackwell A
+        (120, 0xCEC0, 0xCA6F), // Blackwell B
+    ];
+    for &(sm, compute, channel) in cases {
+        let gpu_gen = GpuGen::from_sm(sm);
+        assert_eq!(gpu_gen.compute_class(), compute, "SM {sm} compute");
+        assert_eq!(gpu_gen.channel_class(), channel, "SM {sm} channel");
+        let p = generation::profile_for_sm(sm);
+        assert_eq!(gpu_gen.compute_class(), p.compute_class);
+        assert_eq!(gpu_gen.channel_class(), p.channel_class);
+    }
 }
 
 #[test]
@@ -75,18 +74,6 @@ fn gpfifo_entry_zero_length() {
 }
 
 #[test]
-fn gpu_gen_sm_roundtrip() {
-    assert_eq!(GpuGen::Volta, GpuGen::from_sm(70));
-    assert_eq!(GpuGen::Turing, GpuGen::from_sm(75));
-    assert_eq!(GpuGen::AmpereA, GpuGen::from_sm(80));
-    assert_eq!(GpuGen::AmpereB, GpuGen::from_sm(86));
-    assert_eq!(GpuGen::Ada, GpuGen::from_sm(89));
-    assert_eq!(GpuGen::Hopper, GpuGen::from_sm(90));
-    assert_eq!(GpuGen::BlackwellA, GpuGen::from_sm(100));
-    assert_eq!(GpuGen::BlackwellB, GpuGen::from_sm(120));
-}
-
-#[test]
 fn userd_gp_offsets_match_volta_ramuserd_layout() {
     assert_eq!(USERD_GP_PUT_OFFSET, 0x8C);
     assert_eq!(USERD_GP_GET_OFFSET, 0x88);
@@ -95,19 +82,20 @@ fn userd_gp_offsets_match_volta_ramuserd_layout() {
 }
 
 #[test]
-fn gpu_gen_from_sm_boundary_values() {
-    assert_eq!(GpuGen::from_sm(0), GpuGen::Volta);
-    assert_eq!(GpuGen::from_sm(74), GpuGen::Volta);
-    assert_eq!(GpuGen::from_sm(75), GpuGen::Turing);
-    assert_eq!(GpuGen::from_sm(76), GpuGen::Volta);
-    assert_eq!(GpuGen::from_sm(79), GpuGen::Volta);
-    assert_eq!(GpuGen::from_sm(81), GpuGen::AmpereB);
-    assert_eq!(GpuGen::from_sm(88), GpuGen::AmpereB);
-    assert_eq!(GpuGen::from_sm(99), GpuGen::Volta);
-    assert_eq!(GpuGen::from_sm(101), GpuGen::Volta);
-    assert_eq!(GpuGen::from_sm(119), GpuGen::Volta);
-    assert_eq!(GpuGen::from_sm(121), GpuGen::BlackwellB);
-    assert_eq!(GpuGen::from_sm(u32::MAX), GpuGen::BlackwellB);
+fn gpu_gen_boundary_values() {
+    use crate::nv::generation;
+    assert_eq!(generation::profile_for_sm(0).name, "Volta");
+    assert_eq!(generation::profile_for_sm(74).name, "Volta");
+    assert_eq!(generation::profile_for_sm(75).name, "Turing");
+    assert_eq!(generation::profile_for_sm(81).name, "Ampere B");
+    assert_eq!(generation::profile_for_sm(88).name, "Ampere B");
+    assert_eq!(generation::profile_for_sm(121).name, "Blackwell B");
+    assert_eq!(generation::profile_for_sm(u32::MAX).name, "Blackwell B");
+
+    assert!(!GpuGen::from_sm(70).uses_semaphore_fence());
+    assert!(!GpuGen::from_sm(89).uses_semaphore_fence());
+    assert!(GpuGen::from_sm(100).uses_semaphore_fence());
+    assert!(GpuGen::from_sm(120).uses_semaphore_fence());
 }
 
 #[test]

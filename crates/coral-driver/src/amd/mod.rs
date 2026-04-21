@@ -8,8 +8,10 @@
 //! - Fence synchronization
 
 pub mod gem;
+pub mod generation;
 pub mod ioctl;
 pub mod pm4;
+pub mod shader_binary;
 
 use crate::drm::DrmDevice;
 use crate::error::{DriverError, DriverResult};
@@ -38,6 +40,8 @@ pub struct AmdDevice {
     /// GFX major version (9=GCN5/Vega, 10=RDNA2, 11=RDNA3, 12=RDNA4).
     /// Controls PM4 register encoding differences (MEM_ORDERED, cache GCR bits).
     gfx_major: u8,
+    /// Vendor-agnostic hardware capabilities (built from AmdGenerationProfile at open time).
+    caps: crate::HardwareCapabilities,
 }
 
 impl AmdDevice {
@@ -71,8 +75,27 @@ impl AmdDevice {
 
     fn open_from_drm(drm: DrmDevice) -> DriverResult<Self> {
         let ctx_handle = ioctl::create_context(drm.fd())?;
-        tracing::info!(path = %drm.path, ctx = ctx_handle, "AMD GPU context created");
 
+        let gfx_major = match ioctl::query_gfx_version(drm.fd()) {
+            Ok((major, minor)) => {
+                tracing::info!(
+                    path = %drm.path, ctx = ctx_handle,
+                    gfx_major = major, gfx_minor = minor,
+                    "AMD GPU context created — GFX version detected"
+                );
+                u8::try_from(major).unwrap_or(10)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    path = %drm.path, ctx = ctx_handle,
+                    error = %e,
+                    "AMD GPU context created — GFX version query failed, defaulting to 10"
+                );
+                10
+            }
+        };
+
+        let caps = generation::profile_for_gfx(gfx_major).to_capabilities();
         Ok(Self {
             drm,
             ctx_handle,
@@ -81,7 +104,8 @@ impl AmdDevice {
             last_fence: 0,
             inflight: Vec::new(),
             ip_type: ioctl::AMDGPU_HW_IP_COMPUTE,
-            gfx_major: 10,
+            gfx_major,
+            caps,
         })
     }
 
@@ -156,6 +180,19 @@ impl ComputeDevice for AmdDevice {
         dims: DispatchDims,
         info: &ShaderInfo,
     ) -> DriverResult<()> {
+        if shader_binary::is_amdgpu_elf(shader) {
+            let meta = shader_binary::parse_amdgpu_metadata(shader);
+            shader_binary::validate_gfx_compat(meta.gfx_version, self.gfx_major)?;
+            tracing::debug!(
+                gfx_version = meta.gfx_version,
+                sgpr = meta.sgpr_count,
+                vgpr = meta.vgpr_count,
+                lds = meta.lds_size_bytes,
+                "AMDGPU ELF detected — ISA {}",
+                shader_binary::gfx_version_name(meta.gfx_version),
+            );
+        }
+
         let shader_size = u64::try_from(shader.len())
             .map_err(|_| DriverError::platform_overflow("shader size fits in u64"))?;
         let shader_handle = self.alloc(shader_size, MemoryDomain::Gtt)?;
@@ -265,6 +302,10 @@ impl ComputeDevice for AmdDevice {
             let _ = self.free(handle);
         }
         Ok(())
+    }
+
+    fn capabilities(&self) -> &crate::HardwareCapabilities {
+        &self.caps
     }
 }
 

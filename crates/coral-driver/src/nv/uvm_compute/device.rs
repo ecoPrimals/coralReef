@@ -119,6 +119,8 @@ pub struct NvUvmComputeDevice {
     pub(super) uses_uvm_mapping: bool,
     /// Next available GPU VA for bump allocation (only used when `uses_uvm_mapping` is true).
     pub(super) uvm_va_next: u64,
+    /// Vendor-agnostic hardware capabilities (built from GenerationProfile at open time).
+    pub(super) caps: crate::HardwareCapabilities,
 }
 
 impl NvUvmComputeDevice {
@@ -132,8 +134,9 @@ impl NvUvmComputeDevice {
     ///
     /// Returns [`DriverError`] if any step in the initialization chain fails.
     pub fn open(gpu_index: u32, sm: u32) -> DriverResult<Self> {
-        // Blackwell+ benefits from kernel-privileged channel setup (GPU_PROMOTE_CTX).
-        if sm >= 100 {
+        use crate::nv::generation::{self, BootStrategy};
+        let profile = generation::profile_for_sm(sm);
+        if matches!(profile.boot_strategy, BootStrategy::KmodPromote) {
             if let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open() {
                 match Self::open_via_kmod(kmod, gpu_index, sm) {
                     Ok(dev) => return Ok(dev),
@@ -180,7 +183,7 @@ impl NvUvmComputeDevice {
         // to the underlying file via ch->ctl_filp.
 
         // SAFETY: ctl_fd is a valid kernel-module-opened fd.
-        let client = unsafe { RmClient::wrap_kmod_fd(ctl_fd, info.h_client) }?;
+        let mut client = unsafe { RmClient::wrap_kmod_fd(ctl_fd, info.h_client) }?;
         let mut uvm = NvUvmDevice::open()?;
         let gpu = NvGpuDevice::open(gpu_index)?;
 
@@ -328,7 +331,44 @@ impl NvUvmComputeDevice {
             })
             .collect();
 
-        let uses_semaphore_fence = matches!(gpu_gen, GpuGen::BlackwellA | GpuGen::BlackwellB);
+        let uses_semaphore_fence = gpu_gen.uses_semaphore_fence();
+
+        let (fence_cpu_addr, fence_gpu_va, fence_mmap_fd,
+             fence_pb_cpu_addr, fence_pb_gpu_va, fence_pb_mmap_fd) =
+        if uses_semaphore_fence && info.h_fence_mem != 0 {
+            let fence_fd = open_mmap_fd()?;
+            let fence_cpu = kmod_map_rm_memory(
+                ctl_fd, fence_fd.as_raw_fd(),
+                info.h_client, info.h_device, info.h_fence_mem,
+                0, 4096,
+            )?;
+            unsafe { VolatilePtr::new(fence_cpu as *mut u32).write(0) };
+
+            let fence_va = client.rm_map_memory_dma(
+                info.h_device, info.h_virt_mem, info.h_fence_mem, 0, 4096,
+            )?;
+
+            let h_fence_pb = info.h_device + 0x5006;
+            client.alloc_system_memory(info.h_device, h_fence_pb, 4096)?;
+            let fpb_fd = open_mmap_fd()?;
+            let fpb_cpu = kmod_map_rm_memory(
+                ctl_fd, fpb_fd.as_raw_fd(),
+                info.h_client, info.h_device, h_fence_pb,
+                0, 4096,
+            )?;
+            let fpb_va = client.rm_map_memory_dma(
+                info.h_device, info.h_virt_mem, h_fence_pb, 0, 4096,
+            )?;
+
+            tracing::info!(
+                fence_va = format_args!("0x{fence_va:016X}"),
+                fpb_va = format_args!("0x{fpb_va:016X}"),
+                "kmod: Blackwell semaphore fence wired"
+            );
+            (fence_cpu, fence_va, Some(fence_fd), fpb_cpu, fpb_va, Some(fpb_fd))
+        } else {
+            (0, 0, None, 0, 0, None)
+        };
 
         let dev = Self {
             client,
@@ -360,17 +400,18 @@ impl NvUvmComputeDevice {
             doorbell_addr,
             work_submit_token: info.work_submit_token,
             uses_semaphore_fence,
-            fence_cpu_addr: 0,
-            fence_gpu_va: 0,
+            fence_cpu_addr,
+            fence_gpu_va,
             fence_value: 0,
-            fence_mmap_fd: None,
-            fence_pb_cpu_addr: 0,
-            fence_pb_gpu_va: 0,
-            fence_pb_mmap_fd: None,
+            fence_mmap_fd,
+            fence_pb_cpu_addr,
+            fence_pb_gpu_va,
+            fence_pb_mmap_fd,
             coral_kmod: Some(kmod),
             kmod_h_client: info.h_client,
             uses_uvm_mapping: false,
             uvm_va_next: 0x1_0000_0000,
+            caps: crate::nv::generation::profile_for_sm(sm).to_capabilities(),
         };
 
         tracing::info!(
@@ -466,7 +507,13 @@ impl NvUvmComputeDevice {
         // Pre-Blackwell: use flags=0x04 (RM-managed faulting) with RM_MAP_MEMORY_DMA.
         use crate::nv::uvm::{NV_VASPACE_FLAGS_BLACKWELL_FAULTING, NV_VASPACE_FLAGS_ENABLE_FAULTING};
 
-        let (h_vaspace, uses_uvm_mapping) = if sm >= 100 {
+        let profile = crate::nv::generation::profile_for_sm(sm);
+        let is_blackwell_plus = matches!(
+            profile.boot_strategy,
+            crate::nv::generation::BootStrategy::KmodPromote
+        );
+
+        let (h_vaspace, uses_uvm_mapping) = if is_blackwell_plus {
             match client.alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_BLACKWELL_FAULTING) {
                 Ok(h) => {
                     tracing::debug!(h_vaspace = format_args!("0x{h:08X}"), "VA space BLACKWELL_FAULTING (0x48)");
@@ -519,7 +566,7 @@ impl NvUvmComputeDevice {
         let h_changrp = client.alloc_channel_group(h_device, h_vaspace)?;
         tracing::debug!(h_changrp = format_args!("0x{h_changrp:08X}"), "channel_group OK");
 
-        let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, sm >= 100)?;
+        let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, is_blackwell_plus)?;
         tracing::debug!(h_ctxshare = format_args!("0x{h_ctxshare:08X}"), "context_share OK");
 
         // NV01_MEMORY_VIRTUAL is required by RM even for externally-owned VA spaces.
@@ -665,19 +712,19 @@ impl NvUvmComputeDevice {
         // which calls nvUvmInterface{RetainChannel,BindChannelResources} from
         // kernel context. Falls back to userspace GPU_PROMOTE_CTX for older GPUs.
         let (ctx_buffers, kmod_bind_ok) = 'promote: {
-            // UVM-managed VA space: context buffers are demand-faulted by UVM.
-            // No explicit promotion needed — RM + GSP handle it internally
-            // when gr_ctxsw_setup_bind_with_mem is called with vMemPtr=0.
-            if uses_uvm_mapping {
+            // Pre-Blackwell UVM: context buffers are demand-faulted by UVM.
+            // Blackwell UVM still needs explicit promotion because UVM fault
+            // servicing is incomplete — SM hits ESR 0x10 on first CBUF access.
+            if uses_uvm_mapping && !is_blackwell_plus {
                 tracing::debug!(
-                    "UVM mapping active — skipping GPU_PROMOTE_CTX \
+                    "UVM mapping active (pre-Blackwell) — skipping GPU_PROMOTE_CTX \
                      (context buffers will be demand-faulted)"
                 );
                 break 'promote (Vec::new(), false);
             }
 
             // Try kernel-privileged binding via coral-kmod (Blackwell+).
-            if sm >= 100 {
+            if is_blackwell_plus {
                 if let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open() {
                     match kmod.bind_channel(
                         &gpu_uuid,
@@ -915,7 +962,7 @@ impl NvUvmComputeDevice {
         // Blackwell (clca6f) removed GP_GET from the USERD control struct —
         // the GPU no longer writes GP_GET to USERD. We must use a semaphore
         // release written by the GPU into a separate fence buffer.
-        let uses_semaphore_fence = matches!(gpu_gen, GpuGen::BlackwellA | GpuGen::BlackwellB);
+        let uses_semaphore_fence = gpu_gen.uses_semaphore_fence();
 
         let (fence_cpu_addr, fence_gpu_va, fence_mmap_fd, fence_pb_cpu_addr, fence_pb_gpu_va, fence_pb_mmap_fd) = if uses_semaphore_fence {
             // Fence value buffer: GPU writes semaphore payload here.
@@ -1038,6 +1085,7 @@ impl NvUvmComputeDevice {
             kmod_h_client: 0,
             uses_uvm_mapping,
             uvm_va_next,
+            caps: crate::nv::generation::profile_for_sm(sm).to_capabilities(),
         };
 
         // NOP smoke test: submit a push buffer to verify the GPFIFO mechanism.
@@ -1206,16 +1254,7 @@ impl NvUvmComputeDevice {
     /// The SM version this device targets.
     #[must_use]
     pub const fn sm_version(&self) -> u32 {
-        match self.gpu_gen {
-            GpuGen::Volta => 70,
-            GpuGen::Turing => 75,
-            GpuGen::AmpereA => 80,
-            GpuGen::AmpereB => 86,
-            GpuGen::Ada => 89,
-            GpuGen::Hopper => 90,
-            GpuGen::BlackwellA => 100,
-            GpuGen::BlackwellB => 120,
-        }
+        self.gpu_gen.sm
     }
 
     /// Whether this device is operational.

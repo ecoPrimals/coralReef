@@ -9,7 +9,8 @@ use crate::vfio::dma::DmaBuffer;
 
 use super::NvVfioComputeDevice;
 use super::layout::{
-    GPFIFO_IOVA, USER_IOVA_BASE, USERD_IOVA, apply_error_to_driver, bar0_reg, gpfifo,
+    FENCE_BUF_IOVA, FENCE_PB_IOVA, GPFIFO_IOVA, USER_IOVA_BASE, USERD_IOVA,
+    apply_error_to_driver, bar0_reg, gpfifo,
 };
 
 impl NvVfioComputeDevice {
@@ -117,6 +118,20 @@ impl NvVfioComputeDevice {
             0,
         )?;
 
+        let profile = crate::nv::generation::profile_for_sm(sm_version);
+        let caps = profile.to_capabilities();
+        let sem_fence = crate::nv::generation::uses_semaphore_fence(profile);
+
+        let (fence_buf, fence_pb_buf) = if sem_fence {
+            let fb = DmaBuffer::new(container.clone(), 4096, FENCE_BUF_IOVA)?;
+            fb.volatile_write_u32(0, 0);
+            let fpb = DmaBuffer::new(container.clone(), 4096, FENCE_PB_IOVA)?;
+            tracing::info!("VFIO: Blackwell semaphore fence buffers allocated");
+            (Some(fb), Some(fpb))
+        } else {
+            (None, None)
+        };
+
         let mut dev = Self {
             device,
             bar0,
@@ -131,6 +146,11 @@ impl NvVfioComputeDevice {
             container,
             buffers: std::collections::HashMap::new(),
             inflight: Vec::new(),
+            caps,
+            uses_semaphore_fence: sem_fence,
+            fence_buf,
+            fence_pb_buf,
+            fence_value: 0,
         };
 
         dev.apply_fecs_channel_init();
@@ -172,6 +192,20 @@ impl NvVfioComputeDevice {
             0,
         )?;
 
+        let profile = crate::nv::generation::profile_for_sm(sm_version);
+        let caps = profile.to_capabilities();
+        let sem_fence = crate::nv::generation::uses_semaphore_fence(profile);
+
+        let (fence_buf, fence_pb_buf) = if sem_fence {
+            let fb = DmaBuffer::new(container.clone(), 4096, FENCE_BUF_IOVA)?;
+            fb.volatile_write_u32(0, 0);
+            let fpb = DmaBuffer::new(container.clone(), 4096, FENCE_PB_IOVA)?;
+            tracing::info!("VFIO: Blackwell semaphore fence buffers allocated");
+            (Some(fb), Some(fpb))
+        } else {
+            (None, None)
+        };
+
         let mut dev = Self {
             device,
             bar0,
@@ -186,6 +220,11 @@ impl NvVfioComputeDevice {
             container,
             buffers: std::collections::HashMap::new(),
             inflight: Vec::new(),
+            caps,
+            uses_semaphore_fence: sem_fence,
+            fence_buf,
+            fence_pb_buf,
+            fence_value: 0,
         };
 
         dev.apply_fecs_channel_init();
@@ -227,6 +266,20 @@ impl NvVfioComputeDevice {
             0,
         )?;
 
+        let profile = crate::nv::generation::profile_for_sm(sm_version);
+        let caps = profile.to_capabilities();
+        let sem_fence = crate::nv::generation::uses_semaphore_fence(profile);
+
+        let (fence_buf, fence_pb_buf) = if sem_fence {
+            let fb = DmaBuffer::new(container.clone(), 4096, FENCE_BUF_IOVA)?;
+            fb.volatile_write_u32(0, 0);
+            let fpb = DmaBuffer::new(container.clone(), 4096, FENCE_PB_IOVA)?;
+            tracing::info!("VFIO: Blackwell semaphore fence buffers allocated (warm)");
+            (Some(fb), Some(fpb))
+        } else {
+            (None, None)
+        };
+
         let mut dev = Self {
             device,
             bar0,
@@ -241,6 +294,11 @@ impl NvVfioComputeDevice {
             container,
             buffers: std::collections::HashMap::new(),
             inflight: Vec::new(),
+            caps,
+            uses_semaphore_fence: sem_fence,
+            fence_buf,
+            fence_pb_buf,
+            fence_value: 0,
         };
 
         dev.restart_warm_falcons()?;

@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! GPU generation, GPFIFO encoding, and per-buffer bookkeeping for UVM compute.
 
-use crate::nv::uvm::{
-    ADA_COMPUTE_A, AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_A, AMPERE_COMPUTE_B,
-    BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_CHANNEL_GPFIFO_B, BLACKWELL_COMPUTE_A,
-    BLACKWELL_COMPUTE_B, HOPPER_COMPUTE_A, VOLTA_CHANNEL_GPFIFO_A, VOLTA_COMPUTE_A,
-};
+use crate::nv::generation;
 
 /// Flush a single CPU cache line containing the given address.
 ///
@@ -33,57 +29,31 @@ pub(super) unsafe fn uvm_cache_line_flush(addr: *const u8) {
 pub(super) unsafe fn uvm_cache_line_flush(_addr: *const u8) {}
 
 /// GPU generation derived from SM version, used for class selection.
+///
+/// Thin wrapper around [`generation::GenerationProfile`] — delegates all
+/// class lookups through the unified profile registry. Retained as a
+/// local type so that existing UVM code continues to compile; callers
+/// should prefer `generation::profile_for_sm` directly where possible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum GpuGen {
-    Volta,
-    Turing,
-    /// GA100 (A100, SM 8.0) — uses `AMPERE_COMPUTE_A`.
-    AmpereA,
-    /// `GA10x` (RTX 30xx, SM 8.6+) — uses `AMPERE_COMPUTE_B`.
-    AmpereB,
-    /// AD10x (RTX 40xx, SM 8.9) — uses `ADA_COMPUTE_A`.
-    Ada,
-    /// GH100 (H100, SM 9.0) — uses `HOPPER_COMPUTE_A`.
-    Hopper,
-    /// GB100/200 (B200, SM 10.0) — data center Blackwell, `BLACKWELL_COMPUTE_A`.
-    BlackwellA,
-    /// GB20x (RTX 50xx, SM 12.0) — consumer Blackwell, `BLACKWELL_COMPUTE_B`.
-    BlackwellB,
+pub(super) struct GpuGen {
+    pub(super) sm: u32,
 }
 
 impl GpuGen {
     pub(super) const fn from_sm(sm: u32) -> Self {
-        match sm {
-            75 => Self::Turing,
-            80 => Self::AmpereA,
-            81..=88 => Self::AmpereB,
-            89 => Self::Ada,
-            90 => Self::Hopper,
-            100 => Self::BlackwellA,
-            120.. => Self::BlackwellB,
-            _ => Self::Volta,
-        }
+        Self { sm }
     }
 
-    pub(super) const fn channel_class(self) -> u32 {
-        match self {
-            Self::BlackwellB => BLACKWELL_CHANNEL_GPFIFO_B,
-            Self::BlackwellA => BLACKWELL_CHANNEL_GPFIFO_A,
-            Self::AmpereA | Self::AmpereB | Self::Ada | Self::Hopper => AMPERE_CHANNEL_GPFIFO_A,
-            Self::Volta | Self::Turing => VOLTA_CHANNEL_GPFIFO_A,
-        }
+    pub(super) fn channel_class(self) -> u32 {
+        generation::profile_for_sm(self.sm).channel_class
     }
 
-    pub(super) const fn compute_class(self) -> u32 {
-        match self {
-            Self::BlackwellA => BLACKWELL_COMPUTE_A,
-            Self::BlackwellB => BLACKWELL_COMPUTE_B,
-            Self::Hopper => HOPPER_COMPUTE_A,
-            Self::Ada => ADA_COMPUTE_A,
-            Self::AmpereA => AMPERE_COMPUTE_A,
-            Self::AmpereB => AMPERE_COMPUTE_B,
-            Self::Volta | Self::Turing => VOLTA_COMPUTE_A,
-        }
+    pub(super) fn compute_class(self) -> u32 {
+        generation::profile_for_sm(self.sm).compute_class
+    }
+
+    pub(super) fn uses_semaphore_fence(self) -> bool {
+        generation::uses_semaphore_fence(generation::profile_for_sm(self.sm))
     }
 }
 

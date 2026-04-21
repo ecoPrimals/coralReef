@@ -32,8 +32,12 @@ pub(super) fn promote_ctx_buffers_userspace(
     // which calls nvUvmInterface{RetainChannel,BindChannelResources} from
     // kernel context. Falls back to userspace GPU_PROMOTE_CTX for older GPUs.
     let (ctx_buffers, kmod_bind_ok) = 'promote: {
-        // Try kernel-privileged binding via coral-kmod (Blackwell+).
-        if sm >= 100
+        let profile = crate::nv::generation::profile_for_sm(sm);
+        let is_blackwell_plus = matches!(
+            profile.boot_strategy,
+            crate::nv::generation::BootStrategy::KmodPromote
+        );
+        if is_blackwell_plus
             && let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open()
         {
             match kmod.bind_channel(gpu_uuid, client.handle(), h_vaspace, h_channel, sm) {
@@ -218,6 +222,6 @@ pub(super) fn gr_ctxsw_setup_after_promotion(
 }
 
 /// Whether this GPU generation uses semaphore-based GPFIFO completion (Blackwell+).
-pub(super) const fn uses_semaphore_fence_for_gen(gpu_gen: GpuGen) -> bool {
-    matches!(gpu_gen, GpuGen::BlackwellA | GpuGen::BlackwellB)
+pub(super) fn uses_semaphore_fence_for_gen(gpu_gen: GpuGen) -> bool {
+    gpu_gen.uses_semaphore_fence()
 }

@@ -279,18 +279,18 @@ fn chipset_variant_hopper() {
 
 #[test]
 fn sm_to_compute_class_mappings() {
-    assert_eq!(sm_to_compute_class(35), 0xA1C0);
-    assert_eq!(sm_to_compute_class(37), 0xA1C0);
-    assert_eq!(sm_to_compute_class(50), 0xB0C0);
-    assert_eq!(sm_to_compute_class(60), 0xC0C0);
-    assert_eq!(sm_to_compute_class(70), 0xC3C0);
-    assert_eq!(sm_to_compute_class(75), 0xC5C0);
-    assert_eq!(sm_to_compute_class(80), 0xC6C0);
-    assert_eq!(sm_to_compute_class(86), 0xC6C0);
-    assert_eq!(sm_to_compute_class(89), 0xC6C0);
-    assert_eq!(sm_to_compute_class(90), 0xC7C0);
-    assert_eq!(sm_to_compute_class(100), 0xC8C0);
-    assert_eq!(sm_to_compute_class(120), 0xC8C0);
+    assert_eq!(sm_to_compute_class(35), 0xA1C0);  // KEPLER_COMPUTE_B
+    assert_eq!(sm_to_compute_class(37), 0xA1C0);  // KEPLER_COMPUTE_B
+    assert_eq!(sm_to_compute_class(50), 0xB0C0);  // MAXWELL_COMPUTE_B
+    assert_eq!(sm_to_compute_class(60), 0xC0C0);  // PASCAL_COMPUTE_A
+    assert_eq!(sm_to_compute_class(70), 0xC3C0);  // VOLTA_COMPUTE_A
+    assert_eq!(sm_to_compute_class(75), 0xC5C0);  // TURING_COMPUTE_A
+    assert_eq!(sm_to_compute_class(80), 0xC6C0);  // AMPERE_COMPUTE_A
+    assert_eq!(sm_to_compute_class(86), 0xC7C0);  // AMPERE_COMPUTE_B
+    assert_eq!(sm_to_compute_class(89), 0xC9C0);  // ADA_COMPUTE_A
+    assert_eq!(sm_to_compute_class(90), 0xCBC0);  // HOPPER_COMPUTE_A
+    assert_eq!(sm_to_compute_class(100), 0xCDC0); // BLACKWELL_COMPUTE_A
+    assert_eq!(sm_to_compute_class(120), 0xCEC0); // BLACKWELL_COMPUTE_B
 }
 
 #[test]
@@ -437,14 +437,14 @@ fn sm_to_compute_class_volta_upper_bound_inclusive() {
 }
 
 #[test]
-fn sm_to_compute_class_ampere_non_multiple_of_ten() {
-    assert_eq!(sm_to_compute_class(81), 0xC6C0);
-    assert_eq!(sm_to_compute_class(88), 0xC6C0);
+fn sm_to_compute_class_ampere_b_range() {
+    assert_eq!(sm_to_compute_class(81), 0xC7C0); // AMPERE_COMPUTE_B
+    assert_eq!(sm_to_compute_class(88), 0xC7C0); // AMPERE_COMPUTE_B
 }
 
 #[test]
 fn sm_to_compute_class_blackwell_above_120() {
-    assert_eq!(sm_to_compute_class(121), 0xC8C0);
+    assert_eq!(sm_to_compute_class(121), 0xCEC0); // BLACKWELL_COMPUTE_B
 }
 
 #[test]

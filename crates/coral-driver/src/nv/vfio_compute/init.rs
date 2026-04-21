@@ -25,11 +25,8 @@ impl NvVfioComputeDevice {
             }
         };
 
-        let seq = if sm_version == 70 {
-            GrInitSequence::for_gv100(&blobs)
-        } else {
-            GrInitSequence::from_blobs(&blobs)
-        };
+        let profile = crate::nv::generation::profile_for_sm(sm_version);
+        let seq = GrInitSequence::for_profile(&blobs, profile);
 
         let (bar0_writes, fecs_entries) = gsp::split_for_application(&seq);
 
@@ -459,11 +456,8 @@ impl NvVfioComputeDevice {
             }
         };
 
-        let seq = if self.sm_version == 70 {
-            GrInitSequence::for_gv100(&blobs)
-        } else {
-            GrInitSequence::from_blobs(&blobs)
-        };
+        let profile = crate::nv::generation::profile_for_sm(self.sm_version);
+        let seq = GrInitSequence::for_profile(&blobs, profile);
 
         let (_bar0, fecs) = gsp::split_for_application(&seq);
 

@@ -75,6 +75,12 @@ pub struct NvVfioComputeDevice {
     container: DmaBackend,
     buffers: HashMap<u32, VfioBuffer>,
     inflight: Vec<BufferHandle>,
+    caps: crate::HardwareCapabilities,
+    /// Blackwell+ semaphore fence: GPU writes completion value here.
+    uses_semaphore_fence: bool,
+    fence_buf: Option<DmaBuffer>,
+    fence_pb_buf: Option<DmaBuffer>,
+    fence_value: u32,
     device: VfioDevice,
 }
 
@@ -399,6 +405,10 @@ impl ComputeDevice for NvVfioComputeDevice {
         }
         Ok(())
     }
+
+    fn capabilities(&self) -> &crate::HardwareCapabilities {
+        &self.caps
+    }
 }
 
 impl NvVfioComputeDevice {
@@ -458,7 +468,8 @@ mod tests {
 
     #[test]
     fn open_nonexistent_device() {
-        let result = NvVfioComputeDevice::open("9999:99:99.9", 86, 0xC6C0);
+        let profile = crate::nv::generation::profile_for_sm(86);
+        let result = NvVfioComputeDevice::open("9999:99:99.9", 86, profile.compute_class);
         assert!(result.is_err());
     }
 }

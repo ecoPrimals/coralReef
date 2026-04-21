@@ -159,18 +159,34 @@ impl PushBuf {
         pb
     }
 
-    /// Build a per-dispatch push buffer for Volta+ (SM70+).
+    /// Build a per-dispatch push buffer using the compute class to infer
+    /// the launch method (PCAS vs PCAS2).
+    ///
+    /// Prefer [`compute_dispatch_with_launch`] when a
+    /// [`GenerationProfile`](super::generation::GenerationProfile) is available.
+    #[must_use]
+    pub fn compute_dispatch(compute_class: u32, qmd_addr: u64) -> Self {
+        use super::generation::LaunchMethod;
+        let launch = if compute_class > method::TURING_COMPUTE_A {
+            LaunchMethod::Pcas2
+        } else {
+            LaunchMethod::Pcas
+        };
+        Self::compute_dispatch_with_launch(launch, qmd_addr)
+    }
+
+    /// Build a per-dispatch push buffer using an explicit launch method
+    /// from the generation profile.
     ///
     /// Invalidates caches and launches via `SEND_PCAS_A` + the appropriate
     /// signaling method. The compute class must already be bound to subchannel 1
     /// via a prior [`compute_init`](Self::compute_init) submission.
-    ///
-    /// - `<= Turing`: `SEND_SIGNALING_PCAS_B` (0x02BC) with invalidate+schedule bits
-    /// - `>  Turing`: `SEND_SIGNALING_PCAS2_B` (0x02C0) with `PCAS_ACTION_INVALIDATE_COPY_SCHEDULE`
-    ///
-    /// `SEND_PCAS_A` takes `qmd_addr >> 8` (QMD must be 256-byte aligned).
     #[must_use]
-    pub fn compute_dispatch(compute_class: u32, qmd_addr: u64) -> Self {
+    pub fn compute_dispatch_with_launch(
+        launch: super::generation::LaunchMethod,
+        qmd_addr: u64,
+    ) -> Self {
+        use super::generation::LaunchMethod;
         let mut pb = Self::new();
         let sub = 1_u32;
 
@@ -180,8 +196,6 @@ impl PushBuf {
             method::INVALIDATE_INSTR_AND_DATA,
         );
 
-        let uses_pcas2 = compute_class > method::TURING_COMPUTE_A;
-
         #[expect(
             clippy::cast_possible_truncation,
             reason = "deliberate split into 32-bit halves"
@@ -189,14 +203,17 @@ impl PushBuf {
         {
             pb.push_1(sub, method::SEND_PCAS_A, (qmd_addr >> 8) as u32);
 
-            if uses_pcas2 {
-                pb.push_1(
-                    sub,
-                    method::SEND_SIGNALING_PCAS2_B,
-                    method::PCAS_ACTION_INVALIDATE_COPY_SCHEDULE,
-                );
-            } else {
-                pb.push_1(sub, method::SEND_SIGNALING_PCAS_B, 0x3);
+            match launch {
+                LaunchMethod::Pcas2 => {
+                    pb.push_1(
+                        sub,
+                        method::SEND_SIGNALING_PCAS2_B,
+                        method::PCAS_ACTION_INVALIDATE_COPY_SCHEDULE,
+                    );
+                }
+                LaunchMethod::Pcas => {
+                    pb.push_1(sub, method::SEND_SIGNALING_PCAS_B, 0x3);
+                }
             }
         }
 

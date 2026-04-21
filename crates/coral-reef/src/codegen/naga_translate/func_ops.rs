@@ -538,7 +538,8 @@ impl FuncTranslator<'_, '_> {
         let element_stride = self.array_element_stride(global.ty)?;
 
         let buf_idx = binding.group as u8;
-        let size_offset = (binding.binding * 8 + 8) as u16;
+        let stride = if self.sm.is_amd() { 8u32 } else { 16u32 };
+        let size_offset = (binding.binding * stride + 8) as u16;
         let cbuf = CBufRef {
             buf: CBuf::Binding(buf_idx),
             offset: size_offset,

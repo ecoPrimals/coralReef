@@ -273,23 +273,20 @@ impl ComputeDevice for NvUvmComputeDevice {
 
         let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |b| b.gpu_va);
 
-        // Build CBUF descriptor table at the aligned offset inside the
-        // same buffer.  The compiler generates `c[0][binding * 8]` to
-        // load buffer addresses, so CBUF 0 must hold the descriptor table.
+        // Build CBUF descriptor table at the aligned offset inside the same
+        // buffer.  The compiler generates `c[0][binding * 16]` to load buffer
+        // addresses (16-byte stride per binding: [va_lo, va_hi, size, pad]).
         let mut desc_data = vec![0u8; desc_data_len];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
-                let off = i * 8;
+                let off = i * 16;
                 let va = buf.gpu_va;
                 let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
                 let va_lo = (va & 0xFFFF_FFFF) as u32;
                 let va_hi = (va >> 32) as u32;
                 desc_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
                 desc_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
-                let sz_off = off + 8;
-                if sz_off + 4 <= desc_data.len() {
-                    desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
-                }
+                desc_data[off + 8..off + 12].copy_from_slice(&sz.to_le_bytes());
             }
         }
         self.upload(
@@ -301,36 +298,22 @@ impl ComputeDevice for NvUvmComputeDevice {
         let desc_va = shader_va + desc_offset as u64;
 
         // CBUF 7: driver constants (grid dimensions for num_workgroups).
-        // Must match DRIVER_CBUF_INDEX in coral-reef func_builtins.rs.
-        const DRIVER_CBUF_INDEX: u32 = 7;
-        let driver_const_size = 64u32; // min CBUF alignment for Turing+
         let driver_const_handle =
-            self.alloc(u64::from(driver_const_size), MemoryDomain::Gtt)?;
-        {
-            let mut driver_consts = [0u8; 64];
-            driver_consts[0..4].copy_from_slice(&dims.x.to_le_bytes());
-            driver_consts[4..8].copy_from_slice(&dims.y.to_le_bytes());
-            driver_consts[8..12].copy_from_slice(&dims.z.to_le_bytes());
-            self.upload(driver_const_handle, 0, &driver_consts)?;
-        }
+            self.alloc(u64::from(qmd::DRIVER_CONST_SIZE), MemoryDomain::Gtt)?;
+        let driver_consts = qmd::encode_driver_constants(&dims);
+        self.upload(driver_const_handle, 0, &driver_consts)?;
         let driver_const_va = self
             .buffers
             .get(&driver_const_handle.0)
             .map_or(0, |b| b.gpu_va);
 
         // CBUFs 0-6 → descriptor table; CBUF 7 → driver constants.
-        let mut cbufs: Vec<qmd::CbufBinding> = (0..7)
-            .map(|i| qmd::CbufBinding {
-                index: i,
-                addr: desc_va,
-                size: desc_cbuf_size,
-            })
-            .collect();
-        cbufs.push(qmd::CbufBinding {
-            index: DRIVER_CBUF_INDEX,
-            addr: driver_const_va,
-            size: driver_const_size,
-        });
+        let cbufs = qmd::build_standard_cbufs(
+            desc_va,
+            desc_cbuf_size,
+            driver_const_va,
+            qmd::DRIVER_CONST_SIZE,
+        );
 
         let qmd_params = qmd::QmdParams {
             shader_va,
@@ -427,6 +410,10 @@ impl ComputeDevice for NvUvmComputeDevice {
         let inflight = std::mem::take(&mut self.inflight);
         self.deferred_free.extend(inflight);
         Ok(())
+    }
+
+    fn capabilities(&self) -> &crate::HardwareCapabilities {
+        &self.caps
     }
 }
 

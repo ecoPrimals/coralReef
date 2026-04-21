@@ -2,20 +2,94 @@
 //! QMD (Queue Management Descriptor) construction for NVIDIA compute dispatch.
 //!
 //! Supports multiple QMD versions:
-//! - v2.1 (256-byte, 64-word): Pascal/Volta (SM < 70)
-//! - v2.2 (256-byte, 64-word): Volta/Turing (SM70-SM79)
-//! - v3.0 (256-byte, 64-word): Ampere/Ada/Blackwell (SM80+)
+//! - v2.1 (256-byte, 64-word): Kepler, Maxwell, Pascal (SM35-SM62)
+//! - v2.2 (256-byte, 64-word): Volta, Turing (SM70-SM79)
+//! - v2.3 (256-byte, 64-word): Ampere (SM80-SM88) — confirmed by NVK/CUDA
+//! - v3.0 (256-byte, 64-word): Ada, Hopper (SM89-SM99)
+//! - v5.0 (384-byte, 96-word): Blackwell (SM100+) — required for CTS compliance
 //!
-//! Blackwell hardware accepts v3.0 QMDs (confirmed by NVK/Mesa CTS).
-//! v5.0 (384-byte) support is retained for future use but not currently active.
+//! Key differences between v2.3 and v3.0: `SHADER_LOCAL_MEMORY_LOW_SIZE`
+//! is at bits 928-951 (v2.3) vs 736-759 (v3.0), and `BARRIER_COUNT` is
+//! at bits 955-959 (v2.3) vs 763-767 (v3.0).
 //!
-//! Includes constant buffer binding, GPR count from compiler, shared
-//! memory sizing, and dispatch grid/workgroup dimensions.
+//! Also provides the shared CBUF binding layout ([`build_standard_cbufs`])
+//! and driver constants encoder ([`encode_driver_constants`]) used by all
+//! three NVIDIA dispatch paths (UVM, VFIO, nouveau).
 //!
 //! Field layout derived from Mesa NVK (`nvk_compute.c`) and the NVIDIA
 //! open GPU headers.
 
 use crate::DispatchDims;
+use crate::nv::generation::{GenerationProfile, QmdVersion};
+
+/// Driver constant buffer index — `c[7]` holds grid dims (num_workgroups).
+///
+/// Must match `DRIVER_CBUF_INDEX` in coral-reef `func_builtins.rs`.
+pub const DRIVER_CBUF_INDEX: u32 = 7;
+
+/// Minimum driver constants buffer size (bytes). 64 bytes satisfies
+/// Turing+ CBUF alignment; first 12 bytes are `[grid_x, grid_y, grid_z]`.
+pub const DRIVER_CONST_SIZE: u32 = 64;
+
+/// Build the standard NVIDIA CBUF binding layout used by all dispatch paths.
+///
+/// Slots 0-6 mirror the descriptor table (`desc_addr` / `desc_size`).
+/// Slot 7 binds driver constants at `driver_const_addr` / `driver_const_size`.
+///
+/// # Descriptor table layout
+///
+/// The compiler (coral-reef `naga_translate`) emits `c[group][binding * 16]`
+/// to load 64-bit buffer addresses on NVIDIA, yielding a **16-byte stride**
+/// per binding:
+///
+/// ```text
+/// offset  0: [va_lo₀, va_hi₀, size₀, pad₀]
+/// offset 16: [va_lo₁, va_hi₁, size₁, pad₁]
+/// offset 32: [va_lo₂, va_hi₂, size₂, pad₂]
+/// ```
+///
+/// `arrayLength()` reads `c[group][binding * 16 + 8]`, which at 16-byte
+/// stride correctly yields the size dword for each binding without aliasing
+/// the next binding's address.
+///
+/// AMD uses an 8-byte stride instead (buffer VAs are passed through SGPRs,
+/// not CBUFs), so the stride is target-dependent in the compiler.
+///
+/// Returns a `Vec<CbufBinding>` with exactly 8 entries.
+#[must_use]
+pub fn build_standard_cbufs(
+    desc_addr: u64,
+    desc_size: u32,
+    driver_const_addr: u64,
+    driver_const_size: u32,
+) -> Vec<CbufBinding> {
+    let mut cbufs: Vec<CbufBinding> = (0..7)
+        .map(|i| CbufBinding {
+            index: i,
+            addr: desc_addr,
+            size: desc_size,
+        })
+        .collect();
+    cbufs.push(CbufBinding {
+        index: DRIVER_CBUF_INDEX,
+        addr: driver_const_addr,
+        size: driver_const_size,
+    });
+    cbufs
+}
+
+/// Encode driver constants (grid dimensions) into a byte buffer.
+///
+/// Writes `[grid_x, grid_y, grid_z, 0]` as little-endian u32s.
+/// Returns a fixed-size array suitable for upload as CBUF 7.
+#[must_use]
+pub fn encode_driver_constants(dims: &DispatchDims) -> [u8; DRIVER_CONST_SIZE as usize] {
+    let mut buf = [0u8; DRIVER_CONST_SIZE as usize];
+    buf[0..4].copy_from_slice(&dims.x.to_le_bytes());
+    buf[4..8].copy_from_slice(&dims.y.to_le_bytes());
+    buf[8..12].copy_from_slice(&dims.z.to_le_bytes());
+    buf
+}
 
 /// QMD size in u32 words for pre-Hopper (256 bytes = 64 words).
 pub const QMD_SIZE_WORDS: usize = 64;
@@ -357,9 +431,18 @@ pub fn build_qmd_v23(params: &QmdParams) -> [u32; QMD_SIZE_WORDS] {
     let reg_count = params.gpr_count.min(511);
     qmd_set_field(&mut q, 648, 9, u64::from(reg_count));
 
+    // API_VISIBLE_CALL_LIMIT MW(378:378) = NO_CHECK (1)
+    qmd_set_field(&mut q, 378, 1, 1);
+
     // SHARED_MEMORY_SIZE [561:544] (18 bits) — same as v3.0
     let shared_aligned = (params.shared_mem_bytes + 255) & !255;
     qmd_set_field(&mut q, 544, 18, u64::from(shared_aligned));
+
+    // SM config shared memory partition sizes (Volta+ SKED requirement).
+    let smem_cfg = gv100_sm_config_smem_size(params.shared_mem_bytes);
+    qmd_set_field(&mut q, 562, 6, smem_cfg);
+    qmd_set_field(&mut q, 569, 6, gv100_sm_config_smem_size(96 * 1024));
+    qmd_set_field(&mut q, 657, 6, smem_cfg);
 
     // SHADER_LOCAL_MEMORY_LOW_SIZE [951:928] (24 bits) — v2.3 position
     qmd_set_field(&mut q, 928, 24, u64::from(params.local_mem_low_bytes));
@@ -568,11 +651,21 @@ fn qmd_set_field_dyn(q: &mut [u32], bit_start: usize, width: usize, value: u64) 
 /// (Mesa) confirms v5.0 is mandatory for Blackwell CTS compliance.
 #[must_use]
 pub fn build_qmd_for_sm(sm: u32, params: &QmdParams) -> Vec<u32> {
-    match sm {
-        0..=69 => build_qmd_v21(params).to_vec(),
-        70..=79 => build_qmd_v22(params).to_vec(),
-        80..=99 => build_qmd_v30(params).to_vec(),
-        _ => build_qmd_v50_with_sm(params, sm),
+    let profile = crate::nv::generation::profile_for_sm(sm);
+    build_qmd(profile, params)
+}
+
+/// Build a QMD using the generation profile's QMD version.
+///
+/// Preferred over `build_qmd_for_sm` when a profile is already available.
+#[must_use]
+pub fn build_qmd(profile: &GenerationProfile, params: &QmdParams) -> Vec<u32> {
+    match profile.qmd_version {
+        QmdVersion::V21 => build_qmd_v21(params).to_vec(),
+        QmdVersion::V22 => build_qmd_v22(params).to_vec(),
+        QmdVersion::V23 => build_qmd_v23(params).to_vec(),
+        QmdVersion::V30 => build_qmd_v30(params).to_vec(),
+        QmdVersion::V50 => build_qmd_v50_with_sm(params, *profile.sm_range.start()),
     }
 }
 
@@ -846,28 +939,36 @@ mod tests {
     #[test]
     fn build_qmd_for_sm_selects_version() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
-        // SM 0..=69 → v2.1 (version at bits 0:3 / 4:7)
-        let q_69 = build_qmd_for_sm(69, &params);
-        assert_eq!(get_field(&q_69, 0, 4), 2);
-        assert_eq!(get_field(&q_69, 4, 4), 1);
+        // SM 35 (Kepler) → v2.1
+        let q_35 = build_qmd_for_sm(35, &params);
+        assert_eq!(get_field(&q_35, 0, 4), 2, "SM 35 major = 2");
+        assert_eq!(get_field(&q_35, 4, 4), 1, "SM 35 minor = 1 (v2.1)");
+        // SM 60 (Pascal) → v2.1
+        let q_60 = build_qmd_for_sm(60, &params);
+        assert_eq!(get_field(&q_60, 0, 4), 2, "SM 60 major = 2");
+        assert_eq!(get_field(&q_60, 4, 4), 1, "SM 60 minor = 1 (v2.1)");
         // SM 70..=79 → v2.2
         let q_70 = build_qmd_for_sm(70, &params);
         assert_eq!(get_field(&q_70, 0, 4), 2);
         assert_eq!(get_field(&q_70, 4, 4), 2);
         let q_75 = build_qmd_for_sm(75, &params);
         assert_eq!(get_field(&q_75, 4, 4), 2);
-        // SM 80..=99 → v3.0
+        // SM 80..=88 → v2.3 (Ampere uses v2.3, confirmed by NVK)
         let q_86 = build_qmd_for_sm(86, &params);
-        assert_eq!(get_field(&q_86, 580, 4), 3, "SM 86 major = 3 (v3.0)");
-        assert_eq!(get_field(&q_86, 576, 4), 0, "SM 86 minor = 0 (v3.0)");
+        assert_eq!(get_field(&q_86, 580, 4), 2, "SM 86 major = 2 (v2.3)");
+        assert_eq!(get_field(&q_86, 576, 4), 3, "SM 86 minor = 3 (v2.3)");
+        // SM 89..=99 → v3.0 (Ada, Hopper)
+        let q_89 = build_qmd_for_sm(89, &params);
+        assert_eq!(get_field(&q_89, 580, 4), 3, "SM 89 major = 3 (v3.0)");
+        assert_eq!(get_field(&q_89, 576, 4), 0, "SM 89 minor = 0 (v3.0)");
         let q_90 = build_qmd_for_sm(90, &params);
         assert_eq!(get_field(&q_90, 580, 4), 3, "SM 90 major = 3 (v3.0)");
         assert_eq!(get_field(&q_90, 576, 4), 0, "SM 90 minor = 0 (v3.0)");
-        let q_99 = build_qmd_for_sm(99, &params);
-        assert_eq!(q_99.len(), QMD_SIZE_WORDS, "SM 99 = 64-word QMD (v3.0)");
         // SM 100+ → v5.0 (Blackwell requires a new 384-byte QMD layout)
+        let q_100 = build_qmd_for_sm(100, &params);
+        assert_eq!(q_100.len(), QMD_V4_PLUS_SIZE_WORDS, "Blackwell A QMD = 96 words (v5.0)");
         let q_120 = build_qmd_for_sm(120, &params);
-        assert_eq!(q_120.len(), QMD_V4_PLUS_SIZE_WORDS, "Blackwell QMD = 96 words (v5.0)");
+        assert_eq!(q_120.len(), QMD_V4_PLUS_SIZE_WORDS, "Blackwell B QMD = 96 words (v5.0)");
         assert_eq!(get_field(&q_120, 468, 4), 5, "SM 120 major = 5 (v5.0)");
         assert_eq!(get_field(&q_120, 464, 4), 0, "SM 120 minor = 0 (v5.0)");
     }
@@ -922,14 +1023,14 @@ mod tests {
     }
 
     #[test]
-    fn qmd_build_for_sm_boundary_70() {
+    fn qmd_build_for_sm_boundary_pascal_volta() {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
-        let q_69 = build_qmd_for_sm(69, &params);
+        let q_60 = build_qmd_for_sm(60, &params);
         let q_70 = build_qmd_for_sm(70, &params);
         assert_ne!(
-            get_field(&q_69, 4, 4),
+            get_field(&q_60, 4, 4),
             get_field(&q_70, 4, 4),
-            "SM 69 vs 70 should differ in minor version"
+            "Pascal (v2.1) vs Volta (v2.2) should differ in minor version"
         );
     }
 
@@ -945,13 +1046,13 @@ mod tests {
         );
         assert_eq!(
             get_field(&q_80, 580, 4),
-            3,
-            "SM 80 = v3.0 (major at MW(583:580))"
+            2,
+            "SM 80 = v2.3 (major at MW(583:580))"
         );
         assert_eq!(
             get_field(&q_80, 576, 4),
-            0,
-            "SM 80 = v3.0 (minor at MW(579:576))"
+            3,
+            "SM 80 = v2.3 (minor at MW(579:576))"
         );
     }
 

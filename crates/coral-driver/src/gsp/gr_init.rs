@@ -112,6 +112,29 @@ impl GrInitSequence {
         }
     }
 
+    /// Build a GR init sequence using the generation profile to decide
+    /// whether PMC/FIFO pre-init writes are needed.
+    ///
+    /// Pre-Blackwell generations that lack GSP firmware need manual engine
+    /// enable (PMC_ENABLE + PFIFO_ENABLE) before replaying bundle/method
+    /// init. Blackwell+ with GSP-RM handle this internally.
+    #[must_use]
+    pub fn for_profile(
+        blobs: &GrFirmwareBlobs,
+        profile: &crate::nv::generation::GenerationProfile,
+    ) -> Self {
+        use crate::nv::generation::BootStrategy;
+        let needs_pre_init = !matches!(
+            profile.boot_strategy,
+            BootStrategy::KmodPromote | BootStrategy::Untested
+        );
+        if needs_pre_init {
+            Self::for_gv100(blobs)
+        } else {
+            Self::from_blobs(blobs)
+        }
+    }
+
     /// Build a generic GR init sequence from firmware blobs.
     ///
     /// Less specialized than `for_gv100` — uses only the bundle/method

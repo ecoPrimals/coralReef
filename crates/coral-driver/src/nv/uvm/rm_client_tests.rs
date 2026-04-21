@@ -104,13 +104,9 @@ fn uvm_compute_bind() {
         .alloc_channel_group(h_device, h_vaspace)
         .expect("Channel group");
 
-    // Auto-detect SM version to select correct channel/compute class
     let sm = detect_sm_from_smi();
-    let (channel_class, compute_class) = match sm {
-        120.. => (BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_COMPUTE_B),
-        100.. => (BLACKWELL_CHANNEL_GPFIFO_A, BLACKWELL_COMPUTE_A),
-        _ => (AMPERE_CHANNEL_GPFIFO_A, AMPERE_COMPUTE_B),
-    };
+    let profile = crate::nv::generation::profile_for_sm(sm);
+    let (channel_class, compute_class) = (profile.channel_class, profile.compute_class);
     eprintln!("SM {sm}: channel=0x{channel_class:04X} compute=0x{compute_class:04X}");
 
     let gpfifo_entries: u32 = 512;

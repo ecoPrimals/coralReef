@@ -210,13 +210,15 @@ pub enum GpuGeneration {
 }
 
 impl GpuGeneration {
-    /// Classify SM version into a generation.
+    /// Classify SM version into a generation by consulting the authoritative
+    /// [`GenerationProfile`](crate::nv::generation::GenerationProfile).
     #[must_use]
-    pub const fn from_sm(sm: u32) -> Self {
-        match sm {
-            0..=49 => Self::Kepler,
-            50..=74 => Self::CpuRm,
-            _ => Self::GspRm,
+    pub fn from_sm(sm: u32) -> Self {
+        use crate::nv::generation::{BootStrategy, profile_for_sm};
+        match profile_for_sm(sm).boot_strategy {
+            BootStrategy::NoAcr => Self::Kepler,
+            BootStrategy::AcrSec2 => Self::CpuRm,
+            BootStrategy::KmodPromote | BootStrategy::Untested => Self::GspRm,
         }
     }
 }

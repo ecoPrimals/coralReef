@@ -21,6 +21,8 @@ nouveau = []
 nvidia-drm = []
 vfio = []
 cuda = ["dep:cudarc"]
+intel = []
+hw-e2e = ["nouveau"]
 test-utils = []
 rdna2-buffer-read = []
 
