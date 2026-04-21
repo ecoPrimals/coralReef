@@ -2,13 +2,14 @@
 //! Minimal cubin (ELF) assembler for packaging raw SASS binaries into a
 //! format that `cuModuleLoadData` / cudarc `Ptx::from_binary` can consume.
 //!
-//! A cubin is an ELF64-LE object with:
-//! - `.text.main_kernel` section (SASS code bytes)
-//! - `.nv.info.main_kernel` section (register count, SM version, shared memory)
-//! - `.nv.shared.main_kernel` section (shared memory size)
+//! A cubin is an ELF64-LE object matching the format produced by `nvcc -cubin`:
+//! - NVIDIA-specific OS/ABI (0x33) and ABI version (0x07)
+//! - `e_flags` encodes SM version as `(sm << 16) | 0x0500 | sm`
+//! - `.nv.info` global section (section type `SHT_LOPROC`)
+//! - `.nv.info.main_kernel` per-kernel info section
+//! - `.text.main_kernel` section (SASS code, 128-byte aligned)
+//! - `.nv.shared.main_kernel` section (shared memory, NOBITS)
 //! - `.strtab` / `.symtab` / `.shstrtab` for symbol and section naming
-//!
-//! This is sufficient for CUDA to load and launch the kernel.
 
 /// ELF magic bytes.
 const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
@@ -20,26 +21,34 @@ const ELF64_SHDR_SIZE: usize = 64;
 /// Symbol table entry size for 64-bit.
 const ELF64_SYM_SIZE: usize = 24;
 
-/// NVIDIA-specific ELF flags encoding SM version.
-/// Format: `SM_xx` encoded as `0x00xx` in `e_flags`.
+/// NVIDIA cubin `e_flags` encoding: `(sm << 16) | 0x0500 | sm`.
+/// Matches the format observed in nvcc-generated cubins for SM35–SM120.
 const fn sm_to_elf_flags(sm: u32) -> u32 {
-    sm
+    (sm << 16) | 0x0500 | sm
 }
 
-/// `ELFCLASS64`, `ELFDATA2LSB`, ELF version 1, OS/ABI NONE.
+/// NVIDIA cubin ELF ident — OS/ABI 0x33, ABI version 0x07.
 const ELF_IDENT: [u8; 16] = [
     0x7f, b'E', b'L', b'F', // magic
     2,    // ELFCLASS64
     1,    // ELFDATA2LSB
     1,    // EV_CURRENT
-    0, 0, 0, 0, 0, 0, 0, 0, 0, // padding
+    0x33, // NVIDIA CUDA OS/ABI
+    0x07, // ABI version 7
+    0, 0, 0, 0, 0, 0, 0, // padding
 ];
+
+/// NVIDIA cubin `e_version` value (0x7e, matches nvcc output).
+const NV_ELF_VERSION: u32 = 0x7e;
 
 /// Section types.
 const SHT_NULL: u32 = 0;
 const SHT_PROGBITS: u32 = 1;
 const SHT_SYMTAB: u32 = 2;
 const SHT_STRTAB: u32 = 3;
+const SHT_NOBITS: u32 = 8;
+/// NVIDIA-specific section type for `.nv.info` sections.
+const SHT_CUDA_INFO: u32 = 0x7000_0000; // SHT_LOPROC
 
 /// Symbol bindings/types.
 const STB_GLOBAL: u8 = 1;
@@ -49,6 +58,8 @@ const STT_FUNC: u8 = 2;
 const SHF_ALLOC_EXEC: u64 = 0x2 | 0x4;
 /// SHF_WRITE | SHF_ALLOC.
 const SHF_ALLOC_WRITE: u64 = 0x1 | 0x2;
+/// SHF_INFO_LINK — .nv.info.main_kernel links to .text via sh_info.
+const SHF_INFO_LINK: u64 = 0x40;
 
 /// Metadata for kernel compilation, needed to produce `.nv.info`.
 pub struct CubinKernelInfo {
@@ -85,53 +96,72 @@ impl CubinKernelInfo {
 /// prepended if the hardware requires it — caller's responsibility).
 ///
 /// Returns a complete ELF binary that `cuModuleLoadData` can load.
+/// Matches the format produced by `nvcc -cubin` including NVIDIA-specific
+/// OS/ABI, `e_flags` encoding, and section types.
 #[must_use]
 pub fn assemble_cubin(sass_bytes: &[u8], info: &CubinKernelInfo) -> Vec<u8> {
     let kernel_name = b"main_kernel\0";
     let text_name = b".text.main_kernel\0";
+    let nv_info_global_name = b".nv.info\0";
     let nv_info_name = b".nv.info.main_kernel\0";
     let nv_shared_name = b".nv.shared.main_kernel\0";
     let symtab_name = b".symtab\0";
     let strtab_name = b".strtab\0";
     let shstrtab_name = b".shstrtab\0";
 
-    // Build .shstrtab: all section names concatenated.
-    let mut shstrtab = vec![0u8]; // index 0 = null string
-    let shstrtab_text = shstrtab.len();
-    shstrtab.extend_from_slice(text_name);
+    // ---- Section ordering (matches nvcc) ----
+    // [0] NULL
+    // [1] .shstrtab
+    // [2] .strtab
+    // [3] .symtab
+    // [4] .nv.info              (global, per-module)
+    // [5] .nv.info.main_kernel  (per-kernel, SHF_INFO_LINK → .text idx)
+    // [6] .nv.shared.main_kernel
+    // [7] .text.main_kernel
+    let num_sections: u16 = 8;
+    let shstrtab_idx: u16 = 1;
+    let strtab_idx: u16 = 2;
+    let symtab_idx: u16 = 3;
+    let text_idx: u16 = 7;
+
+    // Build .shstrtab
+    let mut shstrtab = vec![0u8]; // index 0 = null
+    let shstrtab_shstrtab = shstrtab.len();
+    shstrtab.extend_from_slice(shstrtab_name);
+    let shstrtab_strtab = shstrtab.len();
+    shstrtab.extend_from_slice(strtab_name);
+    let shstrtab_symtab = shstrtab.len();
+    shstrtab.extend_from_slice(symtab_name);
+    let shstrtab_nv_info_global = shstrtab.len();
+    shstrtab.extend_from_slice(nv_info_global_name);
     let shstrtab_nvinfo = shstrtab.len();
     shstrtab.extend_from_slice(nv_info_name);
     let shstrtab_nvshared = shstrtab.len();
     shstrtab.extend_from_slice(nv_shared_name);
-    let shstrtab_symtab = shstrtab.len();
-    shstrtab.extend_from_slice(symtab_name);
-    let shstrtab_strtab = shstrtab.len();
-    shstrtab.extend_from_slice(strtab_name);
-    let shstrtab_shstrtab = shstrtab.len();
-    shstrtab.extend_from_slice(shstrtab_name);
+    let shstrtab_text = shstrtab.len();
+    shstrtab.extend_from_slice(text_name);
 
-    // Build .strtab: symbol names.
+    // Build .strtab
     let mut strtab = vec![0u8]; // index 0 = null
     let strtab_kernel = strtab.len();
     strtab.extend_from_slice(kernel_name);
 
-    // Build .nv.info: NVIDIA ELF attribute entries.
-    //
-    // Format per entry: [u16 format | u16 attr_id], [u32 size], [payload...]
-    // Format 0x04 = EIFMT_SVAL (scalar value).
-    //
-    // Attribute IDs from NVIDIA ELF spec:
-    //   0x2a = EIATTR_REGCOUNT
-    //   0x23 = EIATTR_MAX_STACK_SIZE
-    //   0x0f = EIATTR_NUM_BARRIERS
+    // Build .nv.info (global): SM version attribute.
+    // EIATTR_MIN_STACK_SIZE (0x12): EIFMT_SVAL(0x04) | attr → tag 0x1204
+    let mut nv_info_global_data = Vec::new();
+    nv_info_global_data.extend_from_slice(&0x1204_u32.to_le_bytes());
+    nv_info_global_data.extend_from_slice(&4_u32.to_le_bytes());
+    nv_info_global_data.extend_from_slice(&0_u32.to_le_bytes());
+
+    // Build .nv.info.main_kernel: per-kernel attributes.
     let mut nv_info_data = Vec::new();
 
-    // EIATTR_REGCOUNT (0x2a): EIFMT_SVAL(0x04) | attr(0x2a) → tag 0x2a04
+    // EIATTR_REGCOUNT (0x2a): EIFMT_SVAL(0x04) → tag 0x2a04
     nv_info_data.extend_from_slice(&0x2a04_u32.to_le_bytes());
     nv_info_data.extend_from_slice(&4_u32.to_le_bytes());
     nv_info_data.extend_from_slice(&info.gpr_count.to_le_bytes());
 
-    // EIATTR_MAX_STACK_SIZE (0x23): tag 0x2304, payload = 0
+    // EIATTR_MAX_STACK_SIZE (0x23): tag 0x2304
     nv_info_data.extend_from_slice(&0x2304_u32.to_le_bytes());
     nv_info_data.extend_from_slice(&4_u32.to_le_bytes());
     nv_info_data.extend_from_slice(&0_u32.to_le_bytes());
@@ -141,46 +171,47 @@ pub fn assemble_cubin(sass_bytes: &[u8], info: &CubinKernelInfo) -> Vec<u8> {
     nv_info_data.extend_from_slice(&4_u32.to_le_bytes());
     nv_info_data.extend_from_slice(&info.barrier_count.to_le_bytes());
 
-    // Build .nv.shared: just the size encoding (empty section, size = shared_mem).
-    let nv_shared_data: Vec<u8> = Vec::new();
+    // Build .symtab: null + section symbols + main_kernel FUNC.
+    let symtab_data = build_symtab(strtab_kernel, sass_bytes.len(), text_idx);
 
-    // Sections: [0]=NULL, [1]=.text, [2]=.nv.info, [3]=.nv.shared,
-    //           [4]=.symtab, [5]=.strtab, [6]=.shstrtab
-    let num_sections: u16 = 7;
-    let shstrtab_idx: u16 = 6;
+    // ---- Compute file layout ----
+    // Data order: shstrtab, strtab, symtab, nv_info_global, nv_info,
+    //             pad-to-128, .text (128-byte aligned for SASS)
 
-    // Layout: ELF header | .text | .nv.info | .nv.shared | .symtab | .strtab | .shstrtab | section headers
-    let text_offset = ELF64_EHDR_SIZE;
-    let text_size = sass_bytes.len();
-
-    let nvinfo_offset = text_offset + text_size;
-    let nvinfo_size = nv_info_data.len();
-
-    let nvshared_offset = nvinfo_offset + nvinfo_size;
-    let nvshared_size = nv_shared_data.len();
-
-    // .symtab: null entry + one FUNC symbol.
-    let symtab_offset = nvshared_offset + nvshared_size;
-    let symtab_data = build_symtab(strtab_kernel, text_size, 1);
-    let symtab_size = symtab_data.len();
-
-    let strtab_offset = symtab_offset + symtab_size;
-    let strtab_size = strtab.len();
-
-    let shstrtab_offset = strtab_offset + strtab_size;
+    let shstrtab_offset = ELF64_EHDR_SIZE;
     let shstrtab_size = shstrtab.len();
 
-    let shdr_offset = align_up(shstrtab_offset + shstrtab_size, 8);
+    let strtab_offset = shstrtab_offset + shstrtab_size;
+    let strtab_size = strtab.len();
 
-    let mut elf = Vec::with_capacity(shdr_offset + num_sections as usize * ELF64_SHDR_SIZE);
+    let symtab_offset = align_up(strtab_offset + strtab_size, 8);
+    let symtab_size = symtab_data.len();
 
-    // ELF header.
+    let nv_info_global_offset = symtab_offset + symtab_size;
+    let nv_info_global_size = nv_info_global_data.len();
+
+    let nvinfo_offset = nv_info_global_offset + nv_info_global_size;
+    let nvinfo_size = nv_info_data.len();
+
+    // .nv.shared is NOBITS — occupies no file space.
+    let nvshared_offset = nvinfo_offset + nvinfo_size;
+
+    // .text.main_kernel at 128-byte alignment (matches nvcc)
+    let text_offset = align_up(nvshared_offset, 128);
+    let text_size = sass_bytes.len();
+
+    let shdr_offset = align_up(text_offset + text_size, 8);
+
+    let total_size = shdr_offset + num_sections as usize * ELF64_SHDR_SIZE;
+    let mut elf = Vec::with_capacity(total_size);
+
+    // ---- ELF header ----
     elf.extend_from_slice(&ELF_IDENT);
     elf.extend_from_slice(&2_u16.to_le_bytes()); // e_type: ET_EXEC
     elf.extend_from_slice(&0xBE_u16.to_le_bytes()); // e_machine: EM_CUDA
-    elf.extend_from_slice(&1_u32.to_le_bytes()); // e_version
+    elf.extend_from_slice(&NV_ELF_VERSION.to_le_bytes()); // e_version
     elf.extend_from_slice(&0_u64.to_le_bytes()); // e_entry
-    elf.extend_from_slice(&0_u64.to_le_bytes()); // e_phoff
+    elf.extend_from_slice(&0_u64.to_le_bytes()); // e_phoff (no program headers)
     elf.extend_from_slice(&(shdr_offset as u64).to_le_bytes()); // e_shoff
     elf.extend_from_slice(&sm_to_elf_flags(info.sm).to_le_bytes()); // e_flags
     elf.extend_from_slice(&(ELF64_EHDR_SIZE as u16).to_le_bytes()); // e_ehsize
@@ -191,75 +222,43 @@ pub fn assemble_cubin(sass_bytes: &[u8], info: &CubinKernelInfo) -> Vec<u8> {
     elf.extend_from_slice(&shstrtab_idx.to_le_bytes()); // e_shstrndx
     debug_assert_eq!(elf.len(), ELF64_EHDR_SIZE);
 
-    // Section data.
-    elf.extend_from_slice(sass_bytes);
-    elf.extend_from_slice(&nv_info_data);
-    elf.extend_from_slice(&nv_shared_data);
-    elf.extend_from_slice(&symtab_data);
-    elf.extend_from_slice(&strtab);
+    // ---- Section data ----
     elf.extend_from_slice(&shstrtab);
-
-    // Pad to alignment.
+    elf.extend_from_slice(&strtab);
+    // Pad for symtab alignment
+    while elf.len() < symtab_offset {
+        elf.push(0);
+    }
+    elf.extend_from_slice(&symtab_data);
+    elf.extend_from_slice(&nv_info_global_data);
+    elf.extend_from_slice(&nv_info_data);
+    // Pad to 128-byte alignment for .text
+    while elf.len() < text_offset {
+        elf.push(0);
+    }
+    elf.extend_from_slice(sass_bytes);
+    // Pad to section header alignment
     while elf.len() < shdr_offset {
         elf.push(0);
     }
 
-    // Section headers.
+    // ---- Section headers ----
     // [0] NULL
     write_shdr(&mut elf, 0, SHT_NULL, 0, 0, 0, 0, 0, 0, 0);
-    // [1] .text.main_kernel
+    // [1] .shstrtab
     write_shdr(
         &mut elf,
-        shstrtab_text as u32,
-        SHT_PROGBITS,
-        SHF_ALLOC_EXEC,
-        0,
-        text_offset as u64,
-        text_size as u64,
+        shstrtab_shstrtab as u32,
+        SHT_STRTAB,
         0,
         0,
-        32, // alignment
+        shstrtab_offset as u64,
+        shstrtab_size as u64,
+        0,
+        0,
+        1,
     );
-    // [2] .nv.info.main_kernel
-    write_shdr(
-        &mut elf,
-        shstrtab_nvinfo as u32,
-        SHT_PROGBITS,
-        0,
-        0,
-        nvinfo_offset as u64,
-        nvinfo_size as u64,
-        0,
-        0,
-        4,
-    );
-    // [3] .nv.shared.main_kernel
-    write_shdr(
-        &mut elf,
-        shstrtab_nvshared as u32,
-        0x08, // SHT_NOBITS
-        SHF_ALLOC_WRITE,
-        0,
-        nvshared_offset as u64,
-        info.shared_mem_bytes as u64,
-        0,
-        0,
-        4,
-    );
-    // [4] .symtab
-    write_shdr(
-        &mut elf,
-        shstrtab_symtab as u32,
-        SHT_SYMTAB,
-        0,
-        5, // sh_link → .strtab index
-        symtab_offset as u64,
-        symtab_size as u64,
-        1, // sh_info: one local + first global at index 1
-        0,
-        8,
-    );
-    // [5] .strtab
+    // [2] .strtab
     write_shdr(
         &mut elf,
         shstrtab_strtab as u32,
@@ -272,18 +271,73 @@ pub fn assemble_cubin(sass_bytes: &[u8], info: &CubinKernelInfo) -> Vec<u8> {
         0,
         1,
     );
-    // [6] .shstrtab
+    // [3] .symtab
     write_shdr(
         &mut elf,
-        shstrtab_shstrtab as u32,
-        SHT_STRTAB,
+        shstrtab_symtab as u32,
+        SHT_SYMTAB,
+        0,
+        strtab_idx as u32,
+        symtab_offset as u64,
+        symtab_size as u64,
+        1, // sh_info: first global symbol index
+        0,
+        8,
+    );
+    // [4] .nv.info (global, SHT_CUDA_INFO, sh_link → .symtab)
+    write_shdr(
+        &mut elf,
+        shstrtab_nv_info_global as u32,
+        SHT_CUDA_INFO,
+        0,
+        symtab_idx as u32,
+        nv_info_global_offset as u64,
+        nv_info_global_size as u64,
         0,
         0,
-        shstrtab_offset as u64,
-        shstrtab_size as u64,
+        4,
+    );
+    // [5] .nv.info.main_kernel (SHT_CUDA_INFO, SHF_INFO_LINK, sh_link → .symtab,
+    //     sh_info → .text section index)
+    write_shdr(
+        &mut elf,
+        shstrtab_nvinfo as u32,
+        SHT_CUDA_INFO,
+        SHF_INFO_LINK,
+        symtab_idx as u32,
+        nvinfo_offset as u64,
+        nvinfo_size as u64,
+        text_idx as u32,
+        0,
+        4,
+    );
+    // [6] .nv.shared.main_kernel (NOBITS)
+    write_shdr(
+        &mut elf,
+        shstrtab_nvshared as u32,
+        SHT_NOBITS,
+        SHF_ALLOC_WRITE,
+        0,
+        nvshared_offset as u64,
+        info.shared_mem_bytes as u64,
         0,
         0,
-        1,
+        4,
+    );
+    // [7] .text.main_kernel (PROGBITS, SHF_ALLOC|SHF_EXECINSTR)
+    // sh_info encodes NVIDIA kernel metadata flags (0x08000006 observed in nvcc
+    // cubins — high bit marks it as a kernel entry, low bits = SM config).
+    write_shdr(
+        &mut elf,
+        shstrtab_text as u32,
+        SHT_PROGBITS,
+        SHF_ALLOC_EXEC,
+        symtab_idx as u32,
+        text_offset as u64,
+        text_size as u64,
+        0x0800_0006, // NVIDIA kernel entry flags
+        0,
+        128, // 128-byte alignment (matches nvcc)
     );
 
     elf
@@ -307,9 +361,10 @@ fn build_symtab(name_offset: usize, text_size: usize, text_section_idx: u16) -> 
     data.extend_from_slice(&[0u8; ELF64_SYM_SIZE]);
 
     // [1] main_kernel: STB_GLOBAL | STT_FUNC, section .text.
+    // st_other = 0x10 flags the symbol as a kernel entry point (matches nvcc).
     data.extend_from_slice(&(name_offset as u32).to_le_bytes()); // st_name
     data.push((STB_GLOBAL << 4) | STT_FUNC); // st_info
-    data.push(0); // st_other
+    data.push(0x10); // st_other: NVIDIA kernel marker
     data.extend_from_slice(&text_section_idx.to_le_bytes()); // st_shndx
     data.extend_from_slice(&0_u64.to_le_bytes()); // st_value
     data.extend_from_slice(&(text_size as u64).to_le_bytes()); // st_size
@@ -372,7 +427,8 @@ mod tests {
         let cubin = assemble_cubin(&sass, &info);
         assert_eq!(cubin[4], 2, "ELFCLASS64");
         assert_eq!(cubin[5], 1, "ELFDATA2LSB");
-        // e_machine at offset 18 (LE u16) = 0xBE
+        assert_eq!(cubin[7], 0x33, "NVIDIA OS/ABI");
+        assert_eq!(cubin[8], 0x07, "ABI version 7");
         let machine = u16::from_le_bytes([cubin[18], cubin[19]]);
         assert_eq!(machine, 0xBE, "EM_CUDA");
     }
@@ -387,14 +443,42 @@ mod tests {
             barrier_count: 0,
         };
         let cubin = assemble_cubin(&sass, &info);
-        // e_flags at offset 48 (4 bytes LE)
         let flags = u32::from_le_bytes([cubin[48], cubin[49], cubin[50], cubin[51]]);
-        assert_eq!(flags, 86);
+        assert_eq!(flags, sm_to_elf_flags(86));
+        assert_eq!(flags, (86 << 16) | 0x0500 | 86);
+    }
+
+    #[test]
+    fn cubin_sm120_flags() {
+        let sass = vec![0u8; 32];
+        let info = CubinKernelInfo {
+            sm: 120,
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+        };
+        let cubin = assemble_cubin(&sass, &info);
+        let flags = u32::from_le_bytes([cubin[48], cubin[49], cubin[50], cubin[51]]);
+        assert_eq!(flags, (120 << 16) | 0x0500 | 120);
+    }
+
+    #[test]
+    fn cubin_e_version_matches_nvcc() {
+        let sass = vec![0u8; 8];
+        let info = CubinKernelInfo {
+            sm: 89,
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+        };
+        let cubin = assemble_cubin(&sass, &info);
+        let version = u32::from_le_bytes([cubin[20], cubin[21], cubin[22], cubin[23]]);
+        assert_eq!(version, 0x7e);
     }
 
     #[test]
     fn cubin_contains_sass_data() {
-        let sass = vec![0x42u8; 64];
+        let sass: Vec<u8> = (0..64).collect();
         let info = CubinKernelInfo {
             sm: 70,
             gpr_count: 16,
@@ -402,8 +486,13 @@ mod tests {
             barrier_count: 0,
         };
         let cubin = assemble_cubin(&sass, &info);
-        // .text starts at ELF header end (64 bytes)
-        assert_eq!(&cubin[64..128], &sass[..]);
+        // Find .text by searching for the SASS content.
+        let pos = cubin
+            .windows(sass.len())
+            .position(|w| w == &sass[..])
+            .expect("SASS not found in cubin");
+        // .text should be 128-byte aligned
+        assert_eq!(pos % 128, 0, "SASS at offset {pos} is not 128-byte aligned");
     }
 
     #[test]
@@ -424,8 +513,21 @@ mod tests {
             barrier_count: 0,
         };
         let cubin = assemble_cubin(&sass, &info);
-        // e_shnum at offset 60 (u16 LE) = 7
         let shnum = u16::from_le_bytes([cubin[60], cubin[61]]);
-        assert_eq!(shnum, 7);
+        assert_eq!(shnum, 8);
+    }
+
+    #[test]
+    fn cubin_shstrtab_at_index_1() {
+        let sass = vec![0u8; 8];
+        let info = CubinKernelInfo {
+            sm: 70,
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+        };
+        let cubin = assemble_cubin(&sass, &info);
+        let shstrndx = u16::from_le_bytes([cubin[62], cubin[63]]);
+        assert_eq!(shstrndx, 1);
     }
 }

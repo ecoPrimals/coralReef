@@ -56,6 +56,11 @@ mod tests {
     }
 
     fn skip_on_blackwell(dev: &CudaComputeDevice) -> bool {
+        // SM120 (Blackwell) cubin loading crashes the CUDA driver with SIGFPE.
+        // The CUDA 12.6 toolkit doesn't support sm_120 compilation, and
+        // driver 580.x rejects cubin ELFs for SM120 even with correct nvcc-
+        // format headers. Likely needs CUDA 13.x+ toolkit/driver pair.
+        // PTX dispatch works fine — see cuda_ptx_write_42_direct.
         dev.sm_version() >= 100
     }
 

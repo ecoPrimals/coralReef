@@ -121,7 +121,11 @@ mod cubin_assembly {
             barrier_count: 0,
         };
         let elf = assemble_cubin(&sass, &info);
-        assert_eq!(&elf[64..128], &sass[..]);
+        // .text is 128-byte aligned — find SASS by content search
+        let pos = elf.windows(sass.len()).position(|w| w == &sass[..])
+            .expect("SASS content not found in assembled cubin");
+        assert_eq!(pos % 128, 0, "SASS at offset {pos} must be 128-byte aligned");
+        assert_eq!(&elf[pos..pos + sass.len()], &sass[..]);
     }
 }
 
