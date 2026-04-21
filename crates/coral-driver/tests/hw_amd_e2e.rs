@@ -269,9 +269,15 @@ fn main() {
 /// host upload → shader load → ALU multiply → shader store → host readback.
 ///
 /// Currently blocked: the AMD backend's compiled buffer-read path does
-/// not yet produce correct SMEM loads for storage buffer reads. The GPU
-/// reads 0 instead of the uploaded value. Gated behind `rdna2_buffer_read`
-/// cfg flag so it doesn't run in normal `--ignored` sweeps.
+/// not yet produce correct GLOBAL_LOAD instructions for storage buffer
+/// reads. The GPU reads 0 instead of the uploaded value. Root cause:
+/// the compiler must chain user SGPR (buffer VA from COMPUTE_USER_DATA)
+/// → v_mov VGPR → element address calculation → GLOBAL_LOAD_DWORD with
+/// the 64-bit address in a VGPR pair. The SADDR=0x7F encoding in
+/// `encode_flat_load` is correct (full address from VGPRs); the gap is
+/// in the naga→IR lowering that generates the SGPR→VGPR move sequence
+/// for AMD targets. Gated behind `rdna2_buffer_read` cfg flag so it
+/// doesn't run in normal `--ignored` sweeps.
 #[test]
 #[cfg(feature = "rdna2-buffer-read")]
 #[ignore = "requires amdgpu hardware"]
