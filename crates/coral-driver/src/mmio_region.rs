@@ -83,14 +83,19 @@ impl MmioRegion {
         reason = "Callers that require aligned MMIO (e.g. BAR) validate alignment separately"
     )]
     pub(crate) fn read_u32(&self, offset: usize) -> Result<u32, DriverError> {
+        if offset % 4 != 0 {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "MMIO read: offset {offset:#x} is not 4-byte aligned"
+            ))));
+        }
         if offset.checked_add(4).is_none_or(|end| end > self.len) {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "MMIO read: offset {offset:#x} + 4 out of range (size {:#x})",
                 self.len
             ))));
         }
-        // SAFETY: `offset` + 4 is within `0..len`, so `ptr.add(offset)` stays inside the mapping.
-        // `ptr` was valid MMIO for this region at construction.
+        // SAFETY: `offset` is 4-byte aligned and `offset + 4 <= len`, so the cast to
+        // `*const u32` is aligned and within the mapping.
         Ok(unsafe { std::ptr::read_volatile(self.ptr.as_ptr().add(offset).cast::<u32>()) })
     }
 
@@ -104,14 +109,19 @@ impl MmioRegion {
         reason = "Callers that require aligned MMIO (e.g. BAR) validate alignment separately"
     )]
     pub(crate) fn write_u32(&self, offset: usize, value: u32) -> Result<(), DriverError> {
+        if offset % 4 != 0 {
+            return Err(DriverError::MmapFailed(Cow::Owned(format!(
+                "MMIO write: offset {offset:#x} is not 4-byte aligned"
+            ))));
+        }
         if offset.checked_add(4).is_none_or(|end| end > self.len) {
             return Err(DriverError::MmapFailed(Cow::Owned(format!(
                 "MMIO write: offset {offset:#x} + 4 out of range (size {:#x})",
                 self.len
             ))));
         }
-        // SAFETY: `offset` + 4 is within `0..len`, so `ptr.add(offset)` stays inside the mapping.
-        // `ptr` was valid MMIO for this region at construction.
+        // SAFETY: `offset` is 4-byte aligned and `offset + 4 <= len`, so the cast to
+        // `*mut u32` is aligned and within the mapping.
         unsafe {
             std::ptr::write_volatile(self.ptr.as_ptr().add(offset).cast::<u32>(), value);
         }

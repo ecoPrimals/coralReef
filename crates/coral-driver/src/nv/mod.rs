@@ -194,22 +194,28 @@ impl NvDevice {
 
         // Phase 1: New UAPI probe (kernel 6.6+). On kernel 6.17+ Volta,
         // VM_INIT is required — CHANNEL_ALLOC fails without it.
-        let new_uapi = match ioctl::vm_init(drm.fd()) {
-            Ok(()) => {
-                tracing::info!(
-                    path = %drm.path,
-                    va_base = format_args!("0x{NV_KERNEL_MANAGED_ADDR:X}"),
-                    "nouveau VM_INIT succeeded — using new UAPI"
-                );
-                true
-            }
-            Err(e) => {
-                tracing::debug!(
-                    path = %drm.path,
-                    error = %e,
-                    "VM_INIT not available — falling back to legacy UAPI"
-                );
-                false
+        let force_legacy = std::env::var("CORALREEF_FORCE_LEGACY_UAPI").is_ok();
+        let new_uapi = if force_legacy {
+            tracing::info!(path = %drm.path, "CORALREEF_FORCE_LEGACY_UAPI set — skipping VM_INIT");
+            false
+        } else {
+            match ioctl::vm_init(drm.fd()) {
+                Ok(()) => {
+                    tracing::info!(
+                        path = %drm.path,
+                        va_base = format_args!("0x{NV_KERNEL_MANAGED_ADDR:X}"),
+                        "nouveau VM_INIT succeeded — using new UAPI"
+                    );
+                    true
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        path = %drm.path,
+                        error = %e,
+                        "VM_INIT not available — falling back to legacy UAPI"
+                    );
+                    false
+                }
             }
         };
 
