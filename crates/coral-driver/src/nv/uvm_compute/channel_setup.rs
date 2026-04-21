@@ -54,7 +54,7 @@ pub(super) fn userspace_setup_gpfifo_channel(
 ) -> DriverResult<UserspaceGpfifoChannelState> {
     let h_changrp = client.alloc_channel_group(h_device, h_vaspace)?;
 
-    let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, h_subdevice)?;
+    let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, false)?;
 
     client.alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)?;
 

@@ -8,13 +8,13 @@ use super::super::structs::{
     NvMemoryAllocParams, NvMemoryVirtualAllocParams, NvVaspaceAllocParams,
 };
 use super::super::{
-    FERMI_CONTEXT_SHARE_A, FERMI_VASPACE_A, KEPLER_CHANNEL_GROUP_A,
-    NV_VASPACE_FLAGS_ENABLE_FAULTING, NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING, NV01_DEVICE_0,
+    FERMI_CONTEXT_SHARE_A, FERMI_VASPACE_A, KEPLER_CHANNEL_GROUP_A, NV01_DEVICE_0,
     NV01_MEMORY_LOCAL_USER, NV01_MEMORY_SYSTEM, NV01_MEMORY_VIRTUAL, NV20_SUBDEVICE_0,
-    NV2080_ENGINE_TYPE_GR0, NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE,
+    NV2080_ENGINE_TYPE_GR0, NV_VASPACE_FLAGS_BLACKWELL_FAULTING, NV_VASPACE_FLAGS_ENABLE_FAULTING,
+    NV_VASPACE_FLAGS_ENABLE_FAULTING_EXTERNAL, NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE,
     NVOS32_ALLOC_FLAGS_IGNORE_BANK_PLACEMENT, NVOS32_ALLOC_FLAGS_MAP_NOT_REQUIRED,
-    NVOS32_ATTR_PHYSICALITY_CONTIGUOUS, NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS,
-    NVOS32_ATTR2_32BIT_ADDRESSABLE,
+    NVOS32_ATTR2_32BIT_ADDRESSABLE, NVOS32_ATTR_PHYSICALITY_CONTIGUOUS,
+    NVOS32_ATTR_PHYSICALITY_NONCONTIGUOUS,
 };
 use super::RmClient;
 
@@ -91,7 +91,7 @@ pub fn hardcoded_blackwell_ctx_buffers() -> Vec<CtxBufDesc> {
         // ATTRIBUTE_CB: global attribute constant buffer (power-of-2 aligned).
         CtxBufDesc {
             buffer_id: PROMOTE_CTX_BUFFER_ID_ATTRIBUTE_CB,
-            size: 2 * 1024 * 1024,      // 2 MiB
+            size: 2 * 1024 * 1024, // 2 MiB
             alignment: 2 * 1024 * 1024, // power-of-2
             needs_init: false,
             is_nonmapped: false,
@@ -196,12 +196,12 @@ impl RmClient {
         self.alloc_vaspace_with_flags(h_device, 0)
     }
 
-    /// Allocate a VA space with replayable fault support for Blackwell.
+    /// Allocate a VA space with faulting support for UVM demand-paging.
     ///
     /// Tries flag combinations in order of preference:
-    /// 1. `ENABLE_FAULTING | ENABLE_PAGE_FAULTING` (0x44) — full fault support
-    /// 2. `ENABLE_FAULTING` (0x04) — RM-level replayable faults
-    /// 3. `ENABLE_PAGE_FAULTING` (0x40) — UVM-level page faulting
+    /// 1. `IS_EXTERNALLY_OWNED | ENABLE_FAULTING_EXTERNAL` (0x48) — Blackwell R580+
+    /// 2. `ENABLE_FAULTING_EXTERNAL` (0x40) — UVM external faulting
+    /// 3. `ENABLE_FAULTING` (0x04) — RM-level replayable faults
     ///
     /// # Errors
     ///
@@ -209,32 +209,27 @@ impl RmClient {
     pub fn alloc_vaspace_for_uvm(&mut self, h_device: u32) -> DriverResult<u32> {
         let flag_sets: &[(u32, &str)] = &[
             (
-                NV_VASPACE_FLAGS_ENABLE_FAULTING | NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING,
-                "ENABLE_FAULTING|ENABLE_PAGE_FAULTING (0x44)",
+                NV_VASPACE_FLAGS_BLACKWELL_FAULTING,
+                "IS_EXTERNALLY_OWNED|ENABLE_FAULTING_EXTERNAL (0x48)",
             ),
-            (NV_VASPACE_FLAGS_ENABLE_FAULTING, "ENABLE_FAULTING (0x04)"),
             (
-                NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING,
-                "ENABLE_PAGE_FAULTING (0x40)",
+                NV_VASPACE_FLAGS_ENABLE_FAULTING_EXTERNAL,
+                "ENABLE_FAULTING_EXTERNAL (0x40)",
+            ),
+            (
+                NV_VASPACE_FLAGS_ENABLE_FAULTING,
+                "ENABLE_FAULTING (0x04)",
             ),
         ];
 
         for &(flags, label) in flag_sets {
             match self.alloc_vaspace_with_flags(h_device, flags) {
                 Ok(h) => {
-                    tracing::info!(
-                        flag_set = label,
-                        h_vaspace = format_args!("0x{h:08X}"),
-                        "alloc_vaspace_for_uvm succeeded"
-                    );
+                    tracing::debug!("alloc_vaspace {label} OK");
                     return Ok(h);
                 }
                 Err(e) => {
-                    tracing::debug!(
-                        flag_set = label,
-                        error = %e,
-                        "alloc_vaspace flag set rejected"
-                    );
+                    tracing::debug!("alloc_vaspace {label} failed: {e}");
                 }
             }
         }
@@ -244,13 +239,18 @@ impl RmClient {
         ))
     }
 
-    fn alloc_vaspace_with_flags(&mut self, h_device: u32, flags: u32) -> DriverResult<u32> {
+    pub fn alloc_vaspace_with_flags(&mut self, h_device: u32, flags: u32) -> DriverResult<u32> {
         let h_vaspace = h_device + 0x2000;
 
         let mut va_params = NvVaspaceAllocParams {
             flags,
             ..Default::default()
         };
+
+        if flags == NV_VASPACE_FLAGS_BLACKWELL_FAULTING {
+            va_params.va_size = 0x1ff_ffff_ffff_f000;
+            va_params.va_base = 0x1000;
+        }
 
         self.rm_alloc_typed(
             h_device,
@@ -265,8 +265,6 @@ impl RmClient {
             flags = format_args!("0x{flags:08X}"),
             va_size = format_args!("0x{:016X}", va_params.va_size),
             va_base = format_args!("0x{:016X}", va_params.va_base),
-            va_start = format_args!("0x{:016X}", va_params.va_start_internal),
-            va_limit = format_args!("0x{:016X}", va_params.va_limit_internal),
             "VA space allocated"
         );
         Ok(h_vaspace)
@@ -304,6 +302,10 @@ impl RmClient {
     /// Required on 580.x GSP-RM for channels to be properly initialized.
     /// Must be allocated before any channels in the group.
     ///
+    /// On Blackwell+ (sm >= 100), CUDA uses `flags=1` (SUBCONTEXT_ASYNC) and
+    /// `subctxId=0x3F` (auto-assign). On pre-Blackwell, `flags=0` and
+    /// `subctxId=0` are used.
+    ///
     /// # Errors
     ///
     /// Returns [`DriverError`](crate::error::DriverError) if the RM alloc fails.
@@ -311,14 +313,14 @@ impl RmClient {
         &mut self,
         h_changrp: u32,
         h_vaspace: u32,
-        h_subdevice: u32,
+        is_blackwell: bool,
     ) -> DriverResult<u32> {
         let h_ctxshare = h_changrp + 0x50;
 
         let mut params = NvCtxShareAllocParams {
             h_vaspace,
-            flags: 0,
-            h_subdevice,
+            flags: if is_blackwell { 1 } else { 0 },
+            sub_ctx_id: if is_blackwell { 0x3F } else { 0 },
         };
 
         self.rm_alloc_typed(
@@ -331,6 +333,8 @@ impl RmClient {
 
         tracing::info!(
             h_ctxshare = format_args!("0x{h_ctxshare:08X}"),
+            flags = params.flags,
+            sub_ctx_id = format_args!("0x{:02X}", params.sub_ctx_id),
             "Context share allocated under TSG"
         );
         Ok(h_ctxshare)

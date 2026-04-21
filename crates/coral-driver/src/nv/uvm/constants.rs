@@ -82,6 +82,9 @@ pub const UVM_CREATE_RANGE_GROUP: u32 = 23;
 /// Register a GPU VA space with UVM.
 pub const UVM_REGISTER_GPU_VASPACE: u32 = 25;
 
+/// Unregister a GPU VA space from UVM (clears auto-registered default).
+pub const UVM_UNREGISTER_GPU_VASPACE: u32 = 26;
+
 /// Create an external VA range for mapping.
 pub const UVM_CREATE_EXTERNAL_RANGE: u32 = 73;
 
@@ -93,6 +96,11 @@ pub const UVM_FREE: u32 = 34;
 
 /// Unmap an external allocation.
 pub const UVM_UNMAP_EXTERNAL: u32 = 66;
+
+/// Initialize the UVM mm association — secondary FD that pins the process
+/// mm_struct so `UVM_REGISTER_GPU_VASPACE` can access page tables.
+/// Required on systems with MMU notifiers (modern Linux kernels).
+pub const UVM_MM_INITIALIZE: u32 = 75;
 
 /// `NV_STATUS` codes from `nvstatuscodes.h` (580.119.02).
 ///
@@ -192,16 +200,21 @@ pub const FERMI_CONTEXT_SHARE_A: u32 = 0x0000_9067;
 /// VA space flag: enable replayable faults at the RM/hardware level.
 ///
 /// When set, MMU faults in this VA space are replayable rather than fatal.
-/// Required on Blackwell GSP-RM where GR context buffers are demand-paged:
-/// the SM's first access triggers a replayable fault that GSP services,
-/// rather than a fatal "Invalid Address Space" (ESR 0x10).
+/// VA space flag: basic RM-level faulting (0x04).
 pub const NV_VASPACE_FLAGS_ENABLE_FAULTING: u32 = 0x0000_0004;
 
-/// VA space flag: page faulting enabled (required for UVM managed pages).
-pub const NV_VASPACE_FLAGS_ENABLE_PAGE_FAULTING: u32 = 0x0000_0040;
+/// VA space flag: externally-owned (UVM manages page tables). Value 0x08
+/// from CUDA R580 trace. Must be combined with ENABLE_FAULTING_EXTERNAL
+/// for Blackwell.
+pub const NV_VASPACE_FLAGS_IS_EXTERNALLY_OWNED: u32 = 0x0000_0008;
 
-/// VA space flag: externally owned (UVM manages page tables, not RM).
-pub const NV_VASPACE_FLAGS_IS_EXTERNALLY_OWNED: u32 = 0x0000_0020;
+/// VA space flag: enable external (UVM) faulting / page faulting (0x40).
+pub const NV_VASPACE_FLAGS_ENABLE_FAULTING_EXTERNAL: u32 = 0x0000_0040;
+
+/// Combined flags for Blackwell+ faulting VA space (CUDA R580 trace: 0x48).
+/// `IS_EXTERNALLY_OWNED | ENABLE_FAULTING_EXTERNAL`
+pub const NV_VASPACE_FLAGS_BLACKWELL_FAULTING: u32 =
+    NV_VASPACE_FLAGS_IS_EXTERNALLY_OWNED | NV_VASPACE_FLAGS_ENABLE_FAULTING_EXTERNAL;
 
 /// `KEPLER_CHANNEL_GROUP_A` — Channel group (TSG) object.
 pub const KEPLER_CHANNEL_GROUP_A: u32 = 0x0000_A06C;

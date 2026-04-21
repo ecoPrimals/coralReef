@@ -286,3 +286,41 @@ fn test_translate_local_invocation_index() {
     );
     assert!(has_imad, "local_invocation_index linearization uses IMad");
 }
+
+fn sm120() -> ShaderModelInfo {
+    ShaderModelInfo::new(120, 64)
+}
+
+#[test]
+fn test_translate_num_workgroups_sm120_uses_ldc() {
+    let wgsl = r"
+        @group(0) @binding(0) var<storage, read_write> data: array<u32>;
+        @compute @workgroup_size(64)
+        fn main(@builtin(num_workgroups) nwg: vec3<u32>) {
+            data[0u] = nwg.x * nwg.y * nwg.z;
+        }
+    ";
+    let module = parse_wgsl(wgsl).expect("valid WGSL");
+    let sm = sm120();
+    let shader = translate(&module, &sm, "main").expect("num_workgroups SM120 should translate");
+    let mut ldc_count = 0u32;
+    let mut nctaid_s2r_count = 0u32;
+    shader.for_each_instr(&mut |instr| {
+        if matches!(instr.op, Op::Ldc(_)) {
+            ldc_count += 1;
+        }
+        if let Op::S2R(s2r) = &instr.op {
+            if s2r.idx >= 0x2d && s2r.idx <= 0x2f {
+                nctaid_s2r_count += 1;
+            }
+        }
+    });
+    assert!(
+        ldc_count >= 3,
+        "SM120 num_workgroups should use 3 LDC reads from CBUF, got {ldc_count}"
+    );
+    assert_eq!(
+        nctaid_s2r_count, 0,
+        "SM120 num_workgroups must NOT use S2R NCTAID"
+    );
+}

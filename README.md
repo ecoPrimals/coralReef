@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — ecoBin Cross-Arch Evolution + Deep Debt Solutions (Iter 84)  
+**Status**: Phase 10+ — Blackwell Dispatch Live + ecoBin Cross-Arch Evolution (Iter 85)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -154,8 +154,8 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 
 | Function | NVIDIA | AMD | Precision |
 |----------|--------|-----|-----------|
-| sqrt | Rsq64H + 2 Newton-Raphson | `v_sqrt_f64` (native) | Full f64 |
-| rcp | Rcp64H + 2 Newton-Raphson | `v_rcp_f64` (native) | Full f64 |
+| sqrt | Rsq64H + 2 NR (SM<100); F2F+RSQ+F2F + 2 NR (SM≥100) | `v_sqrt_f64` (native) | Full f64 |
+| rcp | Rcp64H + 2 NR (SM<100); F2F+RCP+F2F + 2 NR (SM≥100) | `v_rcp_f64` (native) | Full f64 |
 | exp2 | Range reduction + Horner | V_CVT_F32_F64 + VOP1 + V_CVT_F64_F32 (~23-bit seed) | Full f64 |
 | log2 | Log2 seed + Newton | V_CVT_F32_F64 + VOP1 + V_CVT_F64_F32 (~23-bit seed) | ~52-bit (2 NR iterations) |
 | sin | Cody-Waite + minimax | V_CVT_F32_F64 + VOP1 + V_CVT_F64_F32 (~23-bit seed) | Full domain |

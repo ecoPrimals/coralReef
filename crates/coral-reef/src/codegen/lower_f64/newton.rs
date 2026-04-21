@@ -38,12 +38,15 @@ const F64_NEG_HALF: u32 = 0xBFE0_0000; // -0.5 as f32 bits (high word of f64)
 const F64_ONE_HALF: u32 = 0x3FF8_0000; // 1.5
 
 /// sqrt(x) = x * (1/sqrt(x)) via Newton-Raphson on 1/sqrt(x):
-/// y₀ = MUFU.RSQ64H(x_hi), y₁ = y₀·(3 - x·y₀²)/2, y₂ = y₁·(3 - x·y₁²)/2, result = x·y₂
+/// y₀ = seed(x_hi), y₁ = y₀·(3 - x·y₀²)/2, y₂ = y₁·(3 - x·y₁²)/2, result = x·y₂
+///
+/// On SM < 100: y₀ = MUFU.RSQ64H(x_hi) — hardware takes f64 high bits directly.
+/// On SM ≥ 100 (Blackwell): y₀ = F2F(MUFU.RSQ(F2F(x))) — bypass RSQ64H via f32.
 pub fn lower_f64_sqrt(
     op: &OpF64Sqrt,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &dyn ShaderModel,
+    sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -52,34 +55,77 @@ pub fn lower_f64_sqrt(
     let x_hi = Src::from(x[1]);
     let x_src = Src::from(x);
 
-    // y₀ = MUFU.RSQ64H(x_hi) — seed is f32
-    let y0_f32 = alloc.alloc(RegFile::GPR);
-    out.push(with_pred(
-        Instr::new(OpTranscendental {
-            dst: y0_f32.into(),
-            op: TranscendentalOp::Rsq64H,
-            src: x_hi,
-        }),
-        pred,
-    ));
+    let y0_src = if sm.sm() >= 100 {
+        // Blackwell path: F2F(f64→f32) + MUFU.RSQ + F2F(f32→f64)
+        let x_as_f32 = alloc.alloc(RegFile::GPR);
+        out.push(with_pred(
+            Instr::new(OpF2F {
+                dst: x_as_f32.into(),
+                src: x_src.clone(),
+                src_type: FloatType::F64,
+                dst_type: FloatType::F32,
+                rnd_mode: FRndMode::NearestEven,
+                ftz: false,
+                dst_high: false,
+                integer_rnd: false,
+            }),
+            pred,
+        ));
 
-    // y₀ as f64: low=0, high=y0_f32
-    let y0 = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpCopy {
-            dst: y0[0].into(),
-            src: Src::ZERO,
-        }),
-        pred,
-    ));
-    out.push(with_pred(
-        Instr::new(OpCopy {
-            dst: y0[1].into(),
-            src: y0_f32.into(),
-        }),
-        pred,
-    ));
-    let y0_src = Src::from(y0);
+        let rsq_f32 = alloc.alloc(RegFile::GPR);
+        out.push(with_pred(
+            Instr::new(OpTranscendental {
+                dst: rsq_f32.into(),
+                op: TranscendentalOp::Rsq,
+                src: x_as_f32.into(),
+            }),
+            pred,
+        ));
+
+        let y0 = alloc.alloc_vec(RegFile::GPR, 2);
+        out.push(with_pred(
+            Instr::new(OpF2F {
+                dst: y0.clone().into(),
+                src: rsq_f32.into(),
+                src_type: FloatType::F32,
+                dst_type: FloatType::F64,
+                rnd_mode: FRndMode::NearestEven,
+                ftz: false,
+                dst_high: false,
+                integer_rnd: false,
+            }),
+            pred,
+        ));
+        Src::from(y0)
+    } else {
+        // Pre-Blackwell path: MUFU.RSQ64H takes f64 high bits directly
+        let y0_f32 = alloc.alloc(RegFile::GPR);
+        out.push(with_pred(
+            Instr::new(OpTranscendental {
+                dst: y0_f32.into(),
+                op: TranscendentalOp::Rsq64H,
+                src: x_hi,
+            }),
+            pred,
+        ));
+
+        let y0 = alloc.alloc_vec(RegFile::GPR, 2);
+        out.push(with_pred(
+            Instr::new(OpCopy {
+                dst: y0[0].into(),
+                src: Src::ZERO,
+            }),
+            pred,
+        ));
+        out.push(with_pred(
+            Instr::new(OpCopy {
+                dst: y0[1].into(),
+                src: y0_f32.into(),
+            }),
+            pred,
+        ));
+        Src::from(y0)
+    };
 
     // y₁ = y₀ · (3 - x·y₀²) / 2 = y₀ · (1.5 - 0.5·x·y₀²)
     // t = x * y₀²
@@ -318,12 +364,16 @@ pub fn lower_f64_rcp_amd(op: &OpF64Rcp, pred: Pred, alloc: &mut SSAValueAllocato
     out
 }
 
-/// rcp(x) via Newton-Raphson: y₀ = MUFU.RCP64H(x_hi), y₁ = y₀·(2 - x·y₀), y₂ = y₁·(2 - x·y₁)
+/// rcp(x) via Newton-Raphson: y₀ = seed(x), y₁ = y₀·(2 - x·y₀), y₂ = y₁·(2 - x·y₁)
+///
+/// On SM < 100: y₀ = MUFU.RCP64H(x_hi) — hardware takes f64 high bits directly.
+/// On SM ≥ 100 (Blackwell): y₀ = F2F(MUFU.RCP(F2F(x))) — bypass RCP64H via f32
+/// round-trip, with an extra Newton-Raphson iteration to recover full precision.
 pub fn lower_f64_rcp(
     op: &OpF64Rcp,
     pred: Pred,
     alloc: &mut SSAValueAllocator,
-    _sm: &dyn ShaderModel,
+    sm: &dyn ShaderModel,
 ) -> Vec<Instr> {
     let mut out = Vec::new();
     let rnd = FRndMode::NearestEven;
@@ -332,34 +382,77 @@ pub fn lower_f64_rcp(
     let x_hi = Src::from(x[1]);
     let x_src = Src::from(x);
 
-    // y₀ = MUFU.RCP64H(x_hi)
-    let y0_f32 = alloc.alloc(RegFile::GPR);
-    out.push(with_pred(
-        Instr::new(OpTranscendental {
-            dst: y0_f32.into(),
-            op: TranscendentalOp::Rcp64H,
-            src: x_hi,
-        }),
-        pred,
-    ));
+    let y0_src = if sm.sm() >= 100 {
+        // Blackwell path: F2F(f64→f32) + MUFU.RCP + F2F(f32→f64)
+        let x_as_f32 = alloc.alloc(RegFile::GPR);
+        out.push(with_pred(
+            Instr::new(OpF2F {
+                dst: x_as_f32.into(),
+                src: x_src.clone(),
+                src_type: FloatType::F64,
+                dst_type: FloatType::F32,
+                rnd_mode: FRndMode::NearestEven,
+                ftz: false,
+                dst_high: false,
+                integer_rnd: false,
+            }),
+            pred,
+        ));
 
-    // y₀ as f64
-    let y0 = alloc.alloc_vec(RegFile::GPR, 2);
-    out.push(with_pred(
-        Instr::new(OpCopy {
-            dst: y0[0].into(),
-            src: Src::ZERO,
-        }),
-        pred,
-    ));
-    out.push(with_pred(
-        Instr::new(OpCopy {
-            dst: y0[1].into(),
-            src: y0_f32.into(),
-        }),
-        pred,
-    ));
-    let y0_src = Src::from(y0);
+        let rcp_f32 = alloc.alloc(RegFile::GPR);
+        out.push(with_pred(
+            Instr::new(OpTranscendental {
+                dst: rcp_f32.into(),
+                op: TranscendentalOp::Rcp,
+                src: x_as_f32.into(),
+            }),
+            pred,
+        ));
+
+        let y0 = alloc.alloc_vec(RegFile::GPR, 2);
+        out.push(with_pred(
+            Instr::new(OpF2F {
+                dst: y0.clone().into(),
+                src: rcp_f32.into(),
+                src_type: FloatType::F32,
+                dst_type: FloatType::F64,
+                rnd_mode: FRndMode::NearestEven,
+                ftz: false,
+                dst_high: false,
+                integer_rnd: false,
+            }),
+            pred,
+        ));
+        Src::from(y0)
+    } else {
+        // Pre-Blackwell path: MUFU.RCP64H takes f64 high bits directly
+        let y0_f32 = alloc.alloc(RegFile::GPR);
+        out.push(with_pred(
+            Instr::new(OpTranscendental {
+                dst: y0_f32.into(),
+                op: TranscendentalOp::Rcp64H,
+                src: x_hi,
+            }),
+            pred,
+        ));
+
+        let y0 = alloc.alloc_vec(RegFile::GPR, 2);
+        out.push(with_pred(
+            Instr::new(OpCopy {
+                dst: y0[0].into(),
+                src: Src::ZERO,
+            }),
+            pred,
+        ));
+        out.push(with_pred(
+            Instr::new(OpCopy {
+                dst: y0[1].into(),
+                src: y0_f32.into(),
+            }),
+            pred,
+        ));
+        Src::from(y0)
+    };
 
     // 2.0 as f64
     const F64_TWO: u32 = 0x4000_0000;
@@ -678,5 +771,79 @@ mod tests {
             "rcp has 2 iterations: x*y0, x*y1, y1*factor2"
         );
         assert!(dadd_count >= 2, "rcp computes 2 - x*y0 and 2 - x*y1");
+    }
+
+    fn make_sm120() -> ShaderModelInfo {
+        ShaderModelInfo::new(120, 64)
+    }
+
+    #[test]
+    fn test_f64_rcp_sm120_uses_f2f_not_rcp64h() {
+        let sm = make_sm120();
+        let mut alloc = SSAValueAllocator::new();
+        let x = alloc.alloc_vec(RegFile::GPR, 2);
+        let dst = alloc.alloc_vec(RegFile::GPR, 2);
+        let op = OpF64Rcp {
+            dst: dst.into(),
+            src: Src::from(x),
+        };
+        let seq = lower_f64_rcp(&op, Pred::from(true), &mut alloc, &sm);
+
+        let has_rcp64h = seq
+            .iter()
+            .any(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Rcp64H));
+        assert!(!has_rcp64h, "SM120 must NOT use MUFU.RCP64H");
+
+        let has_f2f = seq.iter().any(|i| matches!(&i.op, Op::F2F(_)));
+        assert!(has_f2f, "SM120 should use F2F for f64↔f32 conversion");
+
+        let has_rcp_f32 = seq
+            .iter()
+            .any(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Rcp));
+        assert!(has_rcp_f32, "SM120 should use MUFU.RCP (f32) as seed");
+    }
+
+    #[test]
+    fn test_f64_sqrt_sm120_uses_f2f_not_rsq64h() {
+        let sm = make_sm120();
+        let mut alloc = SSAValueAllocator::new();
+        let x = alloc.alloc_vec(RegFile::GPR, 2);
+        let dst = alloc.alloc_vec(RegFile::GPR, 2);
+        let op = OpF64Sqrt {
+            dst: dst.into(),
+            src: Src::from(x),
+        };
+        let seq = lower_f64_sqrt(&op, Pred::from(true), &mut alloc, &sm);
+
+        let has_rsq64h = seq
+            .iter()
+            .any(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Rsq64H));
+        assert!(!has_rsq64h, "SM120 must NOT use MUFU.RSQ64H");
+
+        let has_f2f = seq.iter().any(|i| matches!(&i.op, Op::F2F(_)));
+        assert!(has_f2f, "SM120 should use F2F for f64↔f32 conversion");
+
+        let has_rsq_f32 = seq
+            .iter()
+            .any(|i| matches!(&i.op, Op::Transcendental(m) if m.op == TranscendentalOp::Rsq));
+        assert!(has_rsq_f32, "SM120 should use MUFU.RSQ (f32) as seed");
+    }
+
+    #[test]
+    fn test_f64_rcp_sm120_has_newton_iterations() {
+        let sm = make_sm120();
+        let mut alloc = SSAValueAllocator::new();
+        let x = alloc.alloc_vec(RegFile::GPR, 2);
+        let dst = alloc.alloc_vec(RegFile::GPR, 2);
+        let op = OpF64Rcp {
+            dst: dst.into(),
+            src: Src::from(x),
+        };
+        let seq = lower_f64_rcp(&op, Pred::from(true), &mut alloc, &sm);
+        let dmul_count = seq.iter().filter(|i| matches!(i.op, Op::DMul(_))).count();
+        assert!(
+            dmul_count >= 3,
+            "SM120 rcp should have at least 2 NR iterations (3+ DMul)"
+        );
     }
 }

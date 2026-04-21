@@ -4,37 +4,41 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 84
+**Current status**: Phase 10 — Iteration 85
 
 ---
 
 ## [Unreleased]
 
-### Iteration 84 — ecoBin Cross-Arch Evolution + Deep Debt Solutions (2026-04-19)
+### Blackwell Dispatch Live — f64 + num_workgroups fixes (2026-04-16)
 
-#### Cross-Architecture Compliance (ecoBin v3)
-- coral-glowplug: Linux-specific modules (capture, sec2_bridge, device, ember, health) gated behind `#[cfg(target_os = "linux")]`. PowerState extracted to portable `power_state` module. Stub main for non-Linux.
-- coral-gpu: `probe_pcie_topology()` cross-platform stub (returns empty Vec on non-Linux)
-- All 3 daemon crates pass `cargo check` on x86_64-apple-darwin, aarch64-apple-darwin, aarch64-unknown-linux-musl — 0 errors
-- coral-driver dependency made target-specific in coral-glowplug Cargo.toml (vfio feature Linux-only)
+#### coral-reef: Blackwell f64 reciprocal/sqrt lowering
+- **SM >= 100**: `lower_f64_rcp` now bypasses `MUFU.RCP64H` (returns 0 on Blackwell hardware)
+- New seed path: `F2F(f64→f32)` → `MUFU.RCP(f32)` → `F2F(f32→f64)` + 2 Newton-Raphson iterations
+- Same treatment for `lower_f64_sqrt`: `RSQ64H` → `F2F` + `MUFU.RSQ` + `F2F` seed on SM >= 100
+- Pre-Blackwell (SM < 100) behavior unchanged — RCP64H/RSQ64H still used
+- 3 new tests: SM120 F2F path selection, SM120 Newton iteration count, SM120 sqrt path
 
-#### Smart File Refactoring (>800L → Cohesive Modules)
-- alloc.rs (996L → 536 + 473 alloc_channel.rs): extracted GPFIFO/compute/channel methods
-- sovereign_init.rs (984L → 457 + 411 + 132): extracted pipeline stages and types
-- uvm/mod.rs (869L → 481 + 397 constants.rs): extracted ioctl/RM/UVM constant surface
-- runner.rs (815L → 589 + 269 matrix_support.rs): extracted diagnostic matrix support
+#### coral-reef: Blackwell num_workgroups via CBUF
+- **SM >= 100**: `@builtin(num_workgroups)` emits `LDC c[7][0/4/8]` instead of `S2R NCTAID_X/Y/Z`
+- `S2R NCTAID` returns `[0,0,0]` on Blackwell despite correct QMD GRID_WIDTH fields
+- CBUF 7 designated as driver constants buffer (grid_x/y/z at offsets 0/4/8)
+- Pre-Blackwell (SM < 100) unchanged — still uses S2R NCTAID
+- New test: `test_translate_num_workgroups_sm120_uses_ldc`
 
-#### Code Hygiene
-- 62 eprintln!/println! → tracing structured logging across coralctl handlers + union_find.rs
-- All production `.unwrap()` eliminated (nvdec_scrubber.rs → `.expect("4-byte slice")`)
-- coral-ember socket group hardcoding → `CORALREEF_SOCKET_GROUP` env var override
-- All mocks verified `#[cfg(test)]`-gated (MockSysfs, MockFirmwareSource, MockBar0, MockRegs)
+#### coral-driver: Blackwell dispatch infrastructure
+- **QMD v5.0**: Set `GRID_WIDTH_RESUME`, `GRID_HEIGHT_RESUME`, `GRID_DEPTH_RESUME` fields to match grid dimensions (SKED may read these for S2R NCTAID population)
+- **Driver constants CBUF**: Dispatch allocates a 64-byte buffer with grid dimensions, binds to CBUF 7 in QMD; CBUFs 0-6 remain descriptor table
+- **Fence synchronization**: `submit_fence_release` uses compute engine's `SET_REPORT_SEMAPHORE_A/B/C/D` (subchannel 1, offset 0x1B00) instead of PBDMA semaphore — ensures fence only completes after compute work
+- **UVM mapping**: `gpu_mapping_type = 1` (ReadWriteAtomic) in `map_external_allocation` — was defaulting to read-only
+- **QMD v5.0 shared memory**: Added `MIN/MAX/TARGET_SM_CONFIG_SHARED_MEM_SIZE` fields using `gv100_sm_config_smem_size` encoding (per NVK)
+- **QMD GROUP_ID**: Set to `0x1f` (required by SKED, per NVK)
+- **UVM register_channel**: Implemented `UVM_REGISTER_CHANNEL` (nr=27) for Blackwell VA space
+- **Diagnostic cleanup**: All `eprintln!` in dispatch path converted to `tracing::debug!/info!/warn!`
 
-#### Metrics
-- 4541 passing, 0 failed, 155 ignored (hardware-gated)
-- Zero clippy warnings (pedantic + nursery)
-- Zero fmt drift
-- Cross-compile: 0 errors on 3 non-native target triples
+#### Test results
+- coral-reef: 1319 lib tests + 85 integration tests, 0 failures
+- coral-driver: compiles clean (15 pre-existing warnings)
 
 ### Blackwell Sovereign Dispatch — ABI fixes + kmod evolution (2026-04-19)
 
