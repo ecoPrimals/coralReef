@@ -7,7 +7,7 @@
 use super::*;
 use crate::service;
 use primal_rpc_client::{RpcClient, no_params};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_serde::formats::Bincode;
 
 /// Send a raw newline-delimited JSON-RPC payload and return the response line.

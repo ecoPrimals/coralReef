@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 85.
+**Current position**: Phase 10 — Iteration 86.
 
-**Last completed**: NUCLEUS composition env var integration — all 3 binaries wire `BEARDOG_SOCKET`, `BTSP_PROVIDER_SOCKET`, `DISCOVERY_SOCKET`, `FAMILY_SEED`, `BIOMEOS_SOCKET_DIR`, `CORALREEF_FAMILY_ID`. BTSP and ecosystem discovery prefer explicit env over filesystem scan. Startup diagnostic log for operator visibility.
+**Last completed**: Deep debt pass — smart file refactoring (tex.rs, amd-isa-gen main.rs, tests_unix_edge.rs), safety audit (all SAFETY comments verified, missing one added), unused import cleanup, comprehensive codebase hygiene audit (no mocks in production, no hardcoded primal names, all paths have env overrides, zero TODO/FIXME/HACK, zero `.unwrap()` in library code).
 
 **Tests**: 4701 passing, 0 failed, 155 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: Shader artifact signing via `BearDog` `crypto.sign` (low priority, deferred per primalSpring v0.9.20); coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 28, 2026 (Phase 10 — Iteration 85 — NUCLEUS composition env vars)
+**Last updated**: April 28, 2026 (Phase 10 — Iteration 86 — deep debt, smart refactoring, safety audit)
 
 ---
 

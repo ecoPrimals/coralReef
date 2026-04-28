@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: April 28, 2026  
-**Phase**: 10 — Iteration 85 (Wire NUCLEUS composition env vars — BTSP, discovery, crypto readiness)
+**Phase**: 10 — Iteration 86 (Deep Debt: smart file refactoring, safety audit, code hygiene)
 
 ---
 

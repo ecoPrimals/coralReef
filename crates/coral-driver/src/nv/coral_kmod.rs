@@ -406,6 +406,7 @@ impl CoralKmod {
     /// Allocate a VRAM buffer and map it into the GPU VA space from kernel
     /// context. Returns `(h_memory, gpu_va)`.
     pub fn alloc_gpu_buffer(&self, h_client: u32, size: u64) -> DriverResult<(u32, u64)> {
+        // SAFETY: repr(C) struct, zeroed is valid.
         let mut params: CoralAllocGpuBufferParams = unsafe { std::mem::zeroed() };
         params.h_client = h_client;
         params.size = size;

@@ -4,11 +4,32 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 85
+**Current status**: Phase 10 — Iteration 86
 
 ---
 
 ## [Unreleased]
+
+### Iteration 86 — Deep Debt: Smart File Refactoring + Safety Audit (2026-04-28)
+
+#### Smart File Refactoring (>800L → Cohesive Modules)
+- tex.rs (854L → 341 + 517 tex_tests.rs): extracted SM20 texture encoder tests
+- amd-isa-gen main.rs (826L → 112 + 715 main_tests.rs): extracted generator tests
+- tests_unix_edge.rs (935L → 517 + 443 tests_unix_dispatch.rs): split integration vs dispatch unit tests
+
+#### Safety Audit
+- Added missing `// SAFETY:` comment on `coral_kmod.rs` `alloc_gpu_buffer` zeroed struct
+- Removed unused `AsyncReadExt` import from `tests_chaos.rs`
+
+#### Audit Results (no action needed)
+- **Unsafe code**: All confined to `coral-driver` with SAFETY comments; all other crates `#![forbid(unsafe_code)]`
+- **Dependencies**: No C/C++ in production (transitive `libc` via mio only; `cudarc` feature-gated)
+- **Hardcoded paths**: All have env var overrides (`CORALREEF_TRAINING_DIR`, `CORALREEF_JOURNAL_PATH`, `CORALREEF_TRACE_DIR`, etc.)
+- **Mocks**: All test-isolated; `coral-reef-stubs` is legitimate shim crate
+- **`#[allow(dead_code)]`**: Justified platform-conditional or API-evolution annotations only
+- **TODO/FIXME/HACK**: Zero in committed `.rs` code
+- **Commented-out code**: None found
+- **`.unwrap()` in library code**: None (all test-only)
 
 ### Iteration 85 — Wire NUCLEUS Composition Env Vars (2026-04-28)
 
