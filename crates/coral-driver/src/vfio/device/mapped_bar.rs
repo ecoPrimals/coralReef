@@ -133,6 +133,16 @@ impl RegisterAccess for MappedBar {
     }
 }
 
+/// Test-only constructor backed by heap memory.
+#[cfg(test)]
+impl MappedBar {
+    /// Create a `MappedBar` backed by heap memory for unit tests.
+    pub fn from_test_heap(data: Box<[u8]>) -> Self {
+        let region = MmioRegion::from_heap_slice_for_test(data);
+        Self { region }
+    }
+}
+
 // SAFETY: Matches the `Send` / `Sync` rationale in the [`MappedBar`] docs.
 unsafe impl Send for MappedBar {}
 

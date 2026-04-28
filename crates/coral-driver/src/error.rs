@@ -438,6 +438,14 @@ pub enum DriverError {
     #[error("unsupported: {0}")]
     Unsupported(Cow<'static, str>),
 
+    /// Hardware guard refused a register write to protect the GPU.
+    ///
+    /// This is a **non-recoverable** error — the software must abort
+    /// the current init/dispatch sequence immediately. The GPU is either
+    /// dead (PCIe link down) or the register is on the blocklist.
+    #[error("hardware guard: {0}")]
+    HardwareGuardRefusal(Cow<'static, str>),
+
     /// PCI sysfs/config-space discovery or PM transition failed.
     #[error("PCI discovery: {0}")]
     PciDiscovery(#[from] PciDiscoveryError),

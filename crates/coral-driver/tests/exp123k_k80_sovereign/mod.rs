@@ -6,6 +6,7 @@
 //!
 //! Run: `sudo cargo test --test exp123k_k80_sovereign -p coral-driver -- --ignored --nocapture`
 
+mod dispatch;
 mod exp_k1_k2;
 mod exp_k2b;
 mod exp_k3_k4;

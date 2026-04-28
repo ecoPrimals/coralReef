@@ -470,6 +470,110 @@ pub fn init_pfifo_engine_with(bar0: &MappedBar, cfg: &PfifoInitConfig) -> Driver
     Ok((runq, target_runlist))
 }
 
+/// Kepler (GK104/GK110) PFIFO engine initialization.
+///
+/// GK104+ PFIFO init following nouveau's `gk104_fifo_init()`.
+///
+/// On GK104+, PBDMA count comes from `PMC_SUBDEV_ENABLE` (0x204), not
+/// the `PFIFO_PBDMA_MAP` register (which is unreliable on warm handoff).
+/// Uses GK104 global runlist base/submit. Returns `(runq, runlist_id)`.
+pub fn init_pfifo_engine_kepler(
+    guard: &crate::nv::vfio_compute::hardware_guard::GuardedBar<'_>,
+) -> DriverResult<(u32, u32)> {
+    let gw = |reg: u32, val: u32| {
+        guard.write_u32(reg, val).map_err(|refusal| {
+            DriverError::SubmitFailed(Cow::Owned(format!("PFIFO init {reg:#x}: {refusal}")))
+        })
+    };
+
+    let boot0 = guard.read_u32(0).unwrap_or(0);
+    if boot0 == 0xFFFF_FFFF {
+        return Err(DriverError::SubmitFailed(Cow::Borrowed(
+            "BAR0 returns 0xFFFFFFFF — GPU in D3hot",
+        )));
+    }
+    tracing::info!(
+        boot0 = format_args!("{boot0:#010x}"),
+        "Kepler PFIFO init start"
+    );
+
+    // Clear PRIV_RING faults
+    let priv_intr = guard
+        .read_u32(pri::PRIV_RING_INTR_STATUS as u32)
+        .unwrap_or(0);
+    if priv_intr != 0 {
+        for _ in 0..5 {
+            gw(pri::PRIV_RING_COMMAND as u32, pri::PRIV_RING_CMD_ACK)?;
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            if guard
+                .read_u32(pri::PRIV_RING_INTR_STATUS as u32)
+                .unwrap_or(0)
+                == 0
+            {
+                break;
+            }
+        }
+    }
+
+    // Preserve nouveau's PMC_ENABLE; only toggle PFIFO bit to reset it.
+    let pmc_cur = guard.read_u32(pmc::ENABLE as u32).unwrap_or(0);
+    const PFIFO_BIT: u32 = 1 << 8;
+    gw(pmc::ENABLE as u32, pmc_cur & !PFIFO_BIT)?;
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    gw(pmc::ENABLE as u32, pmc_cur | PFIFO_BIT)?;
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    // Clear PRI faults that the PMC toggle may have generated.
+    for _ in 0..5 {
+        if guard
+            .read_u32(pri::PRIV_RING_INTR_STATUS as u32)
+            .unwrap_or(0)
+            == 0
+        {
+            break;
+        }
+        gw(pri::PRIV_RING_COMMAND as u32, pri::PRIV_RING_CMD_ACK)?;
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    // Discover PBDMA count from PMC subdevice enable (0x204).
+    // Nouveau sets this during init; on GK210 it's typically 0x7 (3 PBDMAs).
+    // The PFIFO_PBDMA_MAP register (0x2004) is unreliable after driver swap.
+    let pbdma_en = guard.read_u32(pmc::PBDMA_ENABLE as u32).unwrap_or(0);
+    let pbdma_nr = pbdma_en.count_ones();
+    if pbdma_nr == 0 {
+        return Err(DriverError::SubmitFailed(Cow::Borrowed(
+            "no PBDMAs enabled in PMC_PBDMA_ENABLE (0x204)",
+        )));
+    }
+    tracing::info!(
+        pbdma_en = format_args!("{pbdma_en:#010x}"),
+        pbdma_nr,
+        "Kepler PBDMA discovery via PMC_PBDMA_ENABLE"
+    );
+
+    // Re-enable PBDMAs (idempotent if already set by nouveau).
+    gw(pmc::PBDMA_ENABLE as u32, (1u32 << pbdma_nr) - 1)?;
+
+    // Configure PBDMAs (nouveau gk104_fifo_init pattern).
+    for id in 0..pbdma_nr as usize {
+        gw(pbdma::intr(id) as u32, 0xFFFF_FFFF)?;
+        gw(pbdma::intr_en(id) as u32, 0xFFFF_FEFF)?;
+    }
+
+    // Clear and enable PFIFO interrupts.
+    gw(pfifo::INTR as u32, 0xFFFF_FFFF)?;
+    gw(pfifo::INTR_EN as u32, 0x7FFF_FFFF)?;
+
+    let pfifo_en = guard.read_u32(pfifo::ENABLE as u32).unwrap_or(0xDEAD);
+    tracing::info!(
+        pfifo_en = format_args!("{pfifo_en:#010x}"),
+        pbdma_nr,
+        "Kepler PFIFO engine initialized"
+    );
+    Ok((0, 0))
+}
+
 /// Build a minimal BAR2 page table in VRAM and program `NV_PBUS_BAR2_BLOCK`.
 ///
 /// On a cold GPU (post-FLR / VFIO bind), BAR2_BLOCK reads `0x40000000` (invalid).

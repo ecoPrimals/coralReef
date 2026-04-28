@@ -19,11 +19,12 @@ mod tests {
     fn arch_for_sm(sm: u32) -> NvArch {
         match sm {
             100.. => NvArch::Sm120,
-            89.. => NvArch::Sm89,
+            89..=99 => NvArch::Sm89,
             86..=88 => NvArch::Sm86,
             80..=85 => NvArch::Sm80,
             75..=79 => NvArch::Sm75,
-            _ => NvArch::Sm70,
+            50..=74 => NvArch::Sm70,
+            _ => NvArch::Sm35,
         }
     }
 
@@ -118,14 +119,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let n = 64u64;
         let byte_size = n * 4;
 
-        let src_data: Vec<u8> = (0..n as u32)
-            .flat_map(|v| v.to_le_bytes())
-            .collect();
+        let src_data: Vec<u8> = (0..n as u32).flat_map(|v| v.to_le_bytes()).collect();
 
         let src = dev.alloc(byte_size, MemoryDomain::Gtt).expect("alloc src");
         let dst = dev.alloc(byte_size, MemoryDomain::Gtt).expect("alloc dst");
         dev.upload(src, 0, &src_data).expect("upload src");
-        dev.upload(dst, 0, &vec![0u8; byte_size as usize]).expect("zero dst");
+        dev.upload(dst, 0, &vec![0u8; byte_size as usize])
+            .expect("zero dst");
 
         dispatch_and_readback(&mut dev, &compiled, &[src, dst], DispatchDims::linear(1));
 
@@ -161,7 +161,8 @@ fn main() {
         let n_elements = 256u64;
         let byte_size = n_elements * 4;
         let buf = dev.alloc(byte_size, MemoryDomain::Gtt).expect("alloc");
-        dev.upload(buf, 0, &vec![0u8; byte_size as usize]).expect("zero");
+        dev.upload(buf, 0, &vec![0u8; byte_size as usize])
+            .expect("zero");
 
         dispatch_and_readback(&mut dev, &compiled, &[buf], DispatchDims::linear(1));
 
@@ -202,9 +203,13 @@ fn main() {
         let a_elems = 128u64;
         let out_elems = 64u64;
         let a = dev.alloc(a_elems * 4, MemoryDomain::Gtt).expect("alloc a");
-        let out = dev.alloc(out_elems * 4, MemoryDomain::Gtt).expect("alloc out");
-        dev.upload(a, 0, &vec![0u8; (a_elems * 4) as usize]).expect("zero a");
-        dev.upload(out, 0, &vec![0u8; (out_elems * 4) as usize]).expect("zero out");
+        let out = dev
+            .alloc(out_elems * 4, MemoryDomain::Gtt)
+            .expect("alloc out");
+        dev.upload(a, 0, &vec![0u8; (a_elems * 4) as usize])
+            .expect("zero a");
+        dev.upload(out, 0, &vec![0u8; (out_elems * 4) as usize])
+            .expect("zero out");
 
         dispatch_and_readback(&mut dev, &compiled, &[a, out], DispatchDims::linear(1));
 
@@ -254,7 +259,11 @@ fn main(@builtin(num_workgroups) nwg: vec3<u32>) {
         let x = u32::from_le_bytes(readback[0..4].try_into().unwrap());
         let y = u32::from_le_bytes(readback[4..8].try_into().unwrap());
         let z = u32::from_le_bytes(readback[8..12].try_into().unwrap());
-        assert_eq!((x, y, z), (7, 3, 2), "num_workgroups: expected (7,3,2), got ({x},{y},{z})");
+        assert_eq!(
+            (x, y, z),
+            (7, 3, 2),
+            "num_workgroups: expected (7,3,2), got ({x},{y},{z})"
+        );
         dev.free(buf).expect("free");
     }
 }

@@ -36,7 +36,7 @@ fn mem_access_global_b32() -> MemAccess {
     }
 }
 
-fn lit_scalar(lit: &naga::Literal) -> naga::Scalar {
+pub(crate) fn lit_scalar(lit: &naga::Literal) -> naga::Scalar {
     match lit {
         naga::Literal::F32(_) => naga::Scalar {
             kind: naga::ScalarKind::Float,

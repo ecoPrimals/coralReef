@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::helpers::open_vfio;
-use coral_driver::{ComputeDevice, DispatchDims, ShaderInfo};
+use coral_driver::{ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 #[test]
 #[ignore = "requires VFIO-bound GPU hardware + compute shader binary"]
@@ -19,13 +19,17 @@ fn vfio_dispatch_nop_shader() {
     }
 
     let wgsl = "@compute @workgroup_size(64) fn main() {}";
+    let arch = match sm {
+        0..=37 => coral_reef::NvArch::Sm35,
+        38..=74 => coral_reef::NvArch::Sm70,
+        75..=79 => coral_reef::NvArch::Sm75,
+        80..=85 => coral_reef::NvArch::Sm80,
+        86..=88 => coral_reef::NvArch::Sm86,
+        89..=99 => coral_reef::NvArch::Sm89,
+        _ => coral_reef::NvArch::Sm120,
+    };
     let opts = coral_reef::CompileOptions {
-        target: match sm {
-            70 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm70),
-            75 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm75),
-            80 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm80),
-            _ => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm86),
-        },
+        target: coral_reef::GpuTarget::Nvidia(arch),
         ..coral_reef::CompileOptions::default()
     };
     let compiled = coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile");
@@ -102,13 +106,17 @@ fn vfio_dispatch_warm_handoff() {
 
     let sm = dev.sm_version();
     let wgsl = "@compute @workgroup_size(64) fn main() {}";
+    let arch = match sm {
+        0..=37 => coral_reef::NvArch::Sm35,
+        38..=74 => coral_reef::NvArch::Sm70,
+        75..=79 => coral_reef::NvArch::Sm75,
+        80..=85 => coral_reef::NvArch::Sm80,
+        86..=88 => coral_reef::NvArch::Sm86,
+        89..=99 => coral_reef::NvArch::Sm89,
+        _ => coral_reef::NvArch::Sm120,
+    };
     let opts = coral_reef::CompileOptions {
-        target: match sm {
-            70 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm70),
-            75 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm75),
-            80 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm80),
-            _ => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm86),
-        },
+        target: coral_reef::GpuTarget::Nvidia(arch),
         ..coral_reef::CompileOptions::default()
     };
     let compiled = coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile");
@@ -158,4 +166,98 @@ fn vfio_dispatch_warm_handoff() {
     }
 
     eprintln!("\n=== End Warm Handoff Dispatch ===");
+}
+
+/// Full write_42 readback via VFIO warm handoff — the ultimate validation.
+///
+/// Compiles a real WGSL shader that writes 42 to every element, dispatches
+/// via the warm handoff VFIO path, reads back the buffer, and asserts
+/// every element equals 42.
+///
+/// If this passes: sovereign compute dispatch on Titan V is fully working.
+#[test]
+#[ignore = "requires VFIO-bound GPU hardware + warm-fecs + livepatch"]
+fn vfio_warm_write_42_readback() {
+    let mut dev = crate::helpers::open_vfio_warm();
+    eprintln!("\n=== Warm Handoff Write-42 Readback Test ===\n");
+
+    let fecs_pre = dev.layer7_diagnostics("WARM-READBACK-PRE");
+    let fecs_state = &fecs_pre.fecs;
+    if fecs_state.cpuctl == 0xDEAD_DEAD || fecs_state.cpuctl & 0xBADF_0000 == 0xBADF_0000 {
+        eprintln!("FECS engine inaccessible (PRI timeout) — cannot dispatch.");
+        eprintln!("Ensure `coralctl warm-fecs` was run with livepatch loaded.");
+        return;
+    }
+
+    let sm = dev.sm_version();
+    eprintln!("Device SM version: {sm}");
+
+    let arch = match sm {
+        0..=37 => coral_reef::NvArch::Sm35,
+        38..=74 => coral_reef::NvArch::Sm70,
+        75..=79 => coral_reef::NvArch::Sm75,
+        80..=85 => coral_reef::NvArch::Sm80,
+        86..=88 => coral_reef::NvArch::Sm86,
+        89..=99 => coral_reef::NvArch::Sm89,
+        _ => coral_reef::NvArch::Sm120,
+    };
+
+    let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = 42u;
+}
+";
+    let opts = coral_reef::CompileOptions {
+        target: coral_reef::GpuTarget::Nvidia(arch),
+        ..coral_reef::CompileOptions::default()
+    };
+    let compiled = coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile write_42");
+    eprintln!(
+        "Compiled: {} bytes, {} GPRs, format={:?}",
+        compiled.binary.len(),
+        compiled.info.gpr_count,
+        compiled.format
+    );
+
+    let info = ShaderInfo {
+        gpr_count: compiled.info.gpr_count,
+        shared_mem_bytes: compiled.info.shared_mem_bytes,
+        barrier_count: compiled.info.barrier_count,
+        workgroup: compiled.info.local_size,
+        wave_size: 32,
+        local_mem_bytes: None,
+    };
+
+    let n = 64u64;
+    let byte_size = n * 4;
+
+    let buf = dev.alloc(byte_size, MemoryDomain::Vram).expect("alloc");
+    dev.upload(buf, 0, &vec![0u8; byte_size as usize])
+        .expect("zero buffer");
+
+    eprintln!("Dispatching write_42 (64 elements, 1 workgroup)...");
+    dev.dispatch(&compiled.binary, &[buf], DispatchDims::linear(1), &info)
+        .expect("dispatch");
+    dev.sync().expect("sync");
+    eprintln!("Dispatch + sync succeeded");
+
+    let data = dev.readback(buf, 0, byte_size as usize).expect("readback");
+    let mut pass_count = 0u64;
+    for i in 0..n as usize {
+        let val = u32::from_le_bytes(data[i * 4..(i + 1) * 4].try_into().unwrap());
+        assert_eq!(val, 42, "element {i}: expected 42, got {val}");
+        pass_count += 1;
+    }
+
+    dev.free(buf).expect("free");
+
+    eprintln!("****************************************************");
+    eprintln!("*  ALL {pass_count} ELEMENTS = 42 — READBACK VERIFIED!     *");
+    eprintln!("*  Sovereign VFIO compute on Titan V is PROVEN.    *");
+    eprintln!("****************************************************");
+    eprintln!("\n=== End Warm Handoff Readback ===");
 }

@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: April 19, 2026 (Phase 10 — Iteration 84)
-**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, ecoBin cross-arch evolution & primalSpring / compliance evolution
+**Last updated**: April 27, 2026 (Phase 10 — Iteration 85+)
+**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, ecoBin cross-arch evolution & primalSpring / compliance evolution. RTX 5060 sovereign VFIO dispatch LIVE. K80 init.rs (5466 LOC) split into 11 focused modules.
 
 ---
 

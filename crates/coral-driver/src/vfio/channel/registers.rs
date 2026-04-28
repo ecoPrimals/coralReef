@@ -38,21 +38,27 @@ pub(crate) mod pfifo {
     #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// PBDMA-to-runlist mapping table. Entry at `+seq*4` for each active PBDMA.
     pub const PBDMA_RUNL_MAP: usize = 0x0000_2390;
-    /// GK104 runlist base address (global pair — gk104 only, NOT Volta).
+    /// GK104 runlist base address (global pair — GK104/GK110, NOT Volta).
     ///
     /// **GV100+ uses per-runlist registers** at stride 0x10; prefer
     /// [`runlist_base`] and [`runlist_submit`] for Volta.
-    #[expect(
-        dead_code,
-        reason = "hardware register map — used as reference during bring-up"
-    )]
-    pub const RUNLIST_BASE: usize = 0x0000_2270;
-    /// GK104 runlist submit trigger (global — gk104 only).
-    #[expect(
-        dead_code,
-        reason = "hardware register map — used as reference during bring-up"
-    )]
-    pub const RUNLIST_SUBMIT: usize = 0x0000_2274;
+    pub const GK104_RUNLIST_BASE: usize = 0x0000_2270;
+    /// GK104 runlist submit trigger (global — GK104/GK110, NOT Volta).
+    pub const GK104_RUNLIST_SUBMIT: usize = 0x0000_2274;
+
+    /// Encode GK104 runlist BASE register value.
+    /// Format: `lower_32(phys >> 12)` — same bit layout as GV100 base.
+    #[must_use]
+    pub const fn gk104_runlist_base_value(iova: u64) -> u32 {
+        (iova >> 12) as u32
+    }
+
+    /// Encode GK104 runlist SUBMIT register value.
+    /// Format: `upper_32(phys >> 12) | (entry_count << 16)`.
+    #[must_use]
+    pub const fn gk104_runlist_submit_value(iova: u64, entry_count: u32) -> u32 {
+        ((iova >> 44) as u32) | (entry_count << 16)
+    }
 
     /// GV100 per-runlist base register (stride 0x10).
     ///
@@ -114,7 +120,7 @@ pub(crate) mod pmc {
     #[expect(dead_code, reason = "present on GP102+/TU10x, not GV100")]
     pub const DEVICE_ENABLE: usize = 0x0000_0600;
     /// PBDMA master enable — set bit N to enable PBDMA N.
-    #[expect(dead_code, reason = "kept for hardware documentation completeness")]
+    /// On GK104+ (Kepler 2nd gen), nouveau writes `(1 << pbdma_nr) - 1` here.
     pub const PBDMA_ENABLE: usize = 0x0000_0204;
     /// PBDMA interrupt routing.
     #[expect(dead_code, reason = "kept for hardware documentation completeness")]
@@ -676,6 +682,17 @@ pub(super) const PD0_IOVA: u64 = 0x8000;
 pub(super) const PT0_IOVA: u64 = 0x9000;
 /// Non-replayable MMU fault buffer IOVA.
 pub(super) const FAULT_BUF_IOVA: u64 = 0xA000;
+
+// ── Kepler 2-level IOVA aliases ────────────────────────────────────
+// On Kepler, PD3..PD0 collapse to a single PD. We reuse PD3_IOVA as
+// the single page directory and PT0_IOVA for the small page table.
+// The intermediate directories (PD2/PD1/PD0) are unused but allocated
+// to keep the IOVA layout stable across generations.
+
+/// Kepler PD IOVA — alias for PD3_IOVA.
+pub(super) const KEPLER_PD_IOVA: u64 = PD3_IOVA;
+/// Kepler PT IOVA — alias for PT0_IOVA.
+pub(super) const KEPLER_PT_IOVA: u64 = PT0_IOVA;
 /// NOP push buffer IOVA — dedicated buffer with valid NOP GPU methods.
 pub(super) const NOP_PB_IOVA: u64 = 0xB000;
 

@@ -787,8 +787,17 @@ mod tests {
             probe::compute_class_for_sm(75),
             pushbuf::class::TURING_COMPUTE_A
         );
-        assert_eq!(probe::compute_class_for_sm(80), pushbuf::class::AMPERE_COMPUTE_A);
-        assert_eq!(probe::compute_class_for_sm(86), generation::AMPERE_B.compute_class);
-        assert_eq!(probe::compute_class_for_sm(120), generation::BLACKWELL_B.compute_class);
+        assert_eq!(
+            probe::compute_class_for_sm(80),
+            pushbuf::class::AMPERE_COMPUTE_A
+        );
+        assert_eq!(
+            probe::compute_class_for_sm(86),
+            generation::AMPERE_B.compute_class
+        );
+        assert_eq!(
+            probe::compute_class_for_sm(120),
+            generation::BLACKWELL_B.compute_class
+        );
     }
 }

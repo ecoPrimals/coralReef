@@ -22,15 +22,19 @@ pub const FALCON_MAILBOX1: u32 = 0x044;
 pub const FALCON_CPUCTL: u32 = 0x100;
 /// Falcon CPU control alias register offset (alternate start trigger).
 pub const FALCON_CPUCTL_ALIAS: u32 = 0x130;
-/// Falcon IMEM control register offset (port 0).
+/// Falcon IMEM port stride (16 bytes per port).
+const IMEM_PORT_STRIDE: u32 = 0x10;
+/// Falcon IMEM control register offset (port 0 base).
 pub const FALCON_IMEM_CTRL: u32 = 0x180;
-/// Falcon IMEM data register offset (port 0, auto-increment).
+/// Falcon IMEM data register offset (port 0 base, auto-increment).
 pub const FALCON_IMEM_DATA: u32 = 0x184;
-/// Falcon IMEM tag register offset (one tag per 256-byte line).
+/// Falcon IMEM tag register offset (port 0 base, one tag per 256-byte line).
 pub const FALCON_IMEM_TAG: u32 = 0x188;
-/// Falcon DMEM control register offset (port 0).
+/// Falcon DMEM port stride (8 bytes per port).
+const DMEM_PORT_STRIDE: u32 = 0x08;
+/// Falcon DMEM control register offset (port 0 base).
 pub const FALCON_DMEM_CTRL: u32 = 0x1C0;
-/// Falcon DMEM data register offset (port 0, auto-increment).
+/// Falcon DMEM data register offset (port 0 base, auto-increment).
 pub const FALCON_DMEM_DATA: u32 = 0x1C4;
 
 /// FECS scratch register 0 (absolute BAR0 address).
@@ -41,9 +45,6 @@ pub const FECS_SCRATCH1: u32 = 0x0040_9504;
 pub const FECS_STATUS: u32 = 0x0040_9800;
 /// FECS secondary status register (absolute BAR0 address).
 pub const FECS_STATUS2: u32 = 0x0040_9804;
-
-/// IMEM tag alignment: one tag per 256 bytes (64 u32 words).
-const IMEM_TAG_WORD_INTERVAL: usize = 64;
 
 /// CPUCTL bit 6 — determines which start register to use.
 const CPUCTL_ALIAS_BIT: u32 = 1 << 6;
@@ -56,18 +57,33 @@ pub type FalconResult<T> = Result<T, ApplyError>;
 
 /// Upload DMEM (data memory) to a Falcon engine.
 ///
-/// Protocol: write start address | BIT(24) to DMEM_CTRL, then stream
-/// each u32 word to DMEM_DATA. Hardware auto-increments the address.
+/// Matches nouveau's `nvkm_falcon_v1_load_dmem`:
+///   DMEMC = start | AINCW
+/// then stream each u32 to DMEMD (hardware auto-increments).
+/// Port selects the DMEM access port (nouveau uses port 0).
 pub fn upload_dmem(
     regs: &mut dyn RegisterAccess,
     base: u32,
     start_addr: u32,
     data: &[u8],
 ) -> FalconResult<()> {
-    let ctrl_reg = base + FALCON_DMEM_CTRL;
-    let data_reg = base + FALCON_DMEM_DATA;
+    upload_dmem_port(regs, base, start_addr, data, 0)
+}
 
-    regs.write_u32(ctrl_reg, start_addr | (1 << 24))?;
+/// Upload DMEM via a specific access port.
+pub fn upload_dmem_port(
+    regs: &mut dyn RegisterAccess,
+    base: u32,
+    start_addr: u32,
+    data: &[u8],
+    port: u8,
+) -> FalconResult<()> {
+    let port_off = u32::from(port) * DMEM_PORT_STRIDE;
+    let ctrl_reg = base + FALCON_DMEM_CTRL + port_off;
+    let data_reg = base + FALCON_DMEM_DATA + port_off;
+
+    const AINCW: u32 = 1 << 24;
+    regs.write_u32(ctrl_reg, start_addr | AINCW)?;
 
     let words = data.len() / 4;
     for i in 0..words {
@@ -92,49 +108,84 @@ pub fn upload_dmem(
 
 /// Upload IMEM (instruction memory) to a Falcon engine.
 ///
-/// Protocol: write start address | BIT(24) to IMEM_CTRL, then stream
-/// each u32 word to IMEM_DATA. Every 64 words (256 bytes), write an
-/// incrementing tag to IMEM_TAG. Pad final line to 64-word boundary with zeros.
+/// Upload IMEM (instruction memory) to a Falcon engine.
+///
+/// Convenience wrapper: uses port 0 and initial tag 0.
+///
+/// Port 0 is required on GK210 — port 2 causes STARTCPU to not be
+/// consumed (empirical: CPUCTL stays 0x10 with port 2).
 pub fn upload_imem(
     regs: &mut dyn RegisterAccess,
     base: u32,
     start_addr: u32,
     code: &[u8],
 ) -> FalconResult<()> {
-    let ctrl_reg = base + FALCON_IMEM_CTRL;
-    let data_reg = base + FALCON_IMEM_DATA;
-    let tag_reg = base + FALCON_IMEM_TAG;
+    upload_imem_port(regs, base, start_addr, code, 0, 0)
+}
 
-    regs.write_u32(ctrl_reg, start_addr | (1 << 24))?;
+/// Upload IMEM via a specific access port with explicit initial tag.
+///
+/// Uses the PIO upload protocol for Falcon IMEM:
+///   1. Write IMEMC[port] = OFFS | AINCW (auto-increment write mode)
+///   2. At each 256-byte boundary: write sequential tag to IMEMT
+///   3. Write data word to IMEMD[port]
+///
+/// GK210 empirical finding: BLK_START (bit 30) enables strict tag
+/// verification that prevents the CPU from starting. Without BLK_START,
+/// the CPU boots and tags serve as soft metadata.
+pub fn upload_imem_port(
+    regs: &mut dyn RegisterAccess,
+    base: u32,
+    start_addr: u32,
+    code: &[u8],
+    initial_tag: u16,
+    port: u8,
+) -> FalconResult<()> {
+    let port_off = u32::from(port) * IMEM_PORT_STRIDE;
+    let ctrl_reg = base + FALCON_IMEM_CTRL + port_off;
+    let data_reg = base + FALCON_IMEM_DATA + port_off;
+    let tag_reg = base + FALCON_IMEM_TAG + port_off;
 
-    let total_words = code.len().div_ceil(4);
-    let padded_words = total_words.div_ceil(IMEM_TAG_WORD_INTERVAL) * IMEM_TAG_WORD_INTERVAL;
+    let mut tag = initial_tag;
 
-    let mut tag = 0u32;
+    const AINCW: u32 = 1 << 24;
 
-    for word_idx in 0..padded_words {
-        if word_idx % IMEM_TAG_WORD_INTERVAL == 0 {
-            regs.write_u32(tag_reg, tag)?;
+    regs.write_u32(ctrl_reg, ((start_addr >> 8) << 2) | AINCW)?;
+
+    let mut total_words = code.len().div_ceil(4);
+
+    for word_idx in 0..total_words {
+        let byte_off = start_addr + (word_idx as u32) * 4;
+
+        if (byte_off & 0xFF) == 0 {
+            regs.write_u32(tag_reg, u32::from(tag))?;
             tag += 1;
         }
 
-        let byte_off = word_idx * 4;
-        let word = if byte_off + 4 <= code.len() {
+        let src_off = word_idx * 4;
+        let word = if src_off + 4 <= code.len() {
             u32::from_le_bytes([
-                code[byte_off],
-                code[byte_off + 1],
-                code[byte_off + 2],
-                code[byte_off + 3],
+                code[src_off],
+                code[src_off + 1],
+                code[src_off + 2],
+                code[src_off + 3],
             ])
-        } else if byte_off < code.len() {
+        } else if src_off < code.len() {
             let mut buf = [0u8; 4];
-            buf[..code.len() - byte_off].copy_from_slice(&code[byte_off..]);
+            buf[..code.len() - src_off].copy_from_slice(&code[src_off..]);
             u32::from_le_bytes(buf)
         } else {
-            0 // padding
+            0
         };
 
         regs.write_u32(data_reg, word)?;
+    }
+
+    // Pad IMEM to a 256-byte (64-word) boundary with zeros.
+    // Nouveau: "code must be padded to 0x40 words"
+    while total_words & 0x3F != 0 {
+        regs.write_u32(data_reg, 0)?;
+        total_words += 1;
     }
 
     Ok(())
@@ -209,7 +260,9 @@ pub fn boot_fecs_gpccs(
     }
 }
 
-/// PMC unk260 toggle — nouveau does this around falcon load for clock gating.
+/// PMC unk260 toggle — nouveau's `gf100_mc_unk260()` writes the `data`
+/// argument directly to register 0x260. Called with 0 to disable and 1
+/// to enable GR method dispatch during firmware load/boot.
 pub fn pmc_unk260(regs: &mut dyn RegisterAccess, enable: bool) -> FalconResult<()> {
     regs.write_u32(0x260, u32::from(enable))
 }
@@ -299,33 +352,57 @@ mod tests {
     }
 
     #[test]
-    fn imem_upload_tags_every_64_words() {
+    fn imem_upload_tags_sequential() {
         let mut regs = MockRegs::new(0);
-        // 256 bytes = 64 words = exactly one tag interval
-        let code = vec![0xABu8; 256];
+        // 768 bytes = 192 words = three 256-byte blocks
+        let code = vec![0xABu8; 768];
         upload_imem(&mut regs, FECS_BASE, 0, &code).unwrap();
 
+        // Port 0 tag register
+        let tag_reg = FECS_BASE + FALCON_IMEM_TAG;
         let tag_writes: Vec<_> = regs
             .writes
             .iter()
-            .filter(|(off, _)| *off == FECS_BASE + FALCON_IMEM_TAG)
+            .filter(|(off, _)| *off == tag_reg)
             .collect();
-        assert_eq!(tag_writes.len(), 1);
-        assert_eq!(*tag_writes[0], (FECS_BASE + FALCON_IMEM_TAG, 0));
+        // 0-based tags at each 256-byte boundary
+        assert_eq!(tag_writes.len(), 3);
+        assert_eq!(*tag_writes[0], (tag_reg, 0)); // block 0
+        assert_eq!(*tag_writes[1], (tag_reg, 1)); // block 1
+        assert_eq!(*tag_writes[2], (tag_reg, 2)); // block 2
     }
 
     #[test]
-    fn imem_upload_pads_to_64_word_boundary() {
+    fn imem_upload_word_count_exact() {
         let mut regs = MockRegs::new(0);
-        let code = vec![0x42u8; 4]; // 1 word → should pad to 64 words
+        let code = vec![0x42u8; 4]; // 1 word
         upload_imem(&mut regs, FECS_BASE, 0, &code).unwrap();
+
+        // Port 0 registers
+        let data_reg = FECS_BASE + FALCON_IMEM_DATA;
+        let tag_reg = FECS_BASE + FALCON_IMEM_TAG;
+        let ctrl_reg = FECS_BASE + FALCON_IMEM_CTRL;
 
         let data_writes = regs
             .writes
             .iter()
-            .filter(|(off, _)| *off == FECS_BASE + FALCON_IMEM_DATA)
+            .filter(|(off, _)| *off == data_reg)
             .count();
-        assert_eq!(data_writes, 64);
+        assert_eq!(data_writes, 64); // 1 word + 63 padding to 256-byte boundary
+
+        // One block → one tag write (tag=0)
+        let tag_writes: Vec<_> = regs
+            .writes
+            .iter()
+            .filter(|(off, _)| *off == tag_reg)
+            .collect();
+        assert_eq!(tag_writes.len(), 1);
+        assert_eq!(*tag_writes[0], (tag_reg, 0));
+
+        // Write order: ctrl, tag(0), data
+        assert_eq!(regs.writes[0].0, ctrl_reg);
+        assert_eq!(regs.writes[1], (tag_reg, 0));
+        assert_eq!(regs.writes[2].0, data_reg);
     }
 
     #[test]
@@ -377,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn pmc_unk260_writes_boolean() {
+    fn pmc_unk260_writes_enable_disable() {
         let mut regs = MockRegs::new(0);
         pmc_unk260(&mut regs, true).unwrap();
         assert_eq!(regs.writes.last().unwrap(), &(0x260, 1));

@@ -143,7 +143,8 @@ fn parse_notes(data: &[u8], offset: usize, size: usize, meta: &mut AmdgpuShaderM
 
     while pos + 12 <= end {
         let namesz = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap_or_default()) as usize;
-        let descsz = u32::from_le_bytes(data[pos + 4..pos + 8].try_into().unwrap_or_default()) as usize;
+        let descsz =
+            u32::from_le_bytes(data[pos + 4..pos + 8].try_into().unwrap_or_default()) as usize;
         let note_type = u32::from_le_bytes(data[pos + 8..pos + 12].try_into().unwrap_or_default());
 
         pos += 12;
@@ -163,12 +164,21 @@ fn parse_notes(data: &[u8], offset: usize, size: usize, meta: &mut AmdgpuShaderM
         if is_amdgpu {
             match note_type {
                 NT_AMDGPU_HSA_ISA if descsz >= 12 => {
-                    let major =
-                        u32::from_le_bytes(data[desc_start..desc_start + 4].try_into().unwrap_or_default());
-                    let minor =
-                        u32::from_le_bytes(data[desc_start + 4..desc_start + 8].try_into().unwrap_or_default());
-                    let stepping =
-                        u32::from_le_bytes(data[desc_start + 8..desc_start + 12].try_into().unwrap_or_default());
+                    let major = u32::from_le_bytes(
+                        data[desc_start..desc_start + 4]
+                            .try_into()
+                            .unwrap_or_default(),
+                    );
+                    let minor = u32::from_le_bytes(
+                        data[desc_start + 4..desc_start + 8]
+                            .try_into()
+                            .unwrap_or_default(),
+                    );
+                    let stepping = u32::from_le_bytes(
+                        data[desc_start + 8..desc_start + 12]
+                            .try_into()
+                            .unwrap_or_default(),
+                    );
                     if meta.gfx_version == 0 {
                         meta.gfx_version = major * 100 + minor * 10 + stepping;
                     }
@@ -190,31 +200,31 @@ fn parse_notes(data: &[u8], offset: usize, size: usize, meta: &mut AmdgpuShaderM
 /// This maps each enum to the `gfxNNNN` IP version.
 fn extract_gfx_version_from_flags(e_flags: u32) -> u32 {
     match e_flags & 0xFF {
-        0x28 => 900,   // gfx900  (Vega 10)
-        0x29 => 902,   // gfx902  (Vega 12)
-        0x2C => 906,   // gfx906  (Vega 20 / MI50)
-        0x2F => 908,   // gfx908  (CDNA1 / MI100)
-        0x30 => 909,   // gfx909  (placeholder)
-        0x31 => 90,    // gfx90a  (CDNA2 / MI200)
-        0x32 => 940,   // gfx940
-        0x33 => 1010,  // gfx1010 (Navi 10)
-        0x34 => 1011,  // gfx1011 (Navi 12)
-        0x35 => 1012,  // gfx1012 (Navi 14)
-        0x36 => 1030,  // gfx1030 (Navi 21 / RDNA2)
-        0x37 => 1031,  // gfx1031 (Navi 22)
-        0x38 => 1032,  // gfx1032 (Navi 23)
-        0x39 => 1033,  // gfx1033 (Navi 24)
-        0x3E => 1034,  // gfx1034
-        0x3F => 1035,  // gfx1035
-        0x40 => 1036,  // gfx1036
-        0x41 => 1100,  // gfx1100 (Navi 31 / RDNA3)
-        0x42 => 1101,  // gfx1101 (Navi 32)
-        0x43 => 1102,  // gfx1102 (Navi 33)
-        0x44 => 1103,  // gfx1103 (Phoenix)
-        0x46 => 1150,  // gfx1150 (Strix Point)
-        0x47 => 1151,  // gfx1151
-        0x48 => 1200,  // gfx1200 (Navi 48 / RDNA4)
-        0x49 => 1201,  // gfx1201
+        0x28 => 900,  // gfx900  (Vega 10)
+        0x29 => 902,  // gfx902  (Vega 12)
+        0x2C => 906,  // gfx906  (Vega 20 / MI50)
+        0x2F => 908,  // gfx908  (CDNA1 / MI100)
+        0x30 => 909,  // gfx909  (placeholder)
+        0x31 => 90,   // gfx90a  (CDNA2 / MI200)
+        0x32 => 940,  // gfx940
+        0x33 => 1010, // gfx1010 (Navi 10)
+        0x34 => 1011, // gfx1011 (Navi 12)
+        0x35 => 1012, // gfx1012 (Navi 14)
+        0x36 => 1030, // gfx1030 (Navi 21 / RDNA2)
+        0x37 => 1031, // gfx1031 (Navi 22)
+        0x38 => 1032, // gfx1032 (Navi 23)
+        0x39 => 1033, // gfx1033 (Navi 24)
+        0x3E => 1034, // gfx1034
+        0x3F => 1035, // gfx1035
+        0x40 => 1036, // gfx1036
+        0x41 => 1100, // gfx1100 (Navi 31 / RDNA3)
+        0x42 => 1101, // gfx1101 (Navi 32)
+        0x43 => 1102, // gfx1102 (Navi 33)
+        0x44 => 1103, // gfx1103 (Phoenix)
+        0x46 => 1150, // gfx1150 (Strix Point)
+        0x47 => 1151, // gfx1151
+        0x48 => 1200, // gfx1200 (Navi 48 / RDNA4)
+        0x49 => 1201, // gfx1201
         _ => 0,
     }
 }
@@ -250,8 +260,7 @@ fn parse_metadata_blob(data: &[u8], meta: &mut AmdgpuShaderMeta) {
 }
 
 fn find_pattern(data: &[u8], pattern: &[u8]) -> Option<usize> {
-    data.windows(pattern.len())
-        .position(|w| w == pattern)
+    data.windows(pattern.len()).position(|w| w == pattern)
 }
 
 fn read_u32_after_pattern(data: &[u8], pos: usize) -> Option<u32> {
@@ -316,10 +325,7 @@ pub fn shader_info_from_meta(
 ///
 /// Returns `Ok(())` if compatible, or a descriptive error if the binary
 /// targets a different ISA family.
-pub fn validate_gfx_compat(
-    binary_gfx: u32,
-    device_gfx_major: u8,
-) -> DriverResult<()> {
+pub fn validate_gfx_compat(binary_gfx: u32, device_gfx_major: u8) -> DriverResult<()> {
     let binary_major = (binary_gfx / 100) as u8;
     if binary_major != 0 && binary_major != device_gfx_major {
         return Err(crate::error::DriverError::DispatchFailed(
@@ -379,11 +385,11 @@ mod tests {
 
     #[test]
     fn gfx_version_from_flags() {
-        assert_eq!(extract_gfx_version_from_flags(0x36), 1030);  // gfx1030
-        assert_eq!(extract_gfx_version_from_flags(0x41), 1100);  // gfx1100
-        assert_eq!(extract_gfx_version_from_flags(0x28), 900);   // gfx900
-        assert_eq!(extract_gfx_version_from_flags(0x48), 1200);  // gfx1200
-        assert_eq!(extract_gfx_version_from_flags(0xFF), 0);     // unknown
+        assert_eq!(extract_gfx_version_from_flags(0x36), 1030); // gfx1030
+        assert_eq!(extract_gfx_version_from_flags(0x41), 1100); // gfx1100
+        assert_eq!(extract_gfx_version_from_flags(0x28), 900); // gfx900
+        assert_eq!(extract_gfx_version_from_flags(0x48), 1200); // gfx1200
+        assert_eq!(extract_gfx_version_from_flags(0xFF), 0); // unknown
     }
 
     #[test]

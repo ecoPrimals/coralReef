@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//! GK110 PGOB (Power Gate Off Block) control — powers GPC compute domains.
+
+pub(super) static PGOB_POWER_STEPS: &[(u32, u32)] = &[
+    (0x02_0520, 0xFFFF_FFFC),
+    (0x02_0524, 0xFFFF_FFFE),
+    (0x02_0524, 0xFFFF_FFFC),
+    (0x02_0524, 0xFFFF_FFF8),
+    (0x02_0524, 0xFFFF_FFE0),
+    (0x02_0530, 0xFFFF_FFFE),
+    (0x02_052C, 0xFFFF_FFFA),
+    (0x02_052C, 0xFFFF_FFF0),
+    (0x02_052C, 0xFFFF_FFC0),
+    (0x02_052C, 0xFFFF_FF00),
+    (0x02_052C, 0xFFFF_FC00),
+    (0x02_052C, 0xFFFC_FC00),
+    (0x02_052C, 0xFFF0_FC00),
+    (0x02_052C, 0xFF80_FC00),
+    (0x02_0528, 0xFFFF_FFFE),
+    (0x02_0528, 0xFFFF_FFFC),
+];
+
+/// GK110 PGOB disable sequence — powers up GPC compute domains.
+///
+/// Matches kernel `gk110_pmu_pgob()` from `drivers/gpu/drm/nouveau/nvkm/subdev/pmu/gk110.c`.
+///
+/// 1. Disabling PGRAPH in PMC
+/// 2. Setting PMC bit 27 (PGOB enable gate)
+/// 3. Toggling PMU PGOB control (0x10a78c) bits 0-1
+/// 4. Running a 16-step power domain enable sequence (0x0205xx)
+/// 5. Toggling PMU PGOB control again
+/// 6. Clearing PMC bit 27 and re-enabling PGRAPH
+///
+/// Accesses 0x10a78c (PMU PGOB) directly via `MappedBar`, bypassing
+/// `GuardedBar`'s blocklist — this full protocol is the safety boundary.
+pub(super) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) {
+    let bar0 = guard.inner();
+    let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+    let wr = |reg: u32, val: u32| {
+        let _ = bar0.write_u32(reg as usize, val);
+    };
+    let mask = |reg: u32, clr: u32, set: u32| {
+        let cur = rd(reg);
+        wr(reg, (cur & !clr) | set);
+    };
+
+    // Match kernel gk110_pmu_pgob exactly (drivers/gpu/drm/nouveau/nvkm/subdev/pmu/gk110.c).
+    //
+    // Step 1: Disable PGRAPH only (clear bit 12). Kernel does NOT touch bit 27 here.
+    mask(0x000200, 0x0000_1000, 0x0000_0000);
+    rd(0x000200); // flush
+
+    // Step 2: Set PMC bit 27 (PGOB gate enable).
+    // In a fresh POST, bit 27 starts at 0 (from DEVINIT), creating a 0→1 transition.
+    // In warm handoff, bit 27 may already be 1. To guarantee the transition:
+    mask(0x000200, 0x0800_0000, 0x0000_0000); // force bit 27 low first
+    rd(0x000200);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    mask(0x000200, 0x0800_0000, 0x0800_0000); // 0→1 transition
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    // Step 3: PMU PGOB control (0x10a78c): set bit 1, pulse bit 0
+    mask(0x10_a78c, 0x0000_0002, 0x0000_0002);
+    mask(0x10_a78c, 0x0000_0001, 0x0000_0001);
+    mask(0x10_a78c, 0x0000_0001, 0x0000_0000);
+
+    // Step 4: NOP mask on 0x0206b4 — kernel does nvkm_mask(dev, 0x0206b4, 0, 0)
+    // which is a read-modify-write (the write may trigger a hardware sync).
+    mask(0x02_06b4, 0x0000_0000, 0x0000_0000);
+
+    // Step 5: Magic power domain enable sequence — each write followed by
+    // polling until bit 31 clears (nouveau uses nvkm_msec(2000)).
+    for &(addr, data) in PGOB_POWER_STEPS {
+        wr(addr, data);
+        let mut ok = false;
+        for _ in 0..200 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            if rd(addr) & 0x8000_0000 == 0 {
+                ok = true;
+                break;
+            }
+        }
+        if !ok {
+            tracing::warn!(
+                addr = format_args!("{addr:#010x}"),
+                "gk110 PGOB: power step timed out (bit 31 stuck high)"
+            );
+        }
+    }
+
+    // Step 6: PMU PGOB control: clear bit 1, set bit 0, clear bit 0
+    mask(0x10_a78c, 0x0000_0002, 0x0000_0000);
+    mask(0x10_a78c, 0x0000_0001, 0x0000_0001);
+    mask(0x10_a78c, 0x0000_0001, 0x0000_0000);
+
+    // Step 7: Clear PMC bit 27 and re-enable PGRAPH (set bit 12)
+    mask(0x000200, 0x0800_0000, 0x0000_0000);
+    mask(0x000200, 0x0000_1000, 0x0000_1000);
+    rd(0x000200);
+
+    // Settle time for PGRAPH to come online
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let gr_hub_test = rd(0x400700);
+    let fecs_test = rd(0x409100);
+    let pmu_ack = rd(0x10_a040);
+    let fuse_gpc = rd(0x02_1C1C);
+    let top_num_gpcs = rd(0x02_2430);
+    let gpc0_diag = rd(0x50_0000);
+    tracing::info!(
+        gr_hub = format_args!("{gr_hub_test:#010x}"),
+        fecs = format_args!("{fecs_test:#010x}"),
+        pmu_ack = format_args!("{pmu_ack:#010x}"),
+        fuse_gpc = format_args!("{fuse_gpc:#010x}"),
+        top_num_gpcs = format_args!("{top_num_gpcs:#010x}"),
+        gpc0 = format_args!("{gpc0_diag:#010x}"),
+        "gk110 PGOB disable complete"
+    );
+}
+
+/// Lightweight PGOB power-domain un-gate: runs the magic 0x020520-0x020530
+/// sequence and PMU PGOB control, but does NOT toggle PMC bit 12 or bit 27.
+///
+/// Use when PGRAPH is already enabled and FECS is in "software halt" —
+/// a PMC toggle would put FECS into "hardware reset halt" where STARTCPU
+/// is silently ignored.
+pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'_>) {
+    let bar0 = guard.inner();
+    let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+    let wr = |reg: u32, val: u32| {
+        let _ = bar0.write_u32(reg as usize, val);
+    };
+    let mask = |reg: u32, clr: u32, set: u32| {
+        let cur = rd(reg);
+        wr(reg, (cur & !clr) | set);
+    };
+
+    // PMU PGOB control: set bit 1, pulse bit 0
+    mask(0x10_a78c, 0x0000_0002, 0x0000_0002);
+    mask(0x10_a78c, 0x0000_0001, 0x0000_0001);
+    mask(0x10_a78c, 0x0000_0001, 0x0000_0000);
+
+    // NOP mask sync
+    mask(0x02_06b4, 0x0000_0000, 0x0000_0000);
+
+    // Power domain enable sequence (same as gk110_pgob_disable step 5).
+    let mut all_ok = true;
+    for &(addr, data) in PGOB_POWER_STEPS {
+        wr(addr, data);
+        let mut ok = false;
+        for _ in 0..200 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            if rd(addr) & 0x8000_0000 == 0 {
+                ok = true;
+                break;
+            }
+        }
+        if !ok {
+            tracing::warn!(
+                addr = format_args!("{addr:#010x}"),
+                "pgob_ungate: step timed out"
+            );
+            all_ok = false;
+        }
+    }
+
+    // PMU PGOB control cleanup: clear bit 1, pulse bit 0
+    mask(0x10_a78c, 0x0000_0002, 0x0000_0000);
+    mask(0x10_a78c, 0x0000_0001, 0x0000_0001);
+    mask(0x10_a78c, 0x0000_0001, 0x0000_0000);
+
+    let gr_hub = rd(0x40_0000);
+    let fecs = rd(0x40_9100);
+    tracing::info!(
+        all_ok,
+        gr_hub = format_args!("{gr_hub:#010x}"),
+        fecs = format_args!("{fecs:#010x}"),
+        gr_hub_ok = gr_hub != 0xDEAD_DEAD && gr_hub & 0xBAD0_0000 != 0xBAD0_0000,
+        "pgob_ungate_only complete"
+    );
+}

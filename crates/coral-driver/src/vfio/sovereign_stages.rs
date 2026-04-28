@@ -49,7 +49,15 @@ pub(crate) fn pmc_enable(bar0: &MappedBar) -> Result<String, String> {
     let before = bar0.read_u32(PMC_ENABLE).unwrap_or(0xDEAD_DEAD);
     tracing::debug!(pmc_before = format!("0x{before:08x}"), "PMC_ENABLE before");
 
-    let _ = bar0.write_u32(PMC_ENABLE, 0xFFFF_FFFF);
+    match bar0.isolated_write_u32(PMC_ENABLE as u32, 0xFFFF_FFFF, ISOLATE_TIMEOUT) {
+        super::isolation::IsolationResult::Ok(()) => {}
+        super::isolation::IsolationResult::Timeout => {
+            return Err("PMC_ENABLE write TIMED OUT — GPU hung (child killed)".into());
+        }
+        other => {
+            return Err(format!("PMC_ENABLE write failed: {other:?}"));
+        }
+    }
     std::thread::sleep(Duration::from_millis(50));
 
     let after = bar0.read_u32(PMC_ENABLE).unwrap_or(0xDEAD_DEAD);
@@ -59,8 +67,12 @@ pub(crate) fn pmc_enable(bar0: &MappedBar) -> Result<String, String> {
         return Err(format!("PMC_ENABLE stuck at 0x{after:08x} after write"));
     }
 
-    // Enable interrupts
-    let _ = bar0.write_u32(PMC_INTR_EN_0, 0xFFFF_FFFF);
+    match bar0.isolated_write_u32(PMC_INTR_EN_0 as u32, 0xFFFF_FFFF, ISOLATE_TIMEOUT) {
+        super::isolation::IsolationResult::Ok(()) => {}
+        other => {
+            tracing::warn!("PMC_INTR_EN_0 write issue: {other:?}");
+        }
+    }
 
     Ok(format!("before=0x{before:08x} after=0x{after:08x}"))
 }
@@ -109,10 +121,7 @@ pub(crate) fn is_kepler(sm: u32) -> bool {
 /// trained after PCI reset.  This function reads the VBIOS, runs the
 /// DEVINIT script interpreter (via PMU falcon or host-side fallback),
 /// and verifies PRAMIN returns valid data afterward.
-pub(crate) fn gddr5_training(
-    bar0: &MappedBar,
-    bdf: &str,
-) -> Result<String, String> {
+pub(crate) fn gddr5_training(bar0: &MappedBar, bdf: &str) -> Result<String, String> {
     use crate::vfio::channel::devinit;
 
     if pramin_sentinel_test(bar0) {
@@ -298,9 +307,7 @@ pub(crate) fn falcon_boot(
         if is_0x12 {
             // (b) Inconsistent: nouveau teardown halted FECS without a clean
             //     freeze.  Firmware may still be in IMEM — try direct PIO kick.
-            tracing::warn!(
-                "FECS at cpuctl=0x12 (STARTCPU+HRESET) — attempting PIO re-bootstrap"
-            );
+            tracing::warn!("FECS at cpuctl=0x12 (STARTCPU+HRESET) — attempting PIO re-bootstrap");
             let chip = crate::nv::identity::chip_name(sm_version);
             match crate::nv::vfio_compute::fecs_boot::boot_gr_falcons(bar0, chip) {
                 Ok(result) if result.running => {

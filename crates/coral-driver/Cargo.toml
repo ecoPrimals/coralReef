@@ -35,6 +35,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [lints]
 workspace = true
 
+[[bin]]
+name = "coral-probe"
+path = "src/bin/coral_probe.rs"
+required-features = ["vfio"]
+
 [[test]]
 name = "exp123k_k80_sovereign"
 path = "tests/exp123k_k80_sovereign/mod.rs"

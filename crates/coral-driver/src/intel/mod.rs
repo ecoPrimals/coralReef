@@ -231,7 +231,10 @@ mod tests {
         let result = dev.dispatch(&[0u8; 32], &[], DispatchDims::linear(4), &info);
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
-        assert!(err.contains("DWORDs"), "error should mention batch size: {err}");
+        assert!(
+            err.contains("DWORDs"),
+            "error should mention batch size: {err}"
+        );
     }
 
     #[test]
@@ -245,6 +248,9 @@ mod tests {
         // GPGPU_WALKER (15) + PIPE_CONTROL (6) + MI_BATCH_BUFFER_END (1) = 22
         assert_eq!(batch.len(), 22);
         assert_eq!(batch[0] >> 16, ioctl::compute_cmd::GPGPU_WALKER_OPCODE);
-        assert_eq!(*batch.last().unwrap(), ioctl::compute_cmd::MI_BATCH_BUFFER_END);
+        assert_eq!(
+            *batch.last().unwrap(),
+            ioctl::compute_cmd::MI_BATCH_BUFFER_END
+        );
     }
 }

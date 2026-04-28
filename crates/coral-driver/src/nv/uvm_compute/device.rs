@@ -141,7 +141,9 @@ impl NvUvmComputeDevice {
                 match Self::open_via_kmod(kmod, gpu_index, sm) {
                     Ok(dev) => return Ok(dev),
                     Err(e) => {
-                        tracing::warn!("coral-kmod init failed ({e}), falling back to userspace RM");
+                        tracing::warn!(
+                            "coral-kmod init failed ({e}), falling back to userspace RM"
+                        );
                     }
                 }
             }
@@ -205,9 +207,9 @@ impl NvUvmComputeDevice {
         }
 
         {
+            use crate::nv::uvm::UVM_REGISTER_GPU;
             use crate::nv::uvm::nv_status::NV_OK;
             use crate::nv::uvm::structs::UvmRegisterGpuParams;
-            use crate::nv::uvm::UVM_REGISTER_GPU;
             let mut reg = UvmRegisterGpuParams::default();
             reg.gpu_uuid = info.gpu_uuid;
             reg.rm_ctrl_fd = ctl_fd;
@@ -228,12 +230,7 @@ impl NvUvmComputeDevice {
             }
         }
 
-        match uvm.register_gpu_vaspace(
-            &info.gpu_uuid,
-            ctl_fd,
-            info.h_client,
-            info.h_vaspace,
-        ) {
+        match uvm.register_gpu_vaspace(&info.gpu_uuid, ctl_fd, info.h_client, info.h_vaspace) {
             Ok(()) => tracing::debug!("UVM_REGISTER_GPU_VASPACE OK"),
             Err(e) => {
                 tracing::warn!(
@@ -288,21 +285,33 @@ impl NvUvmComputeDevice {
 
         let userd_mmap_file = open_mmap_fd()?;
         let userd_cpu_addr = kmod_map_rm_memory(
-            ctl_fd, userd_mmap_file.as_raw_fd(),
-            info.h_client, info.h_device, info.h_userd_mem,
-            0, info.userd_size,
+            ctl_fd,
+            userd_mmap_file.as_raw_fd(),
+            info.h_client,
+            info.h_device,
+            info.h_userd_mem,
+            0,
+            info.userd_size,
         )?;
         let gpfifo_mmap_file = open_mmap_fd()?;
         let gpfifo_cpu_addr = kmod_map_rm_memory(
-            ctl_fd, gpfifo_mmap_file.as_raw_fd(),
-            info.h_client, info.h_device, info.h_gpfifo_mem,
-            0, info.gpfifo_size,
+            ctl_fd,
+            gpfifo_mmap_file.as_raw_fd(),
+            info.h_client,
+            info.h_device,
+            info.h_gpfifo_mem,
+            0,
+            info.gpfifo_size,
         )?;
         let errnotif_mmap_file = open_mmap_fd()?;
         let errnotif_cpu_addr = kmod_map_rm_memory(
-            ctl_fd, errnotif_mmap_file.as_raw_fd(),
-            info.h_client, info.h_device, info.h_errnotif_mem,
-            0, 4096,
+            ctl_fd,
+            errnotif_mmap_file.as_raw_fd(),
+            info.h_client,
+            info.h_device,
+            info.h_errnotif_mem,
+            0,
+            4096,
         )?;
 
         let gpu_dev_file = std::fs::OpenOptions::new()
@@ -310,14 +319,16 @@ impl NvUvmComputeDevice {
             .write(true)
             .open(format!("/dev/nvidia{gpu_index}"))
             .map_err(|e| {
-                DriverError::DeviceNotFound(
-                    format!("nvidia{gpu_index} for doorbell: {e}").into(),
-                )
+                DriverError::DeviceNotFound(format!("nvidia{gpu_index} for doorbell: {e}").into())
             })?;
         let doorbell_addr = kmod_map_rm_memory(
-            ctl_fd, gpu_dev_file.as_raw_fd(),
-            info.h_client, info.h_device, info.h_usermode,
-            0, 4096,
+            ctl_fd,
+            gpu_dev_file.as_raw_fd(),
+            info.h_client,
+            info.h_device,
+            info.h_usermode,
+            0,
+            4096,
         )?;
 
         let ctx_buffers: Vec<CtxBuffer> = info
@@ -333,39 +344,62 @@ impl NvUvmComputeDevice {
 
         let uses_semaphore_fence = gpu_gen.uses_semaphore_fence();
 
-        let (fence_cpu_addr, fence_gpu_va, fence_mmap_fd,
-             fence_pb_cpu_addr, fence_pb_gpu_va, fence_pb_mmap_fd) =
-        if uses_semaphore_fence && info.h_fence_mem != 0 {
+        let (
+            fence_cpu_addr,
+            fence_gpu_va,
+            fence_mmap_fd,
+            fence_pb_cpu_addr,
+            fence_pb_gpu_va,
+            fence_pb_mmap_fd,
+        ) = if uses_semaphore_fence && info.h_fence_mem != 0 {
             let fence_fd = open_mmap_fd()?;
             let fence_cpu = kmod_map_rm_memory(
-                ctl_fd, fence_fd.as_raw_fd(),
-                info.h_client, info.h_device, info.h_fence_mem,
-                0, 4096,
+                ctl_fd,
+                fence_fd.as_raw_fd(),
+                info.h_client,
+                info.h_device,
+                info.h_fence_mem,
+                0,
+                4096,
             )?;
             unsafe { VolatilePtr::new(fence_cpu as *mut u32).write(0) };
 
             let fence_va = client.rm_map_memory_dma(
-                info.h_device, info.h_virt_mem, info.h_fence_mem, 0, 4096,
+                info.h_device,
+                info.h_virt_mem,
+                info.h_fence_mem,
+                0,
+                4096,
             )?;
 
             let h_fence_pb = info.h_device + 0x5006;
             client.alloc_system_memory(info.h_device, h_fence_pb, 4096)?;
             let fpb_fd = open_mmap_fd()?;
             let fpb_cpu = kmod_map_rm_memory(
-                ctl_fd, fpb_fd.as_raw_fd(),
-                info.h_client, info.h_device, h_fence_pb,
-                0, 4096,
+                ctl_fd,
+                fpb_fd.as_raw_fd(),
+                info.h_client,
+                info.h_device,
+                h_fence_pb,
+                0,
+                4096,
             )?;
-            let fpb_va = client.rm_map_memory_dma(
-                info.h_device, info.h_virt_mem, h_fence_pb, 0, 4096,
-            )?;
+            let fpb_va =
+                client.rm_map_memory_dma(info.h_device, info.h_virt_mem, h_fence_pb, 0, 4096)?;
 
             tracing::info!(
                 fence_va = format_args!("0x{fence_va:016X}"),
                 fpb_va = format_args!("0x{fpb_va:016X}"),
                 "kmod: Blackwell semaphore fence wired"
             );
-            (fence_cpu, fence_va, Some(fence_fd), fpb_cpu, fpb_va, Some(fpb_fd))
+            (
+                fence_cpu,
+                fence_va,
+                Some(fence_fd),
+                fpb_cpu,
+                fpb_va,
+                Some(fpb_fd),
+            )
         } else {
             (0, 0, None, 0, 0, None)
         };
@@ -468,9 +502,9 @@ impl NvUvmComputeDevice {
         let gpu_uuid = client.query_gpu_uuid(h_subdevice)?;
 
         {
+            use crate::nv::uvm::UVM_REGISTER_GPU;
             use crate::nv::uvm::nv_status::NV_OK;
             use crate::nv::uvm::structs::UvmRegisterGpuParams;
-            use crate::nv::uvm::UVM_REGISTER_GPU;
             let mut reg = UvmRegisterGpuParams::default();
             reg.gpu_uuid = gpu_uuid;
             reg.rm_ctrl_fd = client.ctl_fd();
@@ -505,7 +539,9 @@ impl NvUvmComputeDevice {
         // must use UVM_CREATE_EXTERNAL_RANGE + UVM_MAP_EXTERNAL_ALLOCATION.
         //
         // Pre-Blackwell: use flags=0x04 (RM-managed faulting) with RM_MAP_MEMORY_DMA.
-        use crate::nv::uvm::{NV_VASPACE_FLAGS_BLACKWELL_FAULTING, NV_VASPACE_FLAGS_ENABLE_FAULTING};
+        use crate::nv::uvm::{
+            NV_VASPACE_FLAGS_BLACKWELL_FAULTING, NV_VASPACE_FLAGS_ENABLE_FAULTING,
+        };
 
         let profile = crate::nv::generation::profile_for_sm(sm);
         let is_blackwell_plus = matches!(
@@ -516,12 +552,15 @@ impl NvUvmComputeDevice {
         let (h_vaspace, uses_uvm_mapping) = if is_blackwell_plus {
             match client.alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_BLACKWELL_FAULTING) {
                 Ok(h) => {
-                    tracing::debug!(h_vaspace = format_args!("0x{h:08X}"), "VA space BLACKWELL_FAULTING (0x48)");
-                    match uvm.register_gpu_vaspace(
-                        &gpu_uuid, client.ctl_fd(), client.handle(), h,
-                    ) {
+                    tracing::debug!(
+                        h_vaspace = format_args!("0x{h:08X}"),
+                        "VA space BLACKWELL_FAULTING (0x48)"
+                    );
+                    match uvm.register_gpu_vaspace(&gpu_uuid, client.ctl_fd(), client.handle(), h) {
                         Ok(()) => {
-                            tracing::debug!("UVM_REGISTER_GPU_VASPACE OK — UVM manages page tables");
+                            tracing::debug!(
+                                "UVM_REGISTER_GPU_VASPACE OK — UVM manages page tables"
+                            );
                             (h, true)
                         }
                         Err(e) => {
@@ -530,22 +569,31 @@ impl NvUvmComputeDevice {
                                  falling back to RM-managed VA space"
                             );
                             client.free_object(h_device, h).ok();
-                            let h2 = client.alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_ENABLE_FAULTING)
+                            let h2 = client
+                                .alloc_vaspace_with_flags(
+                                    h_device,
+                                    NV_VASPACE_FLAGS_ENABLE_FAULTING,
+                                )
                                 .or_else(|_| client.alloc_vaspace(h_device))?;
-                            tracing::debug!(h_vaspace = format_args!("0x{h2:08X}"), "VA space fallback ENABLE_FAULTING");
+                            tracing::debug!(
+                                h_vaspace = format_args!("0x{h2:08X}"),
+                                "VA space fallback ENABLE_FAULTING"
+                            );
                             (h2, false)
                         }
                     }
                 }
                 Err(e) => {
                     tracing::warn!("alloc_vaspace(0x48) failed: {e}, using 0x04");
-                    let h = client.alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_ENABLE_FAULTING)
+                    let h = client
+                        .alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_ENABLE_FAULTING)
                         .or_else(|_| client.alloc_vaspace(h_device))?;
                     (h, false)
                 }
             }
         } else {
-            let h = client.alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_ENABLE_FAULTING)
+            let h = client
+                .alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_ENABLE_FAULTING)
                 .or_else(|_| client.alloc_vaspace(h_device))?;
             match uvm.register_gpu_vaspace(&gpu_uuid, client.ctl_fd(), client.handle(), h) {
                 Ok(()) => tracing::debug!("UVM_REGISTER_GPU_VASPACE OK"),
@@ -564,10 +612,16 @@ impl NvUvmComputeDevice {
         }
 
         let h_changrp = client.alloc_channel_group(h_device, h_vaspace)?;
-        tracing::debug!(h_changrp = format_args!("0x{h_changrp:08X}"), "channel_group OK");
+        tracing::debug!(
+            h_changrp = format_args!("0x{h_changrp:08X}"),
+            "channel_group OK"
+        );
 
         let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, is_blackwell_plus)?;
-        tracing::debug!(h_ctxshare = format_args!("0x{h_ctxshare:08X}"), "context_share OK");
+        tracing::debug!(
+            h_ctxshare = format_args!("0x{h_ctxshare:08X}"),
+            "context_share OK"
+        );
 
         // NV01_MEMORY_VIRTUAL is required by RM even for externally-owned VA spaces.
         // It serves as a container for RM's internal VA space bookkeeping. On UVM mode,
@@ -589,9 +643,13 @@ impl NvUvmComputeDevice {
             let va = uvm_va_next;
             uvm.create_external_range(va, aligned)?;
             uvm.map_external_allocation(&ExternalMapping {
-                base: va, length: aligned, offset: 0,
-                rm_ctrl_fd: client.ctl_fd(), h_client: client.handle(),
-                h_memory: h_gpfifo_mem, gpu_uuid: &gpu_uuid,
+                base: va,
+                length: aligned,
+                offset: 0,
+                rm_ctrl_fd: client.ctl_fd(),
+                h_client: client.handle(),
+                h_memory: h_gpfifo_mem,
+                gpu_uuid: &gpu_uuid,
             })?;
             uvm_va_next = va + aligned;
             va
@@ -611,23 +669,37 @@ impl NvUvmComputeDevice {
             let userd_va = uvm_va_next;
             uvm.create_external_range(userd_va, userd_aligned)?;
             uvm.map_external_allocation(&ExternalMapping {
-                base: userd_va, length: userd_aligned, offset: 0,
-                rm_ctrl_fd: client.ctl_fd(), h_client: client.handle(),
-                h_memory: h_userd_mem, gpu_uuid: &gpu_uuid,
+                base: userd_va,
+                length: userd_aligned,
+                offset: 0,
+                rm_ctrl_fd: client.ctl_fd(),
+                h_client: client.handle(),
+                h_memory: h_userd_mem,
+                gpu_uuid: &gpu_uuid,
             })?;
             uvm_va_next = userd_va + userd_aligned;
-            tracing::debug!(userd_va = format_args!("0x{userd_va:016X}"), "USERD UVM mapped");
+            tracing::debug!(
+                userd_va = format_args!("0x{userd_va:016X}"),
+                "USERD UVM mapped"
+            );
 
             let errnotif_aligned = page_align(4096);
             let errnotif_va = uvm_va_next;
             uvm.create_external_range(errnotif_va, errnotif_aligned)?;
             uvm.map_external_allocation(&ExternalMapping {
-                base: errnotif_va, length: errnotif_aligned, offset: 0,
-                rm_ctrl_fd: client.ctl_fd(), h_client: client.handle(),
-                h_memory: h_errnotif_mem, gpu_uuid: &gpu_uuid,
+                base: errnotif_va,
+                length: errnotif_aligned,
+                offset: 0,
+                rm_ctrl_fd: client.ctl_fd(),
+                h_client: client.handle(),
+                h_memory: h_errnotif_mem,
+                gpu_uuid: &gpu_uuid,
             })?;
             uvm_va_next = errnotif_va + errnotif_aligned;
-            tracing::debug!(errnotif_va = format_args!("0x{errnotif_va:016X}"), "errnotif UVM mapped");
+            tracing::debug!(
+                errnotif_va = format_args!("0x{errnotif_va:016X}"),
+                "errnotif UVM mapped"
+            );
         }
 
         let (h_channel, hw_channel_id) = client.alloc_gpfifo_channel(
@@ -726,13 +798,7 @@ impl NvUvmComputeDevice {
             // Try kernel-privileged binding via coral-kmod (Blackwell+).
             if is_blackwell_plus {
                 if let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open() {
-                    match kmod.bind_channel(
-                        &gpu_uuid,
-                        client.handle(),
-                        h_vaspace,
-                        h_channel,
-                        sm,
-                    ) {
+                    match kmod.bind_channel(&gpu_uuid, client.handle(), h_vaspace, h_channel, sm) {
                         Ok(result) => {
                             tracing::debug!(
                                 resource_count = result.resource_count,
@@ -848,7 +914,12 @@ impl NvUvmComputeDevice {
                         for cb in &allocated {
                             if cb.gpu_va != 0 {
                                 client
-                                    .rm_unmap_memory_dma(h_device, h_virt_mem, cb.h_memory, cb.gpu_va)
+                                    .rm_unmap_memory_dma(
+                                        h_device,
+                                        h_virt_mem,
+                                        cb.h_memory,
+                                        cb.gpu_va,
+                                    )
                                     .ok();
                             }
                             client.free_object(h_device, cb.h_memory).ok();
@@ -862,7 +933,9 @@ impl NvUvmComputeDevice {
         };
 
         if kmod_bind_ok {
-            tracing::debug!("Skipping gr_ctxsw_setup_bind (kmod BindChannelResources already bound)");
+            tracing::debug!(
+                "Skipping gr_ctxsw_setup_bind (kmod BindChannelResources already bound)"
+            );
         } else if !uses_uvm_mapping {
             let main_ctx_va = ctx_buffers
                 .iter()
@@ -964,7 +1037,14 @@ impl NvUvmComputeDevice {
         // release written by the GPU into a separate fence buffer.
         let uses_semaphore_fence = gpu_gen.uses_semaphore_fence();
 
-        let (fence_cpu_addr, fence_gpu_va, fence_mmap_fd, fence_pb_cpu_addr, fence_pb_gpu_va, fence_pb_mmap_fd) = if uses_semaphore_fence {
+        let (
+            fence_cpu_addr,
+            fence_gpu_va,
+            fence_mmap_fd,
+            fence_pb_cpu_addr,
+            fence_pb_gpu_va,
+            fence_pb_mmap_fd,
+        ) = if uses_semaphore_fence {
             // Fence value buffer: GPU writes semaphore payload here.
             let h_fence_mem = h_device + 0x5005;
             client.alloc_system_memory(h_device, h_fence_mem, 4096)?;
@@ -975,9 +1055,13 @@ impl NvUvmComputeDevice {
                 let va = uvm_va_next;
                 uvm.create_external_range(va, aligned)?;
                 uvm.map_external_allocation(&ExternalMapping {
-                    base: va, length: aligned, offset: 0,
-                    rm_ctrl_fd: client.ctl_fd(), h_client: client.handle(),
-                    h_memory: h_fence_mem, gpu_uuid: &gpu_uuid,
+                    base: va,
+                    length: aligned,
+                    offset: 0,
+                    rm_ctrl_fd: client.ctl_fd(),
+                    h_client: client.handle(),
+                    h_memory: h_fence_mem,
+                    gpu_uuid: &gpu_uuid,
                 })?;
                 uvm_va_next = va + aligned;
                 va
@@ -985,13 +1069,8 @@ impl NvUvmComputeDevice {
                 client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_mem, 0, 4096)?
             };
             let fence_fd = open_ctl()?;
-            let fence_cpu = client.rm_map_memory_on_fd(
-                fence_fd.as_raw_fd(),
-                h_device,
-                h_fence_mem,
-                0,
-                4096,
-            )?;
+            let fence_cpu =
+                client.rm_map_memory_on_fd(fence_fd.as_raw_fd(), h_device, h_fence_mem, 0, 4096)?;
             unsafe { VolatilePtr::new(fence_cpu as *mut u32).write(0) };
 
             // Fence push buffer: rewritten before each fence submission.
@@ -1004,9 +1083,13 @@ impl NvUvmComputeDevice {
                 let va = uvm_va_next;
                 uvm.create_external_range(va, aligned)?;
                 uvm.map_external_allocation(&ExternalMapping {
-                    base: va, length: aligned, offset: 0,
-                    rm_ctrl_fd: client.ctl_fd(), h_client: client.handle(),
-                    h_memory: h_fence_pb, gpu_uuid: &gpu_uuid,
+                    base: va,
+                    length: aligned,
+                    offset: 0,
+                    rm_ctrl_fd: client.ctl_fd(),
+                    h_client: client.handle(),
+                    h_memory: h_fence_pb,
+                    gpu_uuid: &gpu_uuid,
                 })?;
                 uvm_va_next = va + aligned;
                 va
@@ -1014,20 +1097,22 @@ impl NvUvmComputeDevice {
                 client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_pb, 0, 4096)?
             };
             let fpb_fd = open_ctl()?;
-            let fpb_cpu = client.rm_map_memory_on_fd(
-                fpb_fd.as_raw_fd(),
-                h_device,
-                h_fence_pb,
-                0,
-                4096,
-            )?;
+            let fpb_cpu =
+                client.rm_map_memory_on_fd(fpb_fd.as_raw_fd(), h_device, h_fence_pb, 0, 4096)?;
 
             tracing::info!(
                 fence_va = format_args!("0x{fence_va:016X}"),
                 fpb_va = format_args!("0x{fpb_va:016X}"),
                 "Blackwell semaphore fence allocated (GP_GET unavailable)"
             );
-            (fence_cpu, fence_va, Some(fence_fd), fpb_cpu, fpb_va, Some(fpb_fd))
+            (
+                fence_cpu,
+                fence_va,
+                Some(fence_fd),
+                fpb_cpu,
+                fpb_va,
+                Some(fpb_fd),
+            )
         } else {
             (0, 0, None, 0, 0, None)
         };
@@ -1151,8 +1236,7 @@ impl NvUvmComputeDevice {
         let slm_size: u64 = 2 * 1024 * 1024; // 2 MiB
         dev.client
             .alloc_system_memory(h_device, h_slm_mem, slm_size)?;
-        let slm_gpu_va =
-            dev.gpu_map_buffer(h_slm_mem, slm_size)?;
+        let slm_gpu_va = dev.gpu_map_buffer(h_slm_mem, slm_size)?;
         tracing::info!(
             slm_gpu_va = format_args!("0x{slm_gpu_va:016X}"),
             slm_size,
@@ -1176,16 +1260,13 @@ impl NvUvmComputeDevice {
                 .map_err(|_| DriverError::platform_overflow("init pb dwords fits u32"))?;
 
             let h_init_mem = h_device + 0x5FFE;
-            dev.client
-                .alloc_system_memory(h_device, h_init_mem, 4096)?;
+            dev.client.alloc_system_memory(h_device, h_init_mem, 4096)?;
             let init_gpu_va = dev.gpu_map_buffer_infra(h_init_mem, 4096)?;
             let init_fd = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .open("/dev/nvidiactl")
-                .map_err(|e| {
-                    DriverError::DeviceNotFound(format!("nvidiactl: {e}").into())
-                })?;
+                .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl: {e}").into()))?;
             let init_cpu = dev.client.rm_map_memory_on_fd(
                 init_fd.as_raw_fd(),
                 h_device,
@@ -1480,10 +1561,7 @@ impl NvUvmComputeDevice {
         // SAFETY: fence_pb_cpu_addr is a valid 4096-byte mmap. We write 20 bytes.
         unsafe {
             // INC_METHOD header: count=4, subchan=COMPUTE, method=0x1B00>>2
-            let header = (1_u32 << 29)
-                | (4 << 16)
-                | (SUBCHAN_COMPUTE << 13)
-                | (REPORT_SEM_A >> 2);
+            let header = (1_u32 << 29) | (4 << 16) | (SUBCHAN_COMPUTE << 13) | (REPORT_SEM_A >> 2);
             VolatilePtr::new(pb).write(header);
             #[expect(
                 clippy::cast_possible_truncation,
@@ -1499,7 +1577,10 @@ impl NvUvmComputeDevice {
         }
 
         self.submit_gpfifo(self.fence_pb_gpu_va, 5)?;
-        tracing::debug!(fence_value = fv, "Blackwell fence release submitted (compute engine)");
+        tracing::debug!(
+            fence_value = fv,
+            "Blackwell fence release submitted (compute engine)"
+        );
         Ok(())
     }
 

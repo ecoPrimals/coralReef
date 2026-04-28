@@ -31,12 +31,27 @@ pub mod diagnostics;
 mod dispatch;
 pub mod falcon_capability;
 pub mod fecs_boot;
+mod gr_bar0;
 pub mod gr_context;
 mod gr_engine_status;
+pub mod hardware_guard;
 mod init;
+mod kepler_clock;
+mod kepler_cold;
+pub mod kepler_csdata;
+mod kepler_fecs_boot;
+mod kepler_gr_init;
+mod kepler_recovery;
+mod kepler_warm;
 mod layout;
+mod pgob;
+mod pmu;
+mod pri;
+mod quiesce;
 mod raw_device;
 mod submission;
+mod vbios_devinit;
+mod warm_channel;
 
 pub use gr_engine_status::GrEngineStatus;
 pub use raw_device::RawVfioDevice;
@@ -81,6 +96,8 @@ pub struct NvVfioComputeDevice {
     fence_buf: Option<DmaBuffer>,
     fence_pb_buf: Option<DmaBuffer>,
     fence_value: u32,
+    /// Guard page at IOVA 0x0 — absorbs firmware DMA to low addresses.
+    guard_page: Option<DmaBuffer>,
     device: VfioDevice,
 }
 
@@ -440,6 +457,14 @@ impl NvVfioComputeDevice {
 
 impl Drop for NvVfioComputeDevice {
     fn drop(&mut self) {
+        // CRITICAL ORDER: disable bus mastering FIRST to immediately cut all
+        // outbound DMA, preventing AMD-Vi IO_PAGE_FAULTs that freeze the IOMMU
+        // globally (stalling display GPU translations → UI freeze).
+        self.device.disable_bus_master();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        quiesce::quiesce_gpu_engines(&self.bar0);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
         let inflight = std::mem::take(&mut self.inflight);
         for h in inflight {
             let _ = self.free(h);

@@ -64,9 +64,7 @@ impl ComputeDevice for NvUvmComputeDevice {
             .read(true)
             .write(true)
             .open("/dev/nvidiactl")
-            .map_err(|e| {
-                DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into())
-            })?;
+            .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into()))?;
         let cpu_addr = self.client.rm_map_memory_on_fd(
             mmap_file.as_raw_fd(),
             self.h_device,
@@ -231,12 +229,15 @@ impl ComputeDevice for NvUvmComputeDevice {
                 let va_lo = (va & 0xFFFF_FFFF) as u32;
                 let va_hi = (va >> 32) as u32;
                 let mut patched = shader.to_vec();
-                let words: &mut [u32] =
-                    bytemuck::cast_slice_mut(&mut patched);
+                let words: &mut [u32] = bytemuck::cast_slice_mut(&mut patched);
                 if words.len() >= 8 {
                     // Use the same 128-bit encoding as the existing MOV R2
                     // (instruction 2 at words[8..12]) for correct flag/sched bits.
-                    let mov_w2 = if words.len() > 10 { words[10] } else { 0x0000_0F00 };
+                    let mov_w2 = if words.len() > 10 {
+                        words[10]
+                    } else {
+                        0x0000_0F00
+                    };
 
                     // Instr 0: MOV R0, va_lo
                     words[0] = 0x0000_7802; // opcode=MOV, pred=PT, dst=R0

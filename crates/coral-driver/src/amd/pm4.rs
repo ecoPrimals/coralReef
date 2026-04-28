@@ -8,8 +8,8 @@
 //! 3. `COMPUTE_NUM_THREAD_X`/`Y`/`Z` — workgroup size
 //! 4. `DISPATCH_DIRECT` — launch the compute shader
 
-use crate::{DispatchDims, ShaderInfo};
 use super::generation::{AmdGenerationProfile, CacheMethod};
+use crate::{DispatchDims, ShaderInfo};
 
 // PM4 packet types
 const PM4_TYPE3: u32 = 3 << 30;
@@ -256,11 +256,7 @@ const fn compute_pgm_rsrc1(
     let vgpr_encoded = (vgpr_count.div_ceil(vgpr_granularity)).saturating_sub(1);
     let sgpr_encoded = (sgpr_count.div_ceil(16)).saturating_sub(1);
     let float_mode = 0xC0_u32;
-    let mut rsrc1 = vgpr_encoded
-        | (sgpr_encoded << 6)
-        | (float_mode << 12)
-        | (1 << 21)
-        | (1 << 23);
+    let mut rsrc1 = vgpr_encoded | (sgpr_encoded << 6) | (float_mode << 12) | (1 << 21) | (1 << 23);
     if gfx_major >= 10 {
         rsrc1 |= 1 << 29;
         rsrc1 |= 1 << 30;

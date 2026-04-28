@@ -20,13 +20,14 @@ const FECS_MTHD_STATUS2: usize = falcon::FECS_BASE + falcon::MTHD_STATUS2;
 /// Submit a method to FECS and wait for completion.
 ///
 /// Follows nouveau's `gf100_gr_fecs_ctrl_ctxsw`:
-///   1. Write `0x409804 = status2_val` (pre-set expected status)
-///   2. Clear `0x409800`
+///   1. Write `0x409804 = 0x01` (set trigger flag for firmware)
+///   2. Clear `0x409800 = 0`
 ///   3. Write data to `0x409500`
 ///   4. Write method to `0x409504`
-///   5. Poll `0x409804` for `0x01` (success) or `0x02` (error)
+///   5. Poll `0x409804` until firmware clears it to `0x00`
+///   6. Read `0x409800`: `0x01` = success, `0x02` = error
 fn fecs_ctrl_ctxsw(bar0: &MappedBar, method: u32, data: u32, timeout_ms: u64) -> DriverResult<u32> {
-    let _ = bar0.write_u32(FECS_MTHD_STATUS2, 0);
+    let _ = bar0.write_u32(FECS_MTHD_STATUS2, 0x0000_0001);
     let _ = bar0.write_u32(FECS_MTHD_STATUS, 0);
     let _ = bar0.write_u32(FECS_MTHD_DATA, data);
     let _ = bar0.write_u32(FECS_MTHD_CMD, method);
@@ -34,19 +35,25 @@ fn fecs_ctrl_ctxsw(bar0: &MappedBar, method: u32, data: u32, timeout_ms: u64) ->
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1));
-        let status2 = bar0.read_u32(FECS_MTHD_STATUS2).unwrap_or(0);
-        if status2 == 0x01 {
-            let result = bar0.read_u32(FECS_MTHD_DATA).unwrap_or(0);
-            return Ok(result);
-        }
-        if status2 == 0x02 {
-            return Err(DriverError::SubmitFailed(
-                format!(
-                    "FECS method {method:#06x} error: status2=0x02 status={:#010x}",
-                    bar0.read_u32(FECS_MTHD_STATUS).unwrap_or(0xDEAD)
-                )
-                .into(),
-            ));
+        let status2 = bar0.read_u32(FECS_MTHD_STATUS2).unwrap_or(0xDEAD);
+        if status2 == 0x00 {
+            let status = bar0.read_u32(FECS_MTHD_STATUS).unwrap_or(0xDEAD);
+            match status {
+                0x01 => {
+                    let result = bar0.read_u32(FECS_MTHD_DATA).unwrap_or(0);
+                    return Ok(result);
+                }
+                0x02 => {
+                    return Err(DriverError::SubmitFailed(
+                        format!("FECS method {method:#06x} error: status={status:#010x}").into(),
+                    ));
+                }
+                other => {
+                    return Err(DriverError::SubmitFailed(
+                        format!("FECS method {method:#06x} unexpected status={other:#010x}").into(),
+                    ));
+                }
+            }
         }
         if std::time::Instant::now() > deadline {
             return Err(DriverError::OracleError(

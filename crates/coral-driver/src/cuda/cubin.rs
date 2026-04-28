@@ -21,25 +21,58 @@ const ELF64_SHDR_SIZE: usize = 64;
 /// Symbol table entry size for 64-bit.
 const ELF64_SYM_SIZE: usize = 24;
 
-/// NVIDIA cubin `e_flags` encoding: `(sm << 16) | 0x0500 | sm`.
-/// Matches the format observed in nvcc-generated cubins for SM35–SM120.
+/// NVIDIA cubin `e_flags` encoding.
+///
+/// Pre-Blackwell (SM35–SM89): `(sm << 16) | 0x0500 | sm`
+/// Blackwell+ (SM100+):       `(0x06 << 24) | (sm << 8) | 0x02`
+///
+/// Validated against nvcc 12.8 ptxas output for SM70 and SM120.
 const fn sm_to_elf_flags(sm: u32) -> u32 {
-    (sm << 16) | 0x0500 | sm
+    if sm >= 100 {
+        (0x06 << 24) | (sm << 8) | 0x02
+    } else {
+        (sm << 16) | 0x0500 | sm
+    }
 }
 
-/// NVIDIA cubin ELF ident — OS/ABI 0x33, ABI version 0x07.
-const ELF_IDENT: [u8; 16] = [
+/// NVIDIA cubin ELF ident for pre-Blackwell — OS/ABI 0x33, ABI version 0x07.
+const ELF_IDENT_LEGACY: [u8; 16] = [
     0x7f, b'E', b'L', b'F', // magic
     2,    // ELFCLASS64
     1,    // ELFDATA2LSB
     1,    // EV_CURRENT
-    0x33, // NVIDIA CUDA OS/ABI
+    0x33, // NVIDIA CUDA OS/ABI (pre-Blackwell)
     0x07, // ABI version 7
     0, 0, 0, 0, 0, 0, 0, // padding
 ];
 
-/// NVIDIA cubin `e_version` value (0x7e, matches nvcc output).
-const NV_ELF_VERSION: u32 = 0x7e;
+/// NVIDIA cubin ELF ident for Blackwell+ — OS/ABI 0x41, ABI version 0x08.
+const ELF_IDENT_BLACKWELL: [u8; 16] = [
+    0x7f, b'E', b'L', b'F', // magic
+    2,    // ELFCLASS64
+    1,    // ELFDATA2LSB
+    1,    // EV_CURRENT
+    0x41, // NVIDIA CUDA OS/ABI (Blackwell+)
+    0x08, // ABI version 8
+    0, 0, 0, 0, 0, 0, 0, // padding
+];
+
+/// Select ELF ident bytes based on SM version.
+const fn elf_ident_for_sm(sm: u32) -> &'static [u8; 16] {
+    if sm >= 100 {
+        &ELF_IDENT_BLACKWELL
+    } else {
+        &ELF_IDENT_LEGACY
+    }
+}
+
+/// NVIDIA cubin `e_version` value.
+///
+/// Pre-Blackwell: 0x7e (matches nvcc output for SM35–SM89).
+/// Blackwell+:    0x01 (standard EV_CURRENT, matches nvcc 12.8 SM120 output).
+const fn elf_version_for_sm(sm: u32) -> u32 {
+    if sm >= 100 { 0x01 } else { 0x7e }
+}
 
 /// Section types.
 const SHT_NULL: u32 = 0;
@@ -206,10 +239,10 @@ pub fn assemble_cubin(sass_bytes: &[u8], info: &CubinKernelInfo) -> Vec<u8> {
     let mut elf = Vec::with_capacity(total_size);
 
     // ---- ELF header ----
-    elf.extend_from_slice(&ELF_IDENT);
+    elf.extend_from_slice(elf_ident_for_sm(info.sm));
     elf.extend_from_slice(&2_u16.to_le_bytes()); // e_type: ET_EXEC
     elf.extend_from_slice(&0xBE_u16.to_le_bytes()); // e_machine: EM_CUDA
-    elf.extend_from_slice(&NV_ELF_VERSION.to_le_bytes()); // e_version
+    elf.extend_from_slice(&elf_version_for_sm(info.sm).to_le_bytes()); // e_version
     elf.extend_from_slice(&0_u64.to_le_bytes()); // e_entry
     elf.extend_from_slice(&0_u64.to_le_bytes()); // e_phoff (no program headers)
     elf.extend_from_slice(&(shdr_offset as u64).to_le_bytes()); // e_shoff
@@ -449,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn cubin_sm120_flags() {
+    fn cubin_sm120_flags_blackwell_format() {
         let sass = vec![0u8; 32];
         let info = CubinKernelInfo {
             sm: 120,
@@ -459,7 +492,29 @@ mod tests {
         };
         let cubin = assemble_cubin(&sass, &info);
         let flags = u32::from_le_bytes([cubin[48], cubin[49], cubin[50], cubin[51]]);
-        assert_eq!(flags, (120 << 16) | 0x0500 | 120);
+        assert_eq!(flags, 0x0600_7802, "SM120 flags = (0x06<<24)|(120<<8)|0x02");
+    }
+
+    #[test]
+    fn cubin_sm120_elf_ident_blackwell() {
+        let sass = vec![0u8; 16];
+        let info = CubinKernelInfo {
+            sm: 120,
+            gpr_count: 16,
+            shared_mem_bytes: 0,
+            barrier_count: 0,
+        };
+        let cubin = assemble_cubin(&sass, &info);
+        assert_eq!(cubin[7], 0x41, "Blackwell OS/ABI");
+        assert_eq!(cubin[8], 0x08, "Blackwell ABI version 8");
+        let version = u32::from_le_bytes([cubin[20], cubin[21], cubin[22], cubin[23]]);
+        assert_eq!(version, 0x01, "Blackwell e_version = EV_CURRENT");
+    }
+
+    #[test]
+    fn cubin_sm100_flags_blackwell_format() {
+        let flags = sm_to_elf_flags(100);
+        assert_eq!(flags, 0x0600_6402, "SM100 flags match nvcc 12.8");
     }
 
     #[test]

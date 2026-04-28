@@ -37,9 +37,7 @@ pub(super) fn promote_ctx_buffers_userspace(
             profile.boot_strategy,
             crate::nv::generation::BootStrategy::KmodPromote
         );
-        if is_blackwell_plus
-            && let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open()
-        {
+        if is_blackwell_plus && let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open() {
             match kmod.bind_channel(gpu_uuid, client.handle(), h_vaspace, h_channel, sm) {
                 Ok(result) => {
                     tracing::info!(

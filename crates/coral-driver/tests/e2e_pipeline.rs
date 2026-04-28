@@ -75,8 +75,8 @@ mod intel_trait_flow {
 
 #[cfg(feature = "cuda")]
 mod cubin_assembly {
-    use coral_driver::cuda::cubin::{CubinKernelInfo, assemble_cubin, is_cubin};
     use coral_driver::ShaderInfo;
+    use coral_driver::cuda::cubin::{CubinKernelInfo, assemble_cubin, is_cubin};
 
     #[test]
     fn from_shader_info_round_trip() {
@@ -122,16 +122,22 @@ mod cubin_assembly {
         };
         let elf = assemble_cubin(&sass, &info);
         // .text is 128-byte aligned — find SASS by content search
-        let pos = elf.windows(sass.len()).position(|w| w == &sass[..])
+        let pos = elf
+            .windows(sass.len())
+            .position(|w| w == &sass[..])
             .expect("SASS content not found in assembled cubin");
-        assert_eq!(pos % 128, 0, "SASS at offset {pos} must be 128-byte aligned");
+        assert_eq!(
+            pos % 128,
+            0,
+            "SASS at offset {pos} must be 128-byte aligned"
+        );
         assert_eq!(&elf[pos..pos + sass.len()], &sass[..]);
     }
 }
 
 mod qmd_cbuf_layout {
-    use coral_driver::nv::qmd;
     use coral_driver::DispatchDims;
+    use coral_driver::nv::qmd;
 
     #[test]
     fn standard_cbufs_has_eight_entries() {

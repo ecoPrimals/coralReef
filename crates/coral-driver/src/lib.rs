@@ -133,9 +133,7 @@ pub mod intel;
 pub mod gsp;
 
 pub use error::{ChannelError, DevinitError, DriverError, DriverResult, PciDiscoveryError};
-pub use hardware::{
-    CompletionStyle, HardwareCapabilities, MemoryType, Vendor, WaveSize,
-};
+pub use hardware::{CompletionStyle, HardwareCapabilities, MemoryType, Vendor, WaveSize};
 
 /// An opaque GPU buffer handle.
 ///

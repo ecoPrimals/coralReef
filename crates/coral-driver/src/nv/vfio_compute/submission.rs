@@ -144,8 +144,7 @@ impl NvVfioComputeDevice {
         const REPORT_SEM_A: u32 = 0x1B00;
         const SEM_D_RELEASE_ONE_WORD: u32 = 1 << 28;
 
-        let header =
-            (1_u32 << 29) | (4 << 16) | (SUBCHAN_COMPUTE << 13) | (REPORT_SEM_A >> 2);
+        let header = (1_u32 << 29) | (4 << 16) | (SUBCHAN_COMPUTE << 13) | (REPORT_SEM_A >> 2);
         #[expect(
             clippy::cast_possible_truncation,
             reason = "fence IOVA upper bits fit in u32"

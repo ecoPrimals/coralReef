@@ -5,7 +5,6 @@
 //! per-dispatch, and GR context init workloads. Each push buffer is a
 //! sequence of `u32` words containing method headers and data.
 
-
 /// Push buffer builder.
 ///
 /// Wraps a growable `Vec<u32>` of GPU method+data words.
@@ -30,7 +29,8 @@ impl PushBuf {
     /// - Bits [15:13] = subchannel
     /// - Bits [12:0]  = method address >> 2
     pub fn push_1(&mut self, subchannel: u32, method_addr: u32, value: u32) {
-        let hdr = (1u32 << 29) | (1 << 16) | ((subchannel & 0x7) << 13) | ((method_addr >> 2) & 0x1FFF);
+        let hdr =
+            (1u32 << 29) | (1 << 16) | ((subchannel & 0x7) << 13) | ((method_addr >> 2) & 0x1FFF);
         self.data.push(hdr);
         self.data.push(value);
     }
@@ -149,11 +149,7 @@ impl PushBuf {
                 method::SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_B,
                 slm_per_tpc_bytes as u32,
             );
-            pb.push_1(
-                sub,
-                method::SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_C,
-                0xFF,
-            );
+            pb.push_1(sub, method::SET_SHADER_LOCAL_MEMORY_NON_THROTTLED_C, 0xFF);
         }
 
         pb
@@ -288,9 +284,7 @@ mod tests {
         let pb = PushBuf::compute_dispatch(0xC6C0, 0x2_0000_0000);
         let words = pb.as_words();
         let pcas2_method = method::SEND_SIGNALING_PCAS2_B >> 2;
-        let found = words
-            .chunks(2)
-            .any(|w| (w[0] & 0x1FFF) == pcas2_method);
+        let found = words.chunks(2).any(|w| (w[0] & 0x1FFF) == pcas2_method);
         assert!(found, "Ampere+ should use SEND_SIGNALING_PCAS2_B");
     }
 
@@ -299,9 +293,7 @@ mod tests {
         let pb = PushBuf::compute_dispatch(0xC5C0, 0x1_0000_0000);
         let words = pb.as_words();
         let pcas_method = method::SEND_SIGNALING_PCAS_B >> 2;
-        let found = words
-            .chunks(2)
-            .any(|w| (w[0] & 0x1FFF) == pcas_method);
+        let found = words.chunks(2).any(|w| (w[0] & 0x1FFF) == pcas_method);
         assert!(found, "Turing should use SEND_SIGNALING_PCAS_B");
     }
 

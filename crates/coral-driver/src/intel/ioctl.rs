@@ -419,7 +419,13 @@ pub mod compute_cmd {
         group_count: [u32; 3],
         local_size: [u32; 3],
     ) -> Vec<u32> {
-        let simd_size = if local_size[0] >= 32 { 2 } else if local_size[0] >= 16 { 1 } else { 0 };
+        let simd_size = if local_size[0] >= 32 {
+            2
+        } else if local_size[0] >= 16 {
+            1
+        } else {
+            0
+        };
 
         let thread_width_x = (local_size[0].max(1) + (1 << (simd_size + 3)) - 1) >> (simd_size + 3);
         let thread_height_y = local_size[1].max(1);

@@ -38,6 +38,11 @@ pub mod gpfifo {
 /// IOVA base for user DMA allocations — above all fixed allocations.
 pub(super) const USER_IOVA_BASE: u64 = 0x10_0000;
 
+/// Guard page IOVA — absorbs spurious firmware DMA (e.g. FECS/PMU accessing
+/// IOVA 0x200 during boot on K80). Without this mapping, such DMA causes
+/// IO_PAGE_FAULT which triggers an IOMMU device reset mid-operation.
+pub(super) const GUARD_PAGE_IOVA: u64 = 0x0;
+
 /// GPFIFO ring IOVA.
 pub(super) const GPFIFO_IOVA: u64 = 0x1000;
 
@@ -117,8 +122,16 @@ mod tests {
 
     #[test]
     fn fence_iovas_page_aligned() {
-        assert_eq!(FENCE_BUF_IOVA % 4096, 0, "fence buf IOVA must be page-aligned");
-        assert_eq!(FENCE_PB_IOVA % 4096, 0, "fence pb IOVA must be page-aligned");
+        assert_eq!(
+            FENCE_BUF_IOVA % 4096,
+            0,
+            "fence buf IOVA must be page-aligned"
+        );
+        assert_eq!(
+            FENCE_PB_IOVA % 4096,
+            0,
+            "fence pb IOVA must be page-aligned"
+        );
     }
 
     #[test]

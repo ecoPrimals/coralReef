@@ -237,6 +237,66 @@ impl CudaComputeDevice {
 
         Ok(())
     }
+
+    /// Dispatch a PTX kernel compiled by `coral-reef` for SM100+ targets.
+    ///
+    /// The PTX parameter convention includes both buffer pointers and byte
+    /// sizes (for `arrayLength` support): `(ptr0, size0, ptr1, size1, ...)`.
+    pub fn dispatch_ptx_compiled(
+        &mut self,
+        ptx: &[u8],
+        buffers: &[BufferHandle],
+        dims: DispatchDims,
+        info: &ShaderInfo,
+    ) -> DriverResult<()> {
+        let ptx_src = std::str::from_utf8(ptx).map_err(|e| {
+            DriverError::DispatchFailed(format!("PTX is not valid UTF-8: {e}").into())
+        })?;
+        let module = self
+            .ctx
+            .load_module(Ptx::from_src(ptx_src))
+            .map_err(|e| DriverError::DispatchFailed(format!("CUDA PTX load: {e}").into()))?;
+        let func = module.load_function("main_kernel").map_err(|e| {
+            DriverError::DispatchFailed(format!("kernel 'main_kernel' not found: {e}").into())
+        })?;
+
+        let config = cudarc::driver::LaunchConfig {
+            grid_dim: (dims.x, dims.y, dims.z),
+            block_dim: (
+                info.workgroup[0].max(1),
+                info.workgroup[1].max(1),
+                info.workgroup[2].max(1),
+            ),
+            shared_mem_bytes: info.shared_mem_bytes,
+        };
+
+        let buf_info: Vec<(cudarc::driver::sys::CUdeviceptr, u64)> = buffers
+            .iter()
+            .map(|bh| {
+                self.buffers
+                    .get(&bh.0)
+                    .map(|b| {
+                        let (ptr, _guard) = b.slice.device_ptr(&self.stream);
+                        (ptr, b.size)
+                    })
+                    .ok_or(DriverError::BufferNotFound(*bh))
+            })
+            .collect::<DriverResult<Vec<_>>>()?;
+
+        let mut builder = self.stream.launch_builder(&func);
+        for (ptr, size) in &buf_info {
+            builder.arg(ptr);
+            builder.arg(size);
+        }
+
+        unsafe {
+            builder.launch(config).map_err(|e| {
+                DriverError::DispatchFailed(format!("CUDA PTX kernel launch: {e}").into())
+            })?;
+        }
+
+        Ok(())
+    }
 }
 
 impl ComputeDevice for CudaComputeDevice {

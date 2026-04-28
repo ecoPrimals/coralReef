@@ -68,6 +68,41 @@ pub enum NctaidSource {
     DriverCbuf7,
 }
 
+/// GPU MMU page table format used by this generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageTableFormat {
+    /// Fermi/Kepler 2-level (PD + PT) with 40-bit physical address.
+    /// PDE: 8 bytes, `[2:0]=target, [4]=present`. PTE: 8 bytes, `[0]=present, [2:1]=target`.
+    /// 128 TB VA space = 1 PD level + 1 PT level. Pages = 4 KiB small / 128 KiB big.
+    V1TwoLevel,
+    /// GP100+ 5-level (PD3→PD2→PD1→PD0→PT) with V2 PDE/PTE encoding.
+    /// PDEs: `addr >> 4 | aperture | VOL`. PD0 dual-entry (16 bytes: small + large).
+    /// 128 TB VA space. Pages = 4 KiB small / 64 KiB big.
+    V2FiveLevel,
+}
+
+/// Instance block layout for the PFIFO channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceBlockFormat {
+    /// Kepler/Maxwell: RAMFC + simple PDB at 0x200. No subcontext array.
+    /// `PAGE_DIR_BASE` at RAMIN offset 0x200, `ADDR_LIMIT` at 0x208.
+    Simple,
+    /// Volta+: RAMFC + PDB + 64-subcontext array.
+    /// `SC_PDB_VALID` at 0x298, `SC0_PDB` at 0x2A0, etc.
+    Subcontexted,
+}
+
+/// Runlist entry format and register layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunlistFormat {
+    /// GK104/GK110: 8-byte channel entries, global RUNLIST_BASE/SUBMIT at 0x2270/0x2274.
+    /// Entry: `[31:12]=INST_PTR, [9:8]=INST_TARGET, [0]=ENABLE`.
+    Gk104Global,
+    /// GV100+: 16-byte TSG header + 16-byte channel entries, per-runlist
+    /// BASE/SUBMIT at stride 0x10 from 0x2270.
+    Gv100PerRunlist,
+}
+
 /// Consolidated per-generation GPU knowledge.
 ///
 /// Every property that varies by NVIDIA GPU generation is collected here.
@@ -112,6 +147,12 @@ pub struct GenerationProfile {
     pub recommended_workgroup_size: u32,
     /// Maximum concurrent CTAs (workgroups) per SM.
     pub max_cta_per_sm: u32,
+    /// GPU MMU page table format.
+    pub page_table_format: PageTableFormat,
+    /// Instance block layout (simple vs subcontexted).
+    pub instance_block_format: InstanceBlockFormat,
+    /// Runlist entry format and register programming.
+    pub runlist_format: RunlistFormat,
 }
 
 const LOCAL_MEM_WINDOW_LEGACY: u64 = 0xFF00_0000;
@@ -137,6 +178,9 @@ pub const KEPLER: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: true,
     recommended_workgroup_size: 128,
     max_cta_per_sm: 32,
+    page_table_format: PageTableFormat::V1TwoLevel,
+    instance_block_format: InstanceBlockFormat::Simple,
+    runlist_format: RunlistFormat::Gk104Global,
 };
 
 /// Maxwell (GM200) — GTX 980 Ti, Titan X (Maxwell).
@@ -159,6 +203,9 @@ pub const MAXWELL: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: false,
     recommended_workgroup_size: 128,
     max_cta_per_sm: 32,
+    page_table_format: PageTableFormat::V1TwoLevel,
+    instance_block_format: InstanceBlockFormat::Simple,
+    runlist_format: RunlistFormat::Gk104Global,
 };
 
 /// Pascal (GP100/GP102) — GTX 1080, Tesla P100.
@@ -184,6 +231,9 @@ pub const PASCAL: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: true,
     recommended_workgroup_size: 256,
     max_cta_per_sm: 32,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Simple,
+    runlist_format: RunlistFormat::Gk104Global,
 };
 
 /// Volta (GV100) — Titan V, Tesla V100.
@@ -206,6 +256,9 @@ pub const VOLTA: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: true,
     recommended_workgroup_size: 128,
     max_cta_per_sm: 32,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Subcontexted,
+    runlist_format: RunlistFormat::Gv100PerRunlist,
 };
 
 /// Turing (TU102/TU104/TU106) — RTX 2080, Tesla T4.
@@ -228,6 +281,9 @@ pub const TURING: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: false,
     recommended_workgroup_size: 256,
     max_cta_per_sm: 16,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Subcontexted,
+    runlist_format: RunlistFormat::Gv100PerRunlist,
 };
 
 /// Ampere A (GA100) — A100 datacenter.
@@ -250,6 +306,9 @@ pub const AMPERE_A: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: true,
     recommended_workgroup_size: 256,
     max_cta_per_sm: 16,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Subcontexted,
+    runlist_format: RunlistFormat::Gv100PerRunlist,
 };
 
 /// Ampere B (GA102/GA104/GA106/GA107) — RTX 3090, RTX 3080, etc.
@@ -272,6 +331,9 @@ pub const AMPERE_B: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: false,
     recommended_workgroup_size: 256,
     max_cta_per_sm: 16,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Subcontexted,
+    runlist_format: RunlistFormat::Gv100PerRunlist,
 };
 
 /// Ada Lovelace (AD102/AD103/AD104) — RTX 4090, RTX 4080, etc.
@@ -294,6 +356,9 @@ pub const ADA: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: false,
     recommended_workgroup_size: 256,
     max_cta_per_sm: 16,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Subcontexted,
+    runlist_format: RunlistFormat::Gv100PerRunlist,
 };
 
 /// Hopper (GH100) — H100, H200 datacenter.
@@ -316,6 +381,9 @@ pub const HOPPER: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: true,
     recommended_workgroup_size: 256,
     max_cta_per_sm: 16,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Subcontexted,
+    runlist_format: RunlistFormat::Gv100PerRunlist,
 };
 
 /// Blackwell A (GB100/GB102) — B100, B200 datacenter.
@@ -338,6 +406,9 @@ pub const BLACKWELL_A: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: true,
     recommended_workgroup_size: 256,
     max_cta_per_sm: 16,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Subcontexted,
+    runlist_format: RunlistFormat::Gv100PerRunlist,
 };
 
 /// Blackwell B (GB202/GB203/GB205/GB206/GB207) — RTX 5090, RTX 5080, RTX 5060, etc.
@@ -360,12 +431,24 @@ pub const BLACKWELL_B: GenerationProfile = GenerationProfile {
     has_full_rate_fp64: false,
     recommended_workgroup_size: 256,
     max_cta_per_sm: 16,
+    page_table_format: PageTableFormat::V2FiveLevel,
+    instance_block_format: InstanceBlockFormat::Subcontexted,
+    runlist_format: RunlistFormat::Gv100PerRunlist,
 };
 
 /// All known generation profiles, ordered by SM range.
 const ALL_PROFILES: &[&GenerationProfile] = &[
-    &KEPLER, &MAXWELL, &PASCAL, &VOLTA, &TURING, &AMPERE_A, &AMPERE_B, &ADA, &HOPPER,
-    &BLACKWELL_A, &BLACKWELL_B,
+    &KEPLER,
+    &MAXWELL,
+    &PASCAL,
+    &VOLTA,
+    &TURING,
+    &AMPERE_A,
+    &AMPERE_B,
+    &ADA,
+    &HOPPER,
+    &BLACKWELL_A,
+    &BLACKWELL_B,
 ];
 
 /// Look up the generation profile for a given SM version.
@@ -556,6 +639,30 @@ mod tests {
                 "SM {sm}: profile={profile_chip} vs identity={identity_chip}"
             );
         }
+    }
+
+    #[test]
+    fn kepler_uses_v1_two_level_pt() {
+        let p = profile_for_sm(37);
+        assert_eq!(p.page_table_format, PageTableFormat::V1TwoLevel);
+        assert_eq!(p.instance_block_format, InstanceBlockFormat::Simple);
+        assert_eq!(p.runlist_format, RunlistFormat::Gk104Global);
+    }
+
+    #[test]
+    fn volta_uses_v2_five_level_pt() {
+        let p = profile_for_sm(70);
+        assert_eq!(p.page_table_format, PageTableFormat::V2FiveLevel);
+        assert_eq!(p.instance_block_format, InstanceBlockFormat::Subcontexted);
+        assert_eq!(p.runlist_format, RunlistFormat::Gv100PerRunlist);
+    }
+
+    #[test]
+    fn pascal_uses_v2_pt_simple_instance() {
+        let p = profile_for_sm(60);
+        assert_eq!(p.page_table_format, PageTableFormat::V2FiveLevel);
+        assert_eq!(p.instance_block_format, InstanceBlockFormat::Simple);
+        assert_eq!(p.runlist_format, RunlistFormat::Gk104Global);
     }
 
     #[test]

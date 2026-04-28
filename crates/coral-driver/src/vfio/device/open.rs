@@ -223,6 +223,189 @@ impl VfioDevice {
         Ok(dev)
     }
 
+    /// Open using only the legacy VFIO group path, bypassing iommufd.
+    ///
+    /// Use this for GPUs that are killed by iommufd device attach (e.g.
+    /// Kepler GK210/Tesla K80 which doesn't survive the implicit reset).
+    pub fn open_legacy(bdf: &str) -> Result<Self, DriverError> {
+        Self::open_legacy_group(bdf)
+    }
+
+    /// Open without enabling bus master — for warm handoff on Kepler.
+    ///
+    /// After `nouveau` teardown, PFIFO retains stale DMA targets. Enabling
+    /// bus master before quiescing PFIFO causes `IO_PAGE_FAULT` cascades
+    /// that gate GPCs. The caller must:
+    ///
+    /// 1. Map BAR0 and quiesce PFIFO/engines via MMIO
+    /// 2. Call [`enable_bus_master`] explicitly
+    pub fn open_no_busmaster(bdf: &str) -> Result<Self, DriverError> {
+        match Self::open_iommufd_no_busmaster(bdf) {
+            Ok(dev) => {
+                tracing::info!(bdf, "VFIO device opened (no bus master) via iommufd/cdev");
+                Ok(dev)
+            }
+            Err(e) => {
+                tracing::debug!(bdf, err = %e, "iommufd/cdev unavailable, trying legacy (no bus master)");
+                Self::open_legacy_no_busmaster(bdf)
+            }
+        }
+    }
+
+    /// iommufd open path without bus master enable.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "struct argsz always fits u32"
+    )]
+    fn open_iommufd_no_busmaster(bdf: &str) -> Result<Self, DriverError> {
+        let iommufd = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/iommu")
+            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("/dev/iommu: {e}"))))?;
+
+        let cdev_name = crate::linux_paths::sysfs_vfio_cdev_name(bdf).ok_or_else(|| {
+            DriverError::DeviceNotFound(Cow::Owned(format!(
+                "No VFIO cdev for {bdf} (vfio-dev/ not found in sysfs)"
+            )))
+        })?;
+
+        let cdev_path = format!("/dev/vfio/devices/{cdev_name}");
+        let device_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&cdev_path)
+            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("{cdev_path}: {e}"))))?;
+        let device = OwnedFd::from(device_file);
+
+        let mut bind = VfioDeviceBindIommufd {
+            argsz: std::mem::size_of::<VfioDeviceBindIommufd>() as u32,
+            flags: 0,
+            iommufd: iommufd.as_raw_fd(),
+            out_devid: 0,
+        };
+        ioctl::device_bind_iommufd(device.as_fd(), &mut bind)?;
+
+        let iommufd_fd = OwnedFd::from(iommufd);
+        let mut ioas_alloc = IommuIoasAlloc {
+            size: std::mem::size_of::<IommuIoasAlloc>() as u32,
+            flags: 0,
+            out_ioas_id: 0,
+        };
+        ioctl::iommufd_ioas_alloc(iommufd_fd.as_fd(), &mut ioas_alloc)?;
+        let ioas_id = ioas_alloc.out_ioas_id;
+
+        let mut attach = VfioDeviceAttachIommufdPt {
+            argsz: std::mem::size_of::<VfioDeviceAttachIommufdPt>() as u32,
+            flags: 0,
+            pt_id: ioas_id,
+        };
+        ioctl::device_attach_iommufd_pt(device.as_fd(), &mut attach)?;
+
+        let mut dev_info = VfioDeviceInfo {
+            argsz: std::mem::size_of::<VfioDeviceInfo>() as u32,
+            ..Default::default()
+        };
+        ioctl::device_info(device.as_fd(), &mut dev_info)?;
+
+        tracing::info!(
+            bdf,
+            num_regions = dev_info.num_regions,
+            num_irqs = dev_info.num_irqs,
+            cdev = %cdev_name,
+            "VFIO device opened (iommufd, bus master deferred)"
+        );
+
+        Ok(Self {
+            bdf: bdf.to_string(),
+            device,
+            num_regions: dev_info.num_regions,
+            backend: VfioBackend::Iommufd {
+                iommufd: Arc::new(iommufd_fd),
+                ioas_id,
+            },
+        })
+    }
+
+    /// Legacy group open path without bus master enable.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "struct argsz always fits u32"
+    )]
+    fn open_legacy_no_busmaster(bdf: &str) -> Result<Self, DriverError> {
+        let iommu_group = find_iommu_group(bdf)?;
+        let container = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/vfio/vfio")
+            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("/dev/vfio/vfio: {e}"))))?;
+
+        let api_version = ioctl::get_api_version(container.as_fd())?;
+        if api_version != ioctls::VFIO_API_VERSION {
+            return Err(DriverError::DeviceNotFound(Cow::Owned(format!(
+                "VFIO API version mismatch: got {api_version}, expected {}",
+                ioctls::VFIO_API_VERSION
+            ))));
+        }
+
+        let has_type1v2 = ioctl::check_extension(container.as_fd(), ioctls::VFIO_TYPE1V2_IOMMU)?;
+        if has_type1v2 != 1 {
+            return Err(DriverError::DeviceNotFound(
+                "VFIO Type1v2 IOMMU not supported".into(),
+            ));
+        }
+
+        let group_path = format!("/dev/vfio/{iommu_group}");
+        let group = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&group_path)
+            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("{group_path}: {e}"))))?;
+
+        let mut group_status = VfioGroupStatus {
+            argsz: std::mem::size_of::<VfioGroupStatus>() as u32,
+            flags: 0,
+        };
+        ioctl::group_status(group.as_fd(), &mut group_status)?;
+
+        if (group_status.flags & ioctls::VFIO_GROUP_FLAGS_VIABLE) == 0 {
+            return Err(DriverError::DeviceNotFound(
+                "VFIO group not viable — all devices must be bound to vfio-pci".into(),
+            ));
+        }
+
+        let container_raw_fd = container.as_raw_fd();
+        ioctl::group_set_container(group.as_fd(), std::ptr::from_ref(&container_raw_fd).cast())?;
+        ioctl::set_iommu(container.as_fd(), ioctls::VFIO_TYPE1V2_IOMMU)?;
+
+        let bdf_cstr = CString::new(bdf)
+            .map_err(|e| DriverError::DeviceNotFound(Cow::Owned(format!("Invalid BDF: {e}"))))?;
+        let device = vfio_group_open_device_fd(group.as_fd(), bdf_cstr.as_c_str())?;
+
+        let mut dev_info = VfioDeviceInfo {
+            argsz: std::mem::size_of::<VfioDeviceInfo>() as u32,
+            ..Default::default()
+        };
+        ioctl::device_info(device.as_fd(), &mut dev_info)?;
+
+        tracing::info!(
+            bdf,
+            num_regions = dev_info.num_regions,
+            num_irqs = dev_info.num_irqs,
+            "VFIO device opened (legacy, bus master deferred)"
+        );
+
+        Ok(Self {
+            bdf: bdf.to_string(),
+            device,
+            num_regions: dev_info.num_regions,
+            backend: VfioBackend::LegacyGroup {
+                container: Arc::new(OwnedFd::from(container)),
+                group,
+            },
+        })
+    }
+
     /// Reconstruct from fds received via `SCM_RIGHTS` from coral-ember.
     ///
     /// Handles both backend shapes:

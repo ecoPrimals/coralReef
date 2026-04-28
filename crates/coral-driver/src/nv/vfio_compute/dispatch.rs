@@ -69,8 +69,7 @@ impl NvVfioComputeDevice {
         self.upload(qmd_handle, 0, qmd_bytes)?;
 
         let profile = generation::profile_for_sm(self.sm_version);
-        let mut pb =
-            PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
+        let mut pb = PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
         let dispatch = PushBuf::compute_dispatch_with_launch(profile.launch_method, qmd_iova);
         pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
@@ -148,8 +147,7 @@ impl NvVfioComputeDevice {
         self.upload(qmd_handle, 0, qmd_bytes)?;
 
         let profile = generation::profile_for_sm(self.sm_version);
-        let mut pb =
-            PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
+        let mut pb = PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
         let dispatch = PushBuf::compute_dispatch_with_launch(profile.launch_method, qmd_iova);
         pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
@@ -184,7 +182,8 @@ impl NvVfioComputeDevice {
         let driver_consts = qmd::encode_driver_constants(dims);
         self.upload(dc_handle, 0, &driver_consts)?;
 
-        let cbufs = qmd::build_standard_cbufs(desc_iova, desc_cbuf_size, dc_iova, qmd::DRIVER_CONST_SIZE);
+        let cbufs =
+            qmd::build_standard_cbufs(desc_iova, desc_cbuf_size, dc_iova, qmd::DRIVER_CONST_SIZE);
         Ok((cbufs, dc_handle))
     }
 }

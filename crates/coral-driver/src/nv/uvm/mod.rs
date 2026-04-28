@@ -584,12 +584,15 @@ impl NvUvmDevice {
             uvm_fd: primary_fd,
             rm_status: 0,
         };
-        crate::drm::drm_ioctl_named(mm_fd, u64::from(UVM_MM_INITIALIZE), &mut params, "UVM_MM_INITIALIZE")
-            .map_err(|e| {
-                DriverError::SubmitFailed(
-                    format!("UVM_MM_INITIALIZE ioctl failed: {e}").into(),
-                )
-            })?;
+        crate::drm::drm_ioctl_named(
+            mm_fd,
+            u64::from(UVM_MM_INITIALIZE),
+            &mut params,
+            "UVM_MM_INITIALIZE",
+        )
+        .map_err(|e| {
+            DriverError::SubmitFailed(format!("UVM_MM_INITIALIZE ioctl failed: {e}").into())
+        })?;
 
         const NV_WARN_NOTHING_TO_DO: u32 = 0x0000_010B;
         if params.rm_status == NV_OK {
@@ -686,10 +689,7 @@ impl NvUvmDevice {
     /// # Errors
     ///
     /// Returns [`DriverError`] if the ioctl fails or returns non-OK status.
-    pub fn unregister_gpu_vaspace(
-        &self,
-        gpu_uuid: &[u8; 16],
-    ) -> DriverResult<()> {
+    pub fn unregister_gpu_vaspace(&self, gpu_uuid: &[u8; 16]) -> DriverResult<()> {
         let mut params = UvmUnregisterGpuVaspaceParams {
             gpu_uuid: *gpu_uuid,
             rm_status: 0,
@@ -999,8 +999,14 @@ mod tests {
 
         // GPU_PROMOTE_CTX structs — must match the NVIDIA RM ABI exactly.
         assert_eq!(std::mem::size_of::<EngineContextBufferInfo>(), 8);
-        assert_eq!(std::mem::size_of::<GrContextBuffersInfo>(), 8 * ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT);
-        assert_eq!(std::mem::size_of::<GetContextBuffersInfoParams>(), 8 * ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT * INTERNAL_GR_MAX_ENGINES);
+        assert_eq!(
+            std::mem::size_of::<GrContextBuffersInfo>(),
+            8 * ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT
+        );
+        assert_eq!(
+            std::mem::size_of::<GetContextBuffersInfoParams>(),
+            8 * ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT * INTERNAL_GR_MAX_ENGINES
+        );
         assert_eq!(std::mem::size_of::<PromoteCtxBufferEntry>(), 32);
         // GpuPromoteCtxParams: 6×u32(24) + 2×u64(16) + u32(4) + pad(4) + 16×32(512) = 560
         assert_eq!(std::mem::size_of::<GpuPromoteCtxParams>(), 560);

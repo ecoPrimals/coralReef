@@ -966,9 +966,17 @@ mod tests {
         assert_eq!(get_field(&q_90, 576, 4), 0, "SM 90 minor = 0 (v3.0)");
         // SM 100+ → v5.0 (Blackwell requires a new 384-byte QMD layout)
         let q_100 = build_qmd_for_sm(100, &params);
-        assert_eq!(q_100.len(), QMD_V4_PLUS_SIZE_WORDS, "Blackwell A QMD = 96 words (v5.0)");
+        assert_eq!(
+            q_100.len(),
+            QMD_V4_PLUS_SIZE_WORDS,
+            "Blackwell A QMD = 96 words (v5.0)"
+        );
         let q_120 = build_qmd_for_sm(120, &params);
-        assert_eq!(q_120.len(), QMD_V4_PLUS_SIZE_WORDS, "Blackwell B QMD = 96 words (v5.0)");
+        assert_eq!(
+            q_120.len(),
+            QMD_V4_PLUS_SIZE_WORDS,
+            "Blackwell B QMD = 96 words (v5.0)"
+        );
         assert_eq!(get_field(&q_120, 468, 4), 5, "SM 120 major = 5 (v5.0)");
         assert_eq!(get_field(&q_120, 464, 4), 0, "SM 120 minor = 0 (v5.0)");
     }
@@ -1062,7 +1070,11 @@ mod tests {
         let q_99 = build_qmd_for_sm(99, &params);
         let q_100 = build_qmd_for_sm(100, &params);
         assert_eq!(q_99.len(), QMD_SIZE_WORDS, "SM 99 = 64-word QMD");
-        assert_eq!(q_100.len(), QMD_V4_PLUS_SIZE_WORDS, "SM 100 = 96-word QMD (v5.0)");
+        assert_eq!(
+            q_100.len(),
+            QMD_V4_PLUS_SIZE_WORDS,
+            "SM 100 = 96-word QMD (v5.0)"
+        );
         assert_eq!(get_field(&q_100, 468, 4), 5, "SM 100 major = 5 (v5.0)");
     }
 
@@ -1145,7 +1157,11 @@ mod tests {
         let params = QmdParams::simple(0, DispatchDims::linear(1), 32);
         let q = build_qmd_v50(&params);
         // MW(456:456) = API_VISIBLE_CALL_LIMIT = NO_CHECK (1)
-        assert_eq!(get_field(&q, 456, 1), 1, "API_VISIBLE_CALL_LIMIT = NO_CHECK");
+        assert_eq!(
+            get_field(&q, 456, 1),
+            1,
+            "API_VISIBLE_CALL_LIMIT = NO_CHECK"
+        );
     }
 
     #[test]
@@ -1207,7 +1223,11 @@ mod tests {
         params.shared_mem_bytes = 1024;
         let q = build_qmd_v50(&params);
         // MW(1162:1152) — 11 bits
-        assert_eq!(get_field(&q, 1152, 11), 1024 >> 7, "SHARED_MEMORY_SIZE_SHIFTED7");
+        assert_eq!(
+            get_field(&q, 1152, 11),
+            1024 >> 7,
+            "SHARED_MEMORY_SIZE_SHIFTED7"
+        );
     }
 
     #[test]
@@ -1233,7 +1253,11 @@ mod tests {
         assert_eq!(reconstructed, 0x2_0000_0040, "CBUF 0 addr");
 
         // SIZE_SHIFTED4(0): MW(1407:1395) — 13 bits
-        assert_eq!(get_field(&q, 1395, 13), u64::from(4096_u32 >> 4), "CBUF 0 size");
+        assert_eq!(
+            get_field(&q, 1395, 13),
+            u64::from(4096_u32 >> 4),
+            "CBUF 0 size"
+        );
     }
 
     #[test]
@@ -1256,7 +1280,11 @@ mod tests {
         assert_eq!(reconstructed, 0x3_0000_0080, "CBUF 1 addr");
 
         // SIZE_SHIFTED4(1): MW(1407+64:1395+64) = MW(1471:1459)
-        assert_eq!(get_field(&q, 1459, 13), u64::from(8192_u32 >> 4), "CBUF 1 size");
+        assert_eq!(
+            get_field(&q, 1459, 13),
+            u64::from(8192_u32 >> 4),
+            "CBUF 1 size"
+        );
     }
 
     #[test]
