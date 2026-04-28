@@ -54,11 +54,14 @@ pub const CORALREEF_CAPABILITY_DOMAIN_ENV: &str = "CORALREEF_CAPABILITY_DOMAIN";
 
 /// Family ID for multi-instance isolation.
 ///
-/// Reads `$BIOMEOS_FAMILY_ID` at runtime (set by genomeBin or systemd).
+/// Reads `$CORALREEF_FAMILY_ID` (set by `composition_nucleus.sh`) or
+/// `$BIOMEOS_FAMILY_ID` (set by genomeBin / systemd).
 /// Defaults to `"default"` for single-instance development.
 #[must_use]
 pub fn family_id() -> String {
-    std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
+    std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("BIOMEOS_FAMILY_ID"))
+        .unwrap_or_else(|_| "default".into())
 }
 
 /// Check that `BIOMEOS_INSECURE` and `BIOMEOS_FAMILY_ID` are not both active.
@@ -116,20 +119,79 @@ pub fn primal_socket_name() -> String {
     format!("{}-{}.sock", PRIMAL_NAME, family_id())
 }
 
-/// Resolve the shared discovery directory for all ecoPrimals.
+/// Resolve the shared socket/discovery directory for all ecoPrimals.
 ///
-/// Uses `$XDG_RUNTIME_DIR` (Linux/freedesktop) with fallback to
-/// `std::env::temp_dir()` for portability. The namespace is
-/// [`ECOSYSTEM_NAMESPACE`], not a hardcoded primal name.
+/// Resolution order (first non-empty wins):
+/// 1. `$BIOMEOS_SOCKET_DIR` — explicit override from composition launcher
+/// 2. `$XDG_RUNTIME_DIR/{namespace}` — Linux/freedesktop standard
+/// 3. `{temp_dir}/{namespace}` — portability fallback
 ///
 /// # Errors
 ///
 /// Returns an error if `$XDG_RUNTIME_DIR` is not set and the temp
 /// directory is unusable (extremely unlikely).
 pub fn discovery_dir() -> std::io::Result<PathBuf> {
+    if let Ok(dir) = std::env::var("BIOMEOS_SOCKET_DIR") {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed));
+        }
+    }
     let base =
         std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
     Ok(base.join(ecosystem_namespace()))
+}
+
+/// Resolve the `BearDog` security-provider socket path.
+///
+/// The composition launcher sets `$BEARDOG_SOCKET` to the concrete path.
+/// Returns `None` when unset or empty (standalone/dev mode).
+#[must_use]
+pub fn beardog_socket() -> Option<PathBuf> {
+    non_empty_env_path("BEARDOG_SOCKET")
+}
+
+/// Resolve the BTSP provider socket path.
+///
+/// The composition launcher sets `$BTSP_PROVIDER_SOCKET` — typically the
+/// same as `$BEARDOG_SOCKET` since `BearDog` hosts BTSP.
+/// Returns `None` when unset or empty.
+#[must_use]
+pub fn btsp_provider_socket() -> Option<PathBuf> {
+    non_empty_env_path("BTSP_PROVIDER_SOCKET")
+}
+
+/// Resolve the Songbird discovery socket path.
+///
+/// The composition launcher sets `$DISCOVERY_SOCKET` so that primals can
+/// resolve capabilities without scanning the filesystem.
+/// Returns `None` when unset or empty.
+#[must_use]
+pub fn discovery_socket() -> Option<PathBuf> {
+    non_empty_env_path("DISCOVERY_SOCKET")
+}
+
+/// Retrieve the family seed (Tier 1 crypto derivation input).
+///
+/// Set by the composition launcher as `$FAMILY_SEED`. The value is
+/// opaque hex — coralReef only needs to forward it to `BearDog` for
+/// purpose-key derivation and artifact signing.
+/// Returns `None` when unset or empty.
+#[must_use]
+pub fn family_seed() -> Option<String> {
+    std::env::var("FAMILY_SEED")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+}
+
+/// Helper: read an environment variable as a `PathBuf`, returning `None`
+/// for missing or empty values.
+fn non_empty_env_path(var: &str) -> Option<PathBuf> {
+    std::env::var(var)
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
 }
 
 #[cfg(test)]
@@ -246,5 +308,38 @@ mod tests {
         let path = discovery_dir().unwrap();
         let parent = path.parent().unwrap_or(&path);
         assert!(parent.exists() || std::fs::create_dir_all(parent).is_ok());
+    }
+
+    #[test]
+    fn beardog_socket_returns_none_when_unset() {
+        if std::env::var("BEARDOG_SOCKET").is_err() {
+            assert!(beardog_socket().is_none());
+        }
+    }
+
+    #[test]
+    fn btsp_provider_socket_returns_none_when_unset() {
+        if std::env::var("BTSP_PROVIDER_SOCKET").is_err() {
+            assert!(btsp_provider_socket().is_none());
+        }
+    }
+
+    #[test]
+    fn discovery_socket_returns_none_when_unset() {
+        if std::env::var("DISCOVERY_SOCKET").is_err() {
+            assert!(discovery_socket().is_none());
+        }
+    }
+
+    #[test]
+    fn family_seed_returns_none_when_unset() {
+        if std::env::var("FAMILY_SEED").is_err() {
+            assert!(family_seed().is_none());
+        }
+    }
+
+    #[test]
+    fn non_empty_env_path_returns_none_for_missing() {
+        assert!(non_empty_env_path("__CORALREEF_TEST_NONEXISTENT_VAR__").is_none());
     }
 }

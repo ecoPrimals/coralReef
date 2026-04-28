@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 84.
+**Current position**: Phase 10 — Iteration 85.
 
-**Last completed**: Deep debt solutions; ecoBin cross-arch compliance (macOS x86_64/aarch64, Linux aarch64-musl); large file refactoring (alloc, sovereign_init, uvm/mod, runner); eprintln→tracing migration across coralctl and union_find; mocks verified test-isolated; production `.unwrap()` eliminated from library code.
+**Last completed**: NUCLEUS composition env var integration — all 3 binaries wire `BEARDOG_SOCKET`, `BTSP_PROVIDER_SOCKET`, `DISCOVERY_SOCKET`, `FAMILY_SEED`, `BIOMEOS_SOCKET_DIR`, `CORALREEF_FAMILY_ID`. BTSP and ecosystem discovery prefer explicit env over filesystem scan. Startup diagnostic log for operator visibility.
 
-**Tests**: 4541 passing, 0 failed, 155 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4701 passing, 0 failed, 155 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: Coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
+**Next focus**: Shader artifact signing via `BearDog` `crypto.sign` (low priority, deferred per primalSpring v0.9.20); coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 19, 2026 (Phase 10 — Iteration 84 — ecoBin cross-arch, deep debt solutions)
+**Last updated**: April 28, 2026 (Phase 10 — Iteration 85 — NUCLEUS composition env vars)
 
 ---
 

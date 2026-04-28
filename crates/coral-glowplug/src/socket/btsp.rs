@@ -161,6 +161,15 @@ fn resolve_socket_dir() -> PathBuf {
 }
 
 fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
+    if let Some(path) = env_socket("BTSP_PROVIDER_SOCKET") {
+        tracing::debug!(path = %path.display(), "BTSP provider from $BTSP_PROVIDER_SOCKET");
+        return Some(path);
+    }
+    if let Some(path) = env_socket("BEARDOG_SOCKET") {
+        tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET");
+        return Some(path);
+    }
+
     let sock_dir = resolve_socket_dir();
 
     let scoped = sock_dir.join(format!("{SECURITY_DOMAIN}-{family_id}.sock"));
@@ -174,6 +183,15 @@ fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
     }
 
     discover_by_capability(&sock_dir, "btsp.session.create")
+}
+
+fn env_socket(var: &str) -> Option<PathBuf> {
+    std::env::var(var)
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
 }
 
 fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {

@@ -218,6 +218,24 @@ fn shutdown_join_timeout_elapsed_message(join_timeout: std::time::Duration) -> S
     format!("shutdown timed out after {join_timeout:?}")
 }
 
+/// Log NUCLEUS composition environment variables at startup for diagnostics.
+fn log_composition_env() {
+    let vars = [
+        ("BEARDOG_SOCKET", config::beardog_socket().map(|p| p.display().to_string())),
+        ("BTSP_PROVIDER_SOCKET", config::btsp_provider_socket().map(|p| p.display().to_string())),
+        ("DISCOVERY_SOCKET", config::discovery_socket().map(|p| p.display().to_string())),
+        ("FAMILY_SEED", config::family_seed().map(|_| "<set>".to_owned())),
+        ("BIOMEOS_SOCKET_DIR", std::env::var("BIOMEOS_SOCKET_DIR").ok()),
+    ];
+    for (name, val) in vars {
+        if let Some(v) = val {
+            tracing::info!(env = name, value = v, "composition env");
+        } else {
+            tracing::debug!(env = name, "composition env not set");
+        }
+    }
+}
+
 async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
@@ -226,6 +244,7 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
 
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
     tracing::info!(rpc_bind, tarpc_bind, "binding addresses");
+    log_composition_env();
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
 

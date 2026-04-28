@@ -206,11 +206,23 @@ fn resolve_socket_dir() -> PathBuf {
 
 /// Discover the security-domain socket for BTSP handshake delegation.
 ///
-/// Resolution chain (capability-based, not primal-name-based):
-/// 1. `{sock_dir}/{SECURITY_DOMAIN}-{family_id}.sock`
-/// 2. `{sock_dir}/{SECURITY_DOMAIN}.sock`
-/// 3. Discovery files in `{sock_dir}/*.json` advertising `btsp.session.create`
+/// Resolution chain (first match wins):
+/// 1. `$BTSP_PROVIDER_SOCKET` — explicit from composition launcher
+/// 2. `$BEARDOG_SOCKET` — composition launcher alias
+/// 3. `{sock_dir}/{SECURITY_DOMAIN}-{family_id}.sock` — convention scan
+/// 4. `{sock_dir}/{SECURITY_DOMAIN}.sock` — unscoped fallback
+/// 5. Discovery files in `{sock_dir}/*.json` advertising `btsp.session.create`
 fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
+    if let Some(path) = config::btsp_provider_socket().filter(|p| p.exists()) {
+        tracing::debug!(path = %path.display(), "BTSP provider from $BTSP_PROVIDER_SOCKET");
+        return Some(path);
+    }
+
+    if let Some(path) = config::beardog_socket().filter(|p| p.exists()) {
+        tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET");
+        return Some(path);
+    }
+
     let sock_dir = resolve_socket_dir();
 
     let scoped = sock_dir.join(format!("{SECURITY_DOMAIN}-{family_id}.sock"));

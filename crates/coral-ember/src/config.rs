@@ -82,9 +82,13 @@ impl EmberDeviceConfig {
     }
 }
 
-/// Family ID for multi-instance isolation (from `$BIOMEOS_FAMILY_ID`, default `"default"`).
+/// Family ID for multi-instance isolation.
+///
+/// Reads `$CORALREEF_FAMILY_ID` (composition launcher) or `$BIOMEOS_FAMILY_ID`.
 pub(crate) fn family_id() -> String {
-    std::env::var("BIOMEOS_FAMILY_ID").unwrap_or_else(|_| "default".into())
+    std::env::var("CORALREEF_FAMILY_ID")
+        .or_else(|_| std::env::var("BIOMEOS_FAMILY_ID"))
+        .unwrap_or_else(|_| "default".into())
 }
 
 /// Default ecosystem namespace per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
@@ -101,10 +105,15 @@ pub(crate) fn ecosystem_namespace() -> &'static str {
 
 /// Base directory for ecosystem socket/discovery files.
 ///
-/// `$XDG_RUNTIME_DIR/<namespace>` (or `$TMPDIR/<namespace>` when XDG is unset).
-/// Shared by both primal socket layout and BTSP security socket discovery.
+/// Resolution: `$BIOMEOS_SOCKET_DIR` → `$XDG_RUNTIME_DIR/<namespace>` → `$TMPDIR/<namespace>`.
 #[must_use]
 pub(crate) fn resolve_socket_dir() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("BIOMEOS_SOCKET_DIR") {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            return std::path::PathBuf::from(trimmed);
+        }
+    }
     let base = std::env::var("XDG_RUNTIME_DIR")
         .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
     base.join(ecosystem_namespace())

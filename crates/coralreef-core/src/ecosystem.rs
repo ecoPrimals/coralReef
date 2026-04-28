@@ -98,13 +98,22 @@ async fn heartbeat_loop(path: PathBuf) {
 /// Read-only scan of peer discovery files (same wateringHole directory the binary
 /// may write into for self-advertisement). Resolution order:
 /// 1. `$BIOMEOS_ECOSYSTEM_REGISTRY` — full bind string (e.g. `unix:///path/registry.sock`).
-/// 2. Scan `discovery_dir()` for `*.json` describing a provider that lists `capability.register`.
+/// 2. `$DISCOVERY_SOCKET` — explicit Songbird socket from composition launcher.
+/// 3. Scan `discovery_dir()` for `*.json` describing a provider that lists `capability.register`.
 #[must_use]
 pub fn discover_ecosystem_jsonrpc_bind() -> Option<String> {
     if let Ok(raw) = std::env::var("BIOMEOS_ECOSYSTEM_REGISTRY") {
         let t = raw.trim();
         if !t.is_empty() {
             return Some(t.to_owned());
+        }
+    }
+
+    if let Some(sock) = config::discovery_socket() {
+        if sock.exists() {
+            let bind = format!("unix://{}", sock.display());
+            tracing::debug!(bind, "registry discovery from $DISCOVERY_SOCKET");
+            return Some(bind);
         }
     }
 

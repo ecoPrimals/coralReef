@@ -4,11 +4,23 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 84
+**Current status**: Phase 10 — Iteration 85
 
 ---
 
 ## [Unreleased]
+
+### Iteration 85 — Wire NUCLEUS Composition Env Vars (2026-04-28)
+
+#### NUCLEUS Composition Integration
+- All 3 binaries (`coralreef`, `coral-ember`, `coral-glowplug`) now read and act on composition launcher env vars:
+  - `BEARDOG_SOCKET` / `BTSP_PROVIDER_SOCKET` — preferred in BTSP security-provider discovery (before filesystem scan)
+  - `DISCOVERY_SOCKET` — preferred in Songbird ecosystem registry discovery
+  - `BIOMEOS_SOCKET_DIR` — explicit socket directory override (before `$XDG_RUNTIME_DIR`)
+  - `CORALREEF_FAMILY_ID` — alias for `BIOMEOS_FAMILY_ID` (composition launcher sets this per-primal)
+  - `FAMILY_SEED` — read and logged at startup; forwarded for future crypto purpose-key derivation
+- Startup diagnostic log reports all composition env vars present/absent for operator visibility
+- Per `NUCLEUS_TWO_TIER_CRYPTO_MODEL.md` v1.0 — `shader` purpose key derivation path documented; shader artifact signing deferred (low priority per primalSpring v0.9.20)
 
 ### Iteration 84 — ecoBin Cross-Arch Evolution + Deep Debt Solutions (2026-04-19)
 
