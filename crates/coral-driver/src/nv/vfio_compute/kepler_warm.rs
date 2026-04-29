@@ -97,9 +97,9 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
     );
 
     if post_done && pgraph_on && gpc0_ok {
-        tracing::info!("POST already done — direct firmware overwrite (no ENGCTL/PMC/PGOB)");
+        tracing::info!("POST already done — caching topology then PMC GR reset for clean Falcon state");
 
-        // Scan GPC/TPC topology from live hardware.
+        // Cache GPC/TPC topology BEFORE PMC reset clears fuse mirrors at 0x502608.
         let mut cached_tpc_counts: [(u32, u32); 8] = [(0, 0); 8];
         let mut cached_gpc_count = 0u32;
         let mut cached_tpc_total = 0u32;
@@ -115,22 +115,119 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         tracing::info!(
             gpcs = cached_gpc_count,
             tpcs = cached_tpc_total,
-            "POST-done: topology scan"
+            "POST-done: topology cached (before PMC reset)"
         );
 
-        // Nouveau left FECS in "software halt" (HALT instruction in its
-        // firmware, CPUCTL=0x10).  STARTCPU works from software halt.
+        // Log Falcon ITFEN before PMC reset to see what nouveau left it at.
+        let fecs_itfen_pre = r(FECS + 0x048);
+        tracing::info!(
+            itfen = format_args!("{fecs_itfen_pre:#010x}"),
+            "POST-done: FECS ITFEN before PMC GR reset (nouveau's value)"
+        );
+
+        // PMC GR reset puts FECS/GPCCS into clean initial halt state.
+        // Without this, FECS is in nouveau's software-halted state and
+        // STARTCPU may stall (CPUCTL=0x00 but PC=0, idle=1).
+        {
+            let bar0 = guard.inner();
+            let rd_raw =
+                |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+            let wr_raw =
+                |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
+
+            let pmc_cur = rd_raw(0x200);
+            wr_raw(0x200, pmc_cur & !0x0000_1000);
+            rd_raw(0x200);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            wr_raw(0x200, pmc_cur | 0x0000_1000);
+            rd_raw(0x200);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            super::pri::nouveau_pri_ring_init(&rd_raw, &wr_raw);
+            super::pri::clear_pri_ring_faults(bar0, &rd_raw, &wr_raw);
+
+            let fecs_after = rd_raw(FECS + 0x100);
+            let itfen_after = rd_raw(FECS + 0x048);
+            let gpc0_after = rd_raw(0x50_2608);
+            tracing::info!(
+                pmc = format_args!("{:#010x}", rd_raw(0x200)),
+                fecs_cpuctl = format_args!("{fecs_after:#010x}"),
+                itfen = format_args!("{itfen_after:#010x}"),
+                gpc0 = format_args!("{gpc0_after:#010x}"),
+                "POST-done: state after PMC GR reset"
+            );
+        }
+
+        // After PMC GR reset, check if GPCs are accessible.
         //
-        // CRITICAL: Do NOT touch ENGCTL, PMC bit 12, or PGOB.
-        //  - ENGCTL cycle puts FECS into "hardware reset halt" where
-        //    STARTCPU is silently ignored (Falcon v3 behaviour).
-        //  - PMC PGRAPH reset (bit 12 toggle) destroys GR HUB PRI routing
-        //    and with PMU halted, PGOB disable can't recover GPC stations.
-        //  - PGOB disable does an internal PMC toggle that wipes IMEM/DMEM.
+        // CRITICAL: Check GPC0 identity at 0x500000, NOT 0x502608.
+        // Register 0x502608 (TPC fuse readout) is always readable even when
+        // GPCs are power-gated, giving a false positive. Register 0x500000
+        // (GPC0 identity) correctly returns 0xbadf1100 PRI fault when gated.
         //
-        // Instead: overwrite FECS/GPCCS IMEM+DMEM via PIO (which works
-        // independently of CPU state) and STARTCPU directly.
-        super::kepler_fecs_boot::kepler_post_done_boot_fecs(
+        // On headless K80, nouveau NEVER initializes GR or calls PGOB
+        // (confirmed via mmiotrace + dmesg). GPCs are always gated after
+        // cold POST. We must run PGOB to ungate them.
+        {
+            super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+            let gpc0_identity = r(0x50_0000);
+            let gr_hub_check = r(0x40_0000);
+            let gpcs_alive = gpc0_identity != 0xDEAD_DEAD
+                && gpc0_identity & 0xBAD0_0000 != 0xBAD0_0000
+                && gpc0_identity != 0;
+            let gr_hub_ok = gr_hub_check != 0xDEAD_DEAD
+                && gr_hub_check & 0xBAD0_0000 != 0xBAD0_0000;
+
+            tracing::info!(
+                gpc0_id = format_args!("{gpc0_identity:#010x}"),
+                gr_hub = format_args!("{gr_hub_check:#010x}"),
+                gpcs_alive,
+                gr_hub_ok,
+                "POST-done: GPC/GR HUB state after PMC GR reset"
+            );
+
+            if !gpcs_alive {
+                // Try nvidia-470 PSW-only PGOB first (works on GK210B, avoids
+                // 0x0205xx PRIVRING faults that plague the Nouveau sequence).
+                tracing::info!("GPCs power-gated — trying nvidia-470 PSW-only PGOB disable");
+                super::pgob::nvidia470_pgob_disable(guard);
+                super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+
+                let gpc0_nv470 = r(0x50_0000);
+                let nv470_ok = gpc0_nv470 != 0xDEAD_DEAD
+                    && gpc0_nv470 != 0
+                    && gpc0_nv470 & 0xBAD0_0000 != 0xBAD0_0000;
+
+                if !nv470_ok {
+                    // PSW-only didn't work — fall back to Nouveau sequence
+                    tracing::info!(
+                        gpc0 = format_args!("{gpc0_nv470:#010x}"),
+                        "nvidia-470 PGOB didn't ungate — falling back to gk110_pmu_pgob"
+                    );
+                    super::pgob::gk110_pgob_disable(guard);
+                    super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+                }
+
+                // Re-enumerate PRI ring after PGOB — new stations may be online.
+                super::pri::nouveau_pri_ring_init(&r, &w);
+                super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+
+                let gpc0_post = r(0x50_0000);
+                let gr_hub_post = r(0x40_0000);
+                tracing::info!(
+                    gpc0 = format_args!("{gpc0_post:#010x}"),
+                    gr_hub = format_args!("{gr_hub_post:#010x}"),
+                    gpc_ok = gpc0_post != 0xDEAD_DEAD && gpc0_post & 0xBAD0_0000 != 0xBAD0_0000,
+                    used_nv470 = nv470_ok,
+                    "POST-done: state after PGOB disable"
+                );
+            } else {
+                tracing::info!("GPCs already alive — skipping PGOB disable");
+            }
+        }
+
+        // Full cold-path boot: GR MMIO init + firmware upload + boot.
+        super::kepler_fecs_boot::kepler_load_and_boot_fecs(
             guard,
             cached_gpc_count,
             cached_tpc_total,
@@ -171,9 +268,9 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         let ppwr_gate_sts1 = r(0x02_0844); // PPWR power gate status bank 1
         let therm_gate_ctrl = r(0x02_0200); // PTHERM gate control
         let pgraph_pri_be = r(0x40_0134); // GR_PRI_BE_EN
-        let gr_fe_pwr = r(0x40_4170); // GR frontend power
-        let pmu_pgob_cfg = r(0x10_a78c); // PMU PGOB control
-        let blcg_gr = r(0x40_0110); // BLCG GR engine
+        let gr_fe_pwr = r(0x40_4170);     // GR frontend power
+        let pmu_pgob_cfg = r(0x10_a78c);  // PMU PGOB control
+        let blcg_gr = r(0x40_0110);        // BLCG GR engine
         tracing::info!(
             ppwr_gate_sts0 = format_args!("{ppwr_gate_sts0:#010x}"),
             ppwr_gate_sts1 = format_args!("{ppwr_gate_sts1:#010x}"),
@@ -235,11 +332,8 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             const NV470_PMC_ENABLE: u32 = 0xe011_312c;
             {
                 let bar0 = guard.inner();
-                let rd_raw =
-                    |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
-                let wr_raw = |reg: u32, val: u32| {
-                    let _ = bar0.write_u32(reg as usize, val);
-                };
+                let rd_raw = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+                let wr_raw = |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
 
                 wr_raw(0x200, NV470_PMC_ENABLE);
                 rd_raw(0x200);
@@ -253,9 +347,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
                 // all stations including PCLOCK.
                 super::pri::vbios_pri_ring_init(
                     &|reg| bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD),
-                    &|reg, val| {
-                        let _ = bar0.write_u32(reg as usize, val);
-                    },
+                    &|reg, val| { let _ = bar0.write_u32(reg as usize, val); },
                 );
                 super::pri::clear_pri_ring_faults(bar0, &rd_raw, &wr_raw);
 
@@ -323,16 +415,15 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
                     "Write-test: PLL register writability"
                 );
 
-                let ref_pll_alive =
-                    ref_pll0_ctrl != 0 && ref_pll0_ctrl != 0xDEAD_DEAD && ref_pll0_coef != 0;
+                let ref_pll_alive = ref_pll0_ctrl != 0
+                    && ref_pll0_ctrl != 0xDEAD_DEAD
+                    && ref_pll0_coef != 0;
                 let pll_alive = pclock_pll0_ctrl != 0
                     && pclock_pll0_ctrl != 0xDEAD_DEAD
                     && pclock_pll0_ctrl & 0xBAD0_0000 != 0xBAD0_0000;
 
                 if !ref_pll_alive {
-                    tracing::warn!(
-                        "Reference PLLs dead — programming from crystal (27 MHz → ~2 GHz VCO)"
-                    );
+                    tracing::warn!("Reference PLLs dead — programming from crystal (27 MHz → ~2 GHz VCO)");
                     // Crystal = 27 MHz. Target VCO ≈ 2 GHz.
                     // M=1, N=74, P=0 → actual = 27000 * 74 / 1 = 1998 MHz.
                     let ref_coef: u32 = 1 | (74 << 8); // M=1, N=74, P=0
@@ -359,13 +450,13 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
                 // Write 0x137xxx clock routing entries first — on GK104/GK110,
                 // routing must be configured before PLLs accept writes.
                 for &(reg, val) in super::kepler_clock::gk110_clock_recipe_entries() {
-                    if (0x13_7000..=0x13_7FFF).contains(&reg) {
+                    if reg >= 0x13_7000 && reg <= 0x13_7FFF {
                         wr_raw(reg, val);
                     }
                 }
                 // Also write 0x132xxx-0x136xxx domain selectors.
                 for &(reg, val) in super::kepler_clock::gk110_clock_recipe_entries() {
-                    if (0x13_2000..=0x13_6FFF).contains(&reg) {
+                    if reg >= 0x13_2000 && reg <= 0x13_6FFF {
                         wr_raw(reg, val);
                     }
                 }
@@ -429,8 +520,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
 
                     let pll0_final = r(0x13_0000);
                     tracing::info!(
-                        clk_applied,
-                        clk_skipped,
+                        clk_applied, clk_skipped,
                         pll0 = format_args!("{pll0_final:#010x}"),
                         "Clock recipe applied after PMU boot"
                     );
@@ -442,16 +532,13 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
 
                     let pll0_recipe = r(0x13_0000);
                     tracing::info!(
-                        clk_applied,
-                        clk_skipped,
+                        clk_applied, clk_skipped,
                         pll0 = format_args!("{pll0_recipe:#010x}"),
                         "Clock recipe applied directly (PLLs may still be dead)"
                     );
 
                     if pll0_recipe == 0 || pll0_recipe == 0xDEAD_DEAD {
-                        tracing::warn!(
-                            "All clock init attempts failed — falling back to cold recovery"
-                        );
+                        tracing::warn!("All clock init attempts failed — falling back to cold recovery");
                         super::kepler_recovery::kepler_cold_recovery(guard);
                     }
                 }
@@ -466,8 +553,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
 
                 let pll0_final = r(0x13_0000);
                 tracing::info!(
-                    clk_applied,
-                    clk_skipped,
+                    clk_applied, clk_skipped,
                     pll0 = format_args!("{pll0_final:#010x}"),
                     "Clock recipe applied (warm PLLs)"
                 );
@@ -565,9 +651,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         {
             let bar0 = guard.inner();
             let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
-            let wr = |reg: u32, val: u32| {
-                let _ = bar0.write_u32(reg as usize, val);
-            };
+            let wr = |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
 
             let pmc_cur = rd(0x200);
             wr(0x200, pmc_cur & !0x0000_1000);
@@ -589,10 +673,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         tracing::info!(
             fecs_cpuctl = format_args!("{fecs_after_reset:#010x}"),
             gpc0 = format_args!("{gpc0_after_reset:#010x}"),
-            gr_hub = format_args!(
-                "{gr_hub_after:#010x}[{}]",
-                if is_ok(gr_hub_after) { "OK" } else { "FAULT" }
-            ),
+            gr_hub = format_args!("{gr_hub_after:#010x}[{}]", if is_ok(gr_hub_after) { "OK" } else { "FAULT" }),
             "After PMC toggle + PRI ring re-init"
         );
     }
@@ -650,10 +731,28 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
                 tracing::info!("PMU already running from nouveau — skipping re-boot");
             }
 
-            // Run the full GK110 PGOB disable sequence. This is
-            // nouveau's gk110_pmu_pgob() — disables PGRAPH power
-            // gating so GR HUB silicon actually clocks.
-            super::pgob::gk110_pgob_disable(guard);
+            // Try nvidia-470 PSW-only PGOB first — avoids 0x0205xx
+            // PRIVRING faults on GK210B. Falls back to Nouveau sequence.
+            tracing::info!("Trying nvidia-470 PSW-only PGOB disable (cold path)");
+            super::pgob::nvidia470_pgob_disable(guard);
+            super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+
+            let gpc0_nv470 = r(0x50_0000);
+            let gr_hub_nv470 = r(0x40_0000);
+            let nv470_ok = gpc0_nv470 != 0xDEAD_DEAD
+                && gpc0_nv470 != 0
+                && gpc0_nv470 & 0xBAD0_0000 != 0xBAD0_0000;
+            tracing::info!(
+                gpc0 = format_args!("{gpc0_nv470:#010x}"),
+                gr_hub = format_args!("{gr_hub_nv470:#010x}"),
+                nv470_ok,
+                "nvidia-470 PGOB result (cold path)"
+            );
+
+            if !nv470_ok {
+                tracing::info!("nvidia-470 PGOB insufficient — running full gk110_pmu_pgob");
+                super::pgob::gk110_pgob_disable(guard);
+            }
 
             // PGOB brought PGRAPH online. Read GPC/TPC topology NOW
             // before the PMC reset clears the fuse mirrors at 0x502608.
@@ -695,18 +794,14 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
                 std::thread::sleep(std::time::Duration::from_millis(50));
 
                 // Apply clock recipe so GPC clocks are running.
-                let (clk_applied, clk_skipped) =
-                    super::kepler_clock::apply_gk110_clock_recipe(guard);
+                let (clk_applied, clk_skipped) = super::kepler_clock::apply_gk110_clock_recipe(guard);
                 std::thread::sleep(std::time::Duration::from_millis(100));
 
                 // Re-enumerate PRI ring after DEVINIT.
                 {
                     let bar0 = guard.inner();
-                    let rd =
-                        |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
-                    let wr_raw = |reg: u32, val: u32| {
-                        let _ = bar0.write_u32(reg as usize, val);
-                    };
+                    let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+                    let wr_raw = |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
                     super::pri::nouveau_pri_ring_init(&rd, &wr_raw);
                     super::pri::clear_pri_ring_faults(bar0, &rd, &wr_raw);
                 }
@@ -717,8 +812,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
                 cached_tpc_total = 0;
                 {
                     let bar0 = guard.inner();
-                    let rd =
-                        |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+                    let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
                     super::pri::clear_pri_ring_faults(bar0, &r, &w);
                     for gpc in 0..8u32 {
                         let tpc_reg = rd(0x50_0000 + gpc * 0x8000 + 0x2608);
@@ -750,15 +844,13 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             {
                 let bar0 = guard.inner();
                 let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
-                let wr_raw = |reg: u32, val: u32| {
-                    let _ = bar0.write_u32(reg as usize, val);
-                };
+                let wr_raw = |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
 
                 let pmc = rd(0x200);
-                wr_raw(0x200, pmc & !0x0000_1000); // PGRAPH off
-                rd(0x200); // flush
-                wr_raw(0x200, pmc | 0x0000_1000); // PGRAPH on
-                rd(0x200); // flush
+                wr_raw(0x200, pmc & !0x0000_1000);  // PGRAPH off
+                rd(0x200);                            // flush
+                wr_raw(0x200, pmc | 0x0000_1000);    // PGRAPH on
+                rd(0x200);                            // flush
 
                 super::pri::nouveau_pri_ring_init(&rd, &wr_raw);
                 super::pri::clear_pri_ring_faults(bar0, &rd, &wr_raw);
@@ -808,8 +900,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
                 cached_tpc_total = 0;
                 {
                     let bar0 = guard.inner();
-                    let rd =
-                        |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+                    let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
                     for gpc in 0..8u32 {
                         let tpc_reg = rd(0x50_0000 + gpc * 0x8000 + 0x2608);
                         let alive = tpc_reg != 0xDEAD_DEAD && tpc_reg & 0xBAD0_0000 != 0xBAD0_0000;
@@ -860,9 +951,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         {
             let bar0 = guard.inner();
             let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
-            let wr_raw = |reg: u32, val: u32| {
-                let _ = bar0.write_u32(reg as usize, val);
-            };
+            let wr_raw = |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
 
             let pmc = rd(0x200);
             tracing::info!(pmc = format_args!("{pmc:#010x}"), "PMC GR reset");
@@ -899,12 +988,7 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         }
 
         tracing::info!(hw_gpc_count, "Proceeding to FECS/GPCCS firmware upload");
-        super::kepler_fecs_boot::kepler_load_and_boot_fecs(
-            guard,
-            cached_gpc_count,
-            cached_tpc_total,
-            &cached_tpc_counts,
-        );
+        super::kepler_fecs_boot::kepler_load_and_boot_fecs(guard, cached_gpc_count, cached_tpc_total, &cached_tpc_counts);
         return;
     }
 
@@ -1013,17 +1097,18 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         // If so, skip the destructive PGOB/SCC/MMIO reinit — it kills the
         // warm state that nouveau set up and that our firmware needs.
         super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
-        let gpc0_warmcheck = r(0x50_2608);
+        let gpc0_warmcheck = r(0x50_0000);
         let gpc_nr_reg = r(0x40_9604);
-        let gpc0_alive =
-            gpc0_warmcheck != 0xDEAD_DEAD && gpc0_warmcheck & 0xBAD0_0000 != 0xBAD0_0000;
-        let gpc_nr_readable = gpc_nr_reg != 0xDEAD_DEAD && gpc_nr_reg & 0xBAD0_0000 != 0xBAD0_0000;
+        let gpc0_alive = gpc0_warmcheck != 0xDEAD_DEAD
+            && gpc0_warmcheck & 0xBAD0_0000 != 0xBAD0_0000
+            && gpc0_warmcheck != 0;
+        let gpc_nr_readable = gpc_nr_reg != 0xDEAD_DEAD
+            && gpc_nr_reg & 0xBAD0_0000 != 0xBAD0_0000;
 
         tracing::info!(
             gpc0 = format_args!("{gpc0_warmcheck:#010x}"),
             gpc_nr_reg = format_args!("{gpc_nr_reg:#010x}"),
-            gpc0_alive,
-            gpc_nr_readable,
+            gpc0_alive, gpc_nr_readable,
             "Warm-state check: can we skip destructive reinit?"
         );
 
@@ -1038,7 +1123,8 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             tracing::info!("Using nouveau warm-state fast path (skip PGOB/SCC)");
 
             // Apply GR MMIO init (~173 registers + exceptions).
-            let (gr_applied, gr_faulted) = super::kepler_gr_init::apply_gk110_gr_init(guard);
+            let (gr_applied, gr_faulted) =
+                super::kepler_gr_init::apply_gk110_gr_init(guard);
             super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
             tracing::info!(gr_applied, gr_faulted, "GR MMIO init applied (fast path)");
 
@@ -1088,11 +1174,8 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             // NVIDIA official PGOB disable sequence.
             {
                 let bar0 = guard.inner();
-                let rd_raw =
-                    |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
-                let wr_raw = |reg: u32, val: u32| {
-                    let _ = bar0.write_u32(reg as usize, val);
-                };
+                let rd_raw = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+                let wr_raw = |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
                 let mask_raw = |reg: u32, clr: u32, set: u32| {
                     let cur = rd_raw(reg);
                     wr_raw(reg, (cur & !clr) | set);
@@ -1156,7 +1239,8 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             super::pri::vbios_pri_ring_init(&r, &w);
             super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
-            let (gr_applied, gr_faulted) = super::kepler_gr_init::apply_gk110_gr_init(guard);
+            let (gr_applied, gr_faulted) =
+                super::kepler_gr_init::apply_gk110_gr_init(guard);
             super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
             // GPC topology from live hardware
@@ -1191,13 +1275,12 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             tracing::info!(
                 fecs_cpuctl = format_args!("{fecs_cpuctl_post:#010x}"),
                 gpc0 = format_args!("{gpc0_verify:#010x}"),
-                gr_applied,
-                gr_faulted,
+                gr_applied, gr_faulted,
                 "Slow path: state after full GR reinit"
             );
 
-            let fecs_pri_fault =
-                fecs_cpuctl_post & 0xBAD0_0000 == 0xBAD0_0000 || fecs_cpuctl_post == 0xDEAD_DEAD;
+            let fecs_pri_fault = fecs_cpuctl_post & 0xBAD0_0000 == 0xBAD0_0000
+                || fecs_cpuctl_post == 0xDEAD_DEAD;
             if fecs_pri_fault {
                 tracing::error!("FECS PRI-faulted after reinit — aborting firmware upload");
                 return;

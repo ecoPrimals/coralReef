@@ -43,3 +43,9 @@ required-features = ["vfio"]
 [[test]]
 name = "exp123k_k80_sovereign"
 path = "tests/exp123k_k80_sovereign/mod.rs"
+required-features = ["vfio"]
+
+[[test]]
+name = "ember_client"
+path = "tests/ember_client.rs"
+required-features = ["vfio"]

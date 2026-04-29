@@ -71,10 +71,7 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
     let rop = r(0x12_0074);
     let gpc = r(0x12_0078);
     tracing::info!(
-        ok = phase1_ok,
-        hub,
-        rop,
-        gpc,
+        ok = phase1_ok, hub, rop, gpc,
         pclock = format_args!("{:#010x}", r(0x13_0000)),
         "Phase 1: PRI ring init (minimal PMC)"
     );
@@ -202,8 +199,7 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
     let phase3_ok = super::pri::vbios_pri_ring_init(&r, &w);
     let hub2 = r(0x12_0070);
     tracing::info!(
-        ok = phase3_ok,
-        hub = hub2,
+        ok = phase3_ok, hub = hub2,
         pclock = format_args!("{:#010x}", r(0x13_0000)),
         fecs = format_args!("{:#010x}", r(0x40_9100)),
         "Phase 3: PRI ring re-init (full PMC)"
@@ -353,8 +349,7 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
 
     let pll0_final = r(0x13_0000);
     tracing::info!(
-        applied,
-        skipped,
+        applied, skipped,
         pll0 = format_args!("{pll0_final:#010x}"),
         "Phase 3.5: PCLOCK recipe applied (post-PMC)"
     );

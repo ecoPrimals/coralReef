@@ -70,23 +70,31 @@ pub(super) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
 
     // Step 5: Magic power domain enable sequence — each write followed by
     // polling until bit 31 clears (nouveau uses nvkm_msec(2000)).
-    for &(addr, data) in PGOB_POWER_STEPS {
+    let mut step_log = String::new();
+    for (i, &(addr, data)) in PGOB_POWER_STEPS.iter().enumerate() {
+        let pre = rd(addr);
         wr(addr, data);
         let mut ok = false;
+        let mut post = 0u32;
         for _ in 0..200 {
             std::thread::sleep(std::time::Duration::from_millis(10));
-            if rd(addr) & 0x8000_0000 == 0 {
+            post = rd(addr);
+            if post & 0x8000_0000 == 0 {
                 ok = true;
                 break;
             }
         }
+        use std::fmt::Write;
+        let _ = write!(step_log, "[{i}:{addr:#08x} pre={pre:#010x} wr={data:#010x} post={post:#010x} ok={ok}] ");
         if !ok {
             tracing::warn!(
                 addr = format_args!("{addr:#010x}"),
+                pre = format_args!("{pre:#010x}"),
                 "gk110 PGOB: power step timed out (bit 31 stuck high)"
             );
         }
     }
+    tracing::info!(steps = %step_log, "PGOB power steps");
 
     // Step 6: PMU PGOB control: clear bit 1, set bit 0, clear bit 0
     mask(0x10_a78c, 0x0000_0002, 0x0000_0000);
@@ -177,5 +185,93 @@ pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'
         fecs = format_args!("{fecs:#010x}"),
         gr_hub_ok = gr_hub != 0xDEAD_DEAD && gr_hub & 0xBAD0_0000 != 0xBAD0_0000,
         "pgob_ungate_only complete"
+    );
+}
+
+/// nvidia-470 proprietary PGOB disable — PSW-only handshake.
+///
+/// Derived from static analysis of `_nv029216rm` in `nv-kernel.o_binary`
+/// (nvidia-470.256.02). Unlike Nouveau's `gk110_pmu_pgob`, this sequence
+/// does NOT use the `0x0205xx` power domain registers (which cause PRIVRING
+/// faults on GK210B). It communicates ungate intent solely through the PSW
+/// register at 0x10a78c:
+///
+/// - Bit 0: PSW trigger (set to execute, then clear)
+/// - Bit 1: PGOB state request (1 = power-gated, 0 = ungated)
+///
+/// Prerequisites: PMU falcon should be powered on (PMC bit 13 set in 0x200).
+/// On a warm-caught K80 after nouveau POST, the PMU is typically running.
+pub(super) fn nvidia470_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) {
+    let bar0 = guard.inner();
+    let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+    let wr = |reg: u32, val: u32| {
+        let _ = bar0.write_u32(reg as usize, val);
+    };
+
+    let pre = rd(0x10_a78c);
+    let pmu_cpuctl = rd(0x10_a100);
+    let pmc = rd(0x200);
+    tracing::info!(
+        psw_pre = format_args!("{pre:#010x}"),
+        pmu_cpuctl = format_args!("{pmu_cpuctl:#010x}"),
+        pmc = format_args!("{pmc:#010x}"),
+        "nvidia470 PGOB disable: starting PSW-only sequence"
+    );
+
+    // Step 1: Read PSW, clear bit 1 (request ungated state)
+    let val = rd(0x10_a78c);
+    wr(0x10_a78c, val & !0x02);
+
+    // Step 2: Read PSW, set bit 0 (trigger the PSW command)
+    let val = rd(0x10_a78c);
+    wr(0x10_a78c, val | 0x01);
+
+    // Step 3: Read PSW, clear bit 0 (release trigger)
+    let val = rd(0x10_a78c);
+    wr(0x10_a78c, val & !0x01);
+
+    // Brief settle for the PMU to process the power state change
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let post = rd(0x10_a78c);
+    let gpc0 = rd(0x50_0000);
+    let gr_hub = rd(0x40_0000);
+    let fecs = rd(0x40_9100);
+    tracing::info!(
+        psw_post = format_args!("{post:#010x}"),
+        gpc0 = format_args!("{gpc0:#010x}"),
+        gr_hub = format_args!("{gr_hub:#010x}"),
+        fecs = format_args!("{fecs:#010x}"),
+        gpc0_alive = gpc0 != 0xDEAD_DEAD && gpc0 != 0 && gpc0 & 0xBAD0_0000 != 0xBAD0_0000,
+        "nvidia470 PGOB disable complete"
+    );
+}
+
+/// nvidia-470 proprietary PGOB enable — re-gates GPCs for power saving.
+///
+/// Derived from `_nv029114rm` in `nv-kernel.o_binary`.
+/// Inverse of `nvidia470_pgob_disable`: sets bit 1, triggers, clears trigger.
+pub(super) fn nvidia470_pgob_enable(guard: &super::hardware_guard::GuardedBar<'_>) {
+    let bar0 = guard.inner();
+    let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+    let wr = |reg: u32, val: u32| {
+        let _ = bar0.write_u32(reg as usize, val);
+    };
+
+    // Set bit 1 (request power-gated state)
+    let val = rd(0x10_a78c);
+    wr(0x10_a78c, val | 0x02);
+
+    // Trigger (set bit 0)
+    let val = rd(0x10_a78c);
+    wr(0x10_a78c, val | 0x01);
+
+    // Release trigger (clear bit 0)
+    let val = rd(0x10_a78c);
+    wr(0x10_a78c, val & !0x01);
+
+    tracing::info!(
+        psw = format_args!("{:#010x}", rd(0x10_a78c)),
+        "nvidia470 PGOB enable complete (GPCs power-gated)"
     );
 }
