@@ -1,0 +1,20 @@
+# Notify plasmidBin to rebuild this primal on push to main.
+# Managed by primalSpring — do not edit manually.
+
+name: Notify plasmidBin
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch rebuild to plasmidBin
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PLASMIDBIN_DISPATCH_TOKEN }}
+          repository: ecoPrimals/plasmidBin
+          event-type: primal-updated
+          client-payload: '{"primal": "${{ github.event.repository.name }}", "sha": "${{ github.sha }}"}'
