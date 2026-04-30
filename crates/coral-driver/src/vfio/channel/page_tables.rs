@@ -370,6 +370,12 @@ pub(super) fn populate_kepler_instance_block(
     write_u32_le(inst, ramfc::SIGNATURE, 0x0000_FACE);
     write_u32_le(inst, ramfc::ACQUIRE, 0x7FFF_F902);
 
+    // PB DMA limit/reference + subroutine config — inherited from nv50_chan_ramfc_write.
+    // Without these, the PBDMA rejects the context during reload, triggering
+    // SCHED_ERROR code=32 (CONTEXT_RELOAD_TIMEOUT) on GK104/GK210B.
+    write_u32_le(inst, ramfc::DMA_LIMIT_REF, 0x003F_6078);
+    write_u32_le(inst, ramfc::PB_DMA_SUBROUTINE, 0x0100_3FFF);
+
     write_u32_le(inst, ramfc::GP_BASE_LO, gpfifo_iova as u32);
     write_u32_le(
         inst,
@@ -408,6 +414,10 @@ pub(super) fn populate_kepler_instance_block(
 ///   `[31:12] INST_PTR, [9:8] INST_TARGET, [0] CHANNEL_ENABLE`
 ///
 /// Unlike GV100, there's no TSG header and each entry is 8 bytes (not 16).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "IOVA values always fit u32 for our allocation range"
+)]
 pub(super) fn populate_kepler_runlist(rl: &mut [u8], _instance_iova: u64, channel_id: u32) {
     // GK104 runlist entry format (from Nouveau gk104_fifo_runlist_commit):
     //   DW0 = channel_id

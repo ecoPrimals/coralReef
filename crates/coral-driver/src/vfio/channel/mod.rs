@@ -490,30 +490,48 @@ impl VfioChannel {
 
         chan.submit_runlist_kepler(bar0)?;
 
-        // Poll for runlist completion (rl_pending bit 0 clears when done).
+        // Poll for runlist completion via PFIFO_INTR.
+        // GK104 does NOT have per-runlist RUNLIST_PENDING registers (0x2284 is
+        // GV100 per-RL stride). Instead, check the interrupt register: bit 30
+        // (INTR_RL_COMPLETE) fires on runlist update completion, and bit 0
+        // (BIND_ERROR) indicates channel binding failure.
         let mut rl_done = false;
-        for tick in 0..20 {
+        for tick in 0..30 {
             std::thread::sleep(std::time::Duration::from_millis(5));
-            let rl_pend = r(registers::pfifo::RUNLIST_PENDING);
             let intr = r(registers::pfifo::INTR);
-            if rl_pend & 1 == 0 {
-                tracing::info!(tick, "runlist completed");
+            if intr & registers::pfifo::INTR_RL_COMPLETE != 0 {
+                let _ = bar0.write_u32(
+                    registers::pfifo::INTR,
+                    registers::pfifo::INTR_RL_COMPLETE,
+                );
+                tracing::info!(tick, "runlist completed (INTR bit 30 ACK)");
                 rl_done = true;
                 break;
             }
-            if intr != 0 && tick % 4 == 0 {
+            if intr & 0x0000_0001 != 0 {
                 let bind_err = r(0x0000_252C);
-                tracing::info!(
+                tracing::warn!(
                     tick,
                     intr = format_args!("{intr:#010x}"),
-                    rl_pend = format_args!("{rl_pend:#010x}"),
                     bind_err = format_args!("{bind_err:#010x}"),
-                    "runlist poll: scheduler stalled"
+                    "BIND_ERROR during runlist submit"
+                );
+                break;
+            }
+            if intr != 0 && tick % 5 == 0 {
+                tracing::debug!(
+                    tick,
+                    intr = format_args!("{intr:#010x}"),
+                    "runlist poll: waiting"
                 );
             }
         }
         if !rl_done {
-            tracing::warn!("runlist did not complete within 100ms");
+            let intr = r(registers::pfifo::INTR);
+            tracing::warn!(
+                intr = format_args!("{intr:#010x}"),
+                "runlist did not complete within 150ms"
+            );
         }
 
         {
@@ -545,9 +563,20 @@ impl VfioChannel {
                 );
             }
             if pfifo_intr & 0x4000_0000 != 0 {
+                let code = sched_err & 0x7F;
+                let reason = match code {
+                    0x0a | 0x0b => "CTXSW_TIMEOUT",
+                    0x0c => "CTX_ILLEGAL_ACCESS",
+                    0x0d => "MISSING_FENCE",
+                    0x1e => "STATE_TIMEOUT",
+                    0x1f => "SUBCHANNEL_TOKEN",
+                    0x20 => "CONTEXT_RELOAD_TIMEOUT",
+                    _ => "UNKNOWN",
+                };
                 tracing::warn!(
                     sched_err = format_args!("{sched_err:#010x}"),
-                    code = sched_err & 0x7F,
+                    code,
+                    reason,
                     "PFIFO SCHED_ERROR detected"
                 );
             }
@@ -620,7 +649,8 @@ impl VfioChannel {
     fn submit_runlist_kepler(&self, bar0: &MappedBar) -> DriverResult<()> {
         let rl_base =
             registers::pfifo::gk104_runlist_base_value(RUNLIST_IOVA, TARGET_SYS_MEM_COHERENT);
-        let rl_submit = registers::pfifo::gk104_runlist_submit_value(self.runlist_id, 1);
+        let rl_submit =
+            registers::pfifo::gk104_runlist_submit_value(self.runlist_id, 1);
 
         tracing::info!(
             rl_base = format_args!("{rl_base:#010x}"),

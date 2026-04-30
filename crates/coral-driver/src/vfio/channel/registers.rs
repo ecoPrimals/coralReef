@@ -96,7 +96,10 @@ pub(crate) mod pfifo {
     pub const fn gv100_runlist_submit_value(iova: u64, entry_count: u32) -> u32 {
         ((iova >> 44) as u32) | (entry_count << 16)
     }
-    /// Runlist pending status. Per-runlist at stride 8.
+    /// GV100 runlist pending status. Per-runlist at stride 8.
+    /// NOT valid on Kepler — 0x2284 collides with GV100 per-runlist submit
+    /// for runlist 1. Kepler uses PFIFO_INTR bit 30 for completion instead.
+    #[allow(dead_code)]
     pub const RUNLIST_PENDING: usize = 0x0000_2284;
     #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Preempt trigger (channel or runlist).
@@ -625,6 +628,13 @@ pub(super) mod ramfc {
     pub const SIGNATURE: usize = 0x010;
     /// `NV_RAMFC_ACQUIRE` (dword 12) — semaphore acquire timeout.
     pub const ACQUIRE: usize = 0x030;
+    /// `NV_RAMFC_DMA_LIMIT_AND_REF` (dword 15) — PB DMA method limit + reference.
+    /// Nouveau `nv50_chan_ramfc_write` sets `0x003F6078`. Without this, the PBDMA
+    /// rejects the context during reload (SCHED_ERROR code=32 CONTEXT_RELOAD_TIMEOUT).
+    pub const DMA_LIMIT_REF: usize = 0x03C;
+    /// `NV_RAMFC_PB_DMA_SUBROUTINE` (dword 17) — push buffer subroutine config.
+    /// Nouveau sets `0x01003FFF`. Must be non-zero for valid PBDMA context load.
+    pub const PB_DMA_SUBROUTINE: usize = 0x044;
     /// `NV_RAMFC_GP_BASE` (dword 18) — GPFIFO ring GPU VA low.
     pub const GP_BASE_LO: usize = 0x048;
     /// `NV_RAMFC_GP_BASE_HI` (dword 19) — GPFIFO ring GPU VA high + limit.
@@ -705,16 +715,10 @@ pub(super) const FAULT_BUF_IOVA: u64 = 0xA000;
 // to keep the IOVA layout stable across generations.
 
 /// Kepler PD IOVA — alias for PD3_IOVA.
-#[expect(
-    dead_code,
-    reason = "WIP: Kepler page-table staging uses PD3_IOVA directly; alias preserved for readability"
-)]
+#[allow(dead_code)]
 pub(super) const KEPLER_PD_IOVA: u64 = PD3_IOVA;
 /// Kepler PT IOVA — alias for PT0_IOVA.
-#[expect(
-    dead_code,
-    reason = "WIP: Kepler staging uses PT0_IOVA directly; alias preserved for readability"
-)]
+#[allow(dead_code)]
 pub(super) const KEPLER_PT_IOVA: u64 = PT0_IOVA;
 /// NOP push buffer IOVA — dedicated buffer with valid NOP GPU methods.
 pub(super) const NOP_PB_IOVA: u64 = 0xB000;
