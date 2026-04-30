@@ -101,7 +101,10 @@ pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
 }
 
 /// Group devices by shared `PCIe` switch based on bus address prefix.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "PCIe grouping only meaningful on Linux sysfs")
+)]
 #[expect(clippy::redundant_pub_crate, reason = "needed by crate::tests::pcie")]
 pub(crate) fn assign_switch_groups(devices: &mut [PcieDeviceInfo]) {
     let mut group_map: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
