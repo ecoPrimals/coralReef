@@ -403,6 +403,7 @@ pub enum SovereignStagesError {
     },
 
     /// HBM2 typestate pipeline failed.
+    #[cfg(all(target_os = "linux", feature = "vfio"))]
     #[error(transparent)]
     Hbm2Training(#[from] crate::vfio::channel::hbm2_training::Hbm2TrainingError),
     /// VBIOS / PMU devinit for GDDR5 cold training failed.
