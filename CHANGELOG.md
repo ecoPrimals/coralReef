@@ -18,6 +18,18 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - `jsonrpc+unix` transport advertised in discovery file alongside `jsonrpc` (TCP) and `tarpc`
 - Fixes primalSpring v0.9.24 P1: 4 composition experiment failures (exp004 health/caps, exp094 shader_supported_archs, exp004 composition_all_healthy)
 
+#### Safety Audit
+- Added missing `// SAFETY:` comments: `channel_setup.rs` fence_cpu volatile write, `isolation.rs` write/batch inner blocks, `mapped_bar.rs` isolation call sites
+- Standardized `// Safety:` → `// SAFETY:` on all bytemuck Pod/Zeroable impls in `uvm/structs.rs`
+
+#### Audit Results (no action needed)
+- **Large files**: 14 files >800L — all justified (8 test, 2 generated ISA, 1 example, 1 hardware harness, 2 dense data tables). All under 1000L
+- **Dependencies**: No C deps in default builds. Transitive `libc` via mio tracked as EVOLUTION
+- **Hardcoding**: All paths have env var overrides. Zero hardcoded primal names in production
+- **Mocks**: All test-isolated. `coral-reef-stubs` is legitimate production stub crate
+- **Code quality**: Zero `.unwrap()` in production library, zero TODO/FIXME/HACK, zero commented-out code
+- **`#[allow(dead_code)]`**: All justified (platform-conditional, BTSP detection patterns)
+
 #### Tests
 - 4 new `resolve_uds_binds` unit tests: TCP passthrough, composition socket redirect, tarpc suffix skip, no-extension handling
 

@@ -221,6 +221,7 @@ pub(super) fn userspace_schedule_tsg_doorbell_and_fence(
         let fence_fd = open_nvidiactl_mmap_fd()?;
         let fence_cpu =
             client.rm_map_memory_on_fd(fence_fd.as_raw_fd(), h_device, h_fence_mem, 0, 4096)?;
+        // SAFETY: fence_cpu is a valid 4096-byte RM mmap'd region; writing u32 at offset 0.
         unsafe { VolatilePtr::new(fence_cpu as *mut u32).write(0) };
 
         // Fence push buffer: rewritten before each fence submission.

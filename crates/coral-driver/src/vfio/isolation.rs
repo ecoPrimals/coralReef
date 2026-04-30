@@ -199,6 +199,8 @@ pub unsafe fn fork_isolated_mmio_write(
     let ptr_val = bar0_ptr as usize;
 
     let result = fork_isolated_raw(timeout, 1, move |pipe_fd| {
+        // SAFETY: same mmap in child (COW pages, same virtual address);
+        // offset is within bounds per caller's `# Safety` contract.
         let bar0 = ptr_val as *mut u8;
         let reg_ptr = unsafe { bar0.add(offset as usize).cast::<u32>() };
         unsafe { std::ptr::write_volatile(reg_ptr, value) };
@@ -238,6 +240,8 @@ pub unsafe fn fork_isolated_mmio_batch(
     let ops_copy: Vec<(u32, Option<u32>)> = ops.to_vec();
 
     let result = fork_isolated_raw(timeout, max_bytes, move |pipe_fd| {
+        // SAFETY: same mmap in child (COW pages, same virtual address);
+        // all offsets are within bounds per caller's `# Safety` contract.
         let bar0 = ptr_val as *mut u8;
         for &(offset, maybe_val) in &ops_copy {
             let reg_ptr = unsafe { bar0.add(offset as usize).cast::<u32>() };

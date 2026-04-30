@@ -699,9 +699,9 @@ pub struct EngineContextBufferInfo {
     pub alignment: u32,
 }
 
-// Safety: all-zero is valid for this POD type.
+// SAFETY: all-zero is valid for this POD type.
 unsafe impl bytemuck::Zeroable for EngineContextBufferInfo {}
-// Safety: no padding, no invariants — purely POD.
+// SAFETY: no padding, no invariants — purely POD.
 unsafe impl bytemuck::Pod for EngineContextBufferInfo {}
 
 /// Buffer requirements for one GR engine instance.
@@ -720,9 +720,9 @@ impl Default for GrContextBuffersInfo {
     }
 }
 
-// Safety: all-zero is valid.
+// SAFETY: all-zero is valid.
 unsafe impl bytemuck::Zeroable for GrContextBuffersInfo {}
-// Safety: array of POD, no padding.
+// SAFETY: array of POD, no padding.
 unsafe impl bytemuck::Pod for GrContextBuffersInfo {}
 
 /// Response for `NV2080_CTRL_CMD_INTERNAL_STATIC_KGR_GET_CONTEXT_BUFFERS_INFO`.
@@ -741,9 +741,9 @@ impl Default for GetContextBuffersInfoParams {
     }
 }
 
-// Safety: all-zero is valid.
+// SAFETY: all-zero is valid.
 unsafe impl bytemuck::Zeroable for GetContextBuffersInfoParams {}
-// Safety: array of POD, no padding.
+// SAFETY: array of POD, no padding.
 unsafe impl bytemuck::Pod for GetContextBuffersInfoParams {}
 
 /// One entry in the `GPU_PROMOTE_CTX` buffer table.
@@ -768,9 +768,9 @@ pub struct PromoteCtxBufferEntry {
     pub b_nonmapped: u8,
 }
 
-// Safety: all-zero is valid for this POD type.
+// SAFETY: all-zero is valid for this POD type.
 unsafe impl bytemuck::Zeroable for PromoteCtxBufferEntry {}
-// Safety: no padding (u64, u64, u64, u32, u16, u8, u8 = 32 bytes), no invariants.
+// SAFETY: no padding (u64, u64, u64, u32, u16, u8, u8 = 32 bytes), no invariants.
 unsafe impl bytemuck::Pod for PromoteCtxBufferEntry {}
 
 /// Parameters for `NV2080_CTRL_CMD_GPU_PROMOTE_CTX`.
@@ -809,7 +809,7 @@ impl Default for GpuPromoteCtxParams {
     }
 }
 
-// Safety: all-zero is valid.
+// SAFETY: all-zero is valid.
 unsafe impl bytemuck::Zeroable for GpuPromoteCtxParams {}
-// Safety: composed of POD, explicit padding ensures no implicit padding.
+// SAFETY: composed of POD, explicit padding ensures no implicit padding.
 unsafe impl bytemuck::Pod for GpuPromoteCtxParams {}

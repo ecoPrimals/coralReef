@@ -86,6 +86,7 @@ impl MappedBar {
         offset: u32,
         timeout: std::time::Duration,
     ) -> crate::vfio::isolation::IsolationResult<u32> {
+        // SAFETY: MmioRegion invariant guarantees base_ptr() is a valid BAR0 mmap.
         unsafe { crate::vfio::isolation::fork_isolated_mmio_read(self.base_ptr(), offset, timeout) }
     }
 
@@ -96,6 +97,7 @@ impl MappedBar {
         value: u32,
         timeout: std::time::Duration,
     ) -> crate::vfio::isolation::IsolationResult<()> {
+        // SAFETY: MmioRegion invariant guarantees base_ptr() is a valid BAR0 mmap.
         unsafe {
             crate::vfio::isolation::fork_isolated_mmio_write(
                 self.base_ptr(),
@@ -112,6 +114,7 @@ impl MappedBar {
         ops: &[(u32, Option<u32>)],
         timeout: std::time::Duration,
     ) -> crate::vfio::isolation::IsolationResult<Vec<u32>> {
+        // SAFETY: MmioRegion invariant guarantees base_ptr() is a valid BAR0 mmap.
         unsafe { crate::vfio::isolation::fork_isolated_mmio_batch(self.base_ptr(), ops, timeout) }
     }
 }

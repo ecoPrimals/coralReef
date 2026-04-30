@@ -4,7 +4,7 @@
 
 **Current position**: Phase 10 — Iteration 87.
 
-**Last completed**: P1 UDS JSON-RPC protocol fix — `resolve_uds_binds` separates composition socket (JSON-RPC) from tarpc (dedicated `-tarpc.sock`). Fixes primalSpring v0.9.24 composition experiment failures. JSON-RPC UDS starts before tarpc, `jsonrpc+unix` transport advertised in discovery.
+**Last completed**: P1 UDS JSON-RPC protocol fix — `resolve_uds_binds` separates composition socket (JSON-RPC) from tarpc (dedicated `-tarpc.sock`). Fixes primalSpring v0.9.24 composition experiment failures. Deep debt safety audit: added missing `// SAFETY:` comments in `channel_setup.rs`, `isolation.rs`, `mapped_bar.rs`, standardized bytemuck impls in `structs.rs`. Full codebase hygiene audit confirmed clean.
 
 **Tests**: 4550 passing, 0 failed, 155 ignored (hardware-gated). Zero clippy warnings.
 
