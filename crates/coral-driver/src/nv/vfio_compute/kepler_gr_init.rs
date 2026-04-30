@@ -272,7 +272,12 @@ pub(crate) fn apply_gk110_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         faulted += f;
     }
 
-    tracing::info!(applied, faulted, gpcs = gpcs.len(), "GK110 PGRAPH MMIO init applied (per-GPC fanout)");
+    tracing::info!(
+        applied,
+        faulted,
+        gpcs = gpcs.len(),
+        "GK110 PGRAPH MMIO init applied (per-GPC fanout)"
+    );
     (applied, faulted)
 }
 
@@ -430,7 +435,12 @@ pub(crate) fn apply_gk110_clkgate(guard: &super::hardware_guard::GuardedBar<'_>)
         faulted += f;
     }
 
-    tracing::info!(applied, faulted, gpcs = gpcs.len(), "GK110 clock gating init applied (per-GPC fanout)");
+    tracing::info!(
+        applied,
+        faulted,
+        gpcs = gpcs.len(),
+        "GK110 clock gating init applied (per-GPC fanout)"
+    );
     (applied, faulted)
 }
 
@@ -465,7 +475,7 @@ fn write_with_gpc_fanout(
     reg: u32,
     val: u32,
 ) -> (u32, u32) {
-    if reg >= GPC_BROADCAST_BASE && reg < GPC_BROADCAST_END {
+    if (GPC_BROADCAST_BASE..GPC_BROADCAST_END).contains(&reg) {
         let offset = reg - GPC_BROADCAST_BASE;
         let mut applied = 0u32;
         let mut faulted = 0u32;

@@ -68,6 +68,9 @@ impl Bar0Map {
             .open(&path)
             .map_err(|e| format!("open {path}: {e}"))?;
 
+        // SAFETY: `file` is an open `resource0` fd for this BDF; BAR0 is mmap'd
+        // MAP_SHARED with RW for the first `BAR0_SIZE` bytes (PCI standard window).
+        // Length and offset 0 match the opened resource; alignment is chosen by the kernel.
         let raw = unsafe {
             rustix::mm::mmap(
                 std::ptr::null_mut(),
@@ -97,6 +100,7 @@ impl Bar0Map {
 
 impl Drop for Bar0Map {
     fn drop(&mut self) {
+        // SAFETY: `self.ptr`/`BAR0_SIZE` pair comes from the successful `mmap` in `open`.
         unsafe {
             let _ = rustix::mm::munmap(self.ptr.cast(), BAR0_SIZE);
         }
@@ -109,6 +113,8 @@ impl Drop for Bar0Map {
 
 fn isolated_read(bar0_ptr: *const u8, offset: u32, timeout: Duration) -> Result<u32, String> {
     use coral_driver::vfio::isolation::{IsolationResult, fork_isolated_mmio_read};
+    // SAFETY: `bar0_ptr` is the BAR0 map base from `Bar0Map`; caller offsets are in-range
+    // for the 16MiB mapping (see `fork_isolated_mmio_read` safety contract).
     match unsafe { fork_isolated_mmio_read(bar0_ptr, offset, timeout) } {
         IsolationResult::Ok(v) => Ok(v),
         IsolationResult::Timeout => Err(format!(
@@ -128,6 +134,7 @@ fn isolated_write(
     timeout: Duration,
 ) -> Result<(), String> {
     use coral_driver::vfio::isolation::{IsolationResult, fork_isolated_mmio_write};
+    // SAFETY: `bar0_ptr` is the BAR0 map base; `offset + 4` lies within the same mapping.
     match unsafe { fork_isolated_mmio_write(bar0_ptr, offset, value, timeout) } {
         IsolationResult::Ok(()) => Ok(()),
         IsolationResult::Timeout => Err(format!(
@@ -147,6 +154,7 @@ fn isolated_batch_read(
 ) -> Result<Vec<u32>, String> {
     use coral_driver::vfio::isolation::{IsolationResult, fork_isolated_mmio_batch};
     let ops: Vec<(u32, Option<u32>)> = offsets.iter().map(|&o| (o, None)).collect();
+    // SAFETY: `bar0_ptr` is the BAR0 base; every read offset in `ops` is below the map size.
     match unsafe { fork_isolated_mmio_batch(bar0_ptr, &ops, timeout) } {
         IsolationResult::Ok(vals) => Ok(vals),
         IsolationResult::Timeout => {

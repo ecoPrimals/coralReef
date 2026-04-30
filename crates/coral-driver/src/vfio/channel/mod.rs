@@ -620,8 +620,7 @@ impl VfioChannel {
     fn submit_runlist_kepler(&self, bar0: &MappedBar) -> DriverResult<()> {
         let rl_base =
             registers::pfifo::gk104_runlist_base_value(RUNLIST_IOVA, TARGET_SYS_MEM_COHERENT);
-        let rl_submit =
-            registers::pfifo::gk104_runlist_submit_value(self.runlist_id, 1);
+        let rl_submit = registers::pfifo::gk104_runlist_submit_value(self.runlist_id, 1);
 
         tracing::info!(
             rl_base = format_args!("{rl_base:#010x}"),

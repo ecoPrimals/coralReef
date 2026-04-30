@@ -122,7 +122,7 @@ pub(super) fn vbios_pri_ring_init(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) 
 }
 
 /// Diagnostic dump: probe PRI ring master, GPC topology, PLL lock, and PBUS state.
-pub(super) fn kepler_pri_ring_diag(bar0: &MappedBar, r: &dyn Fn(u32) -> u32) {
+pub(super) fn kepler_pri_ring_diag(_bar0: &MappedBar, r: &dyn Fn(u32) -> u32) {
     // PRI ring master topology (nouveau gk104_privring_intr):
     //   0x120070 = hub station count
     //   0x120074 = ROP/FBP station count
@@ -179,8 +179,7 @@ pub(super) fn kepler_pri_ring_diag(bar0: &MappedBar, r: &dyn Fn(u32) -> u32) {
     );
 }
 
-/// Read GPC0 TPC count via sysfs resource0 (independent of VFIO BAR mapping).
-/// Returns `None` if sysfs BAR0 is unavailable.
+/// Scan GPC/TPC topology using the guarded BAR0 read callback.
 pub(super) fn scan_gpc_topology(
     guard: &super::hardware_guard::GuardedBar<'_>,
 ) -> (u32, u32, [(u32, u32); 8]) {
@@ -201,15 +200,28 @@ pub(super) fn scan_gpc_topology(
     (gpc_count, tpc_total, counts)
 }
 
-pub(super) fn sysfs_bar0_read_gpc0() -> Option<u32> {
+/// Read GPC0 TPC count via sysfs `resource0` (independent of VFIO BAR mapping).
+///
+/// `bdf` must be the sysfs PCI id (e.g. `0000:01:00.0`). When `CORALREEF_PRI_DEBUG_BDF` is set,
+/// that value overrides `bdf` for cross-checking a specific device.
+/// Returns `None` if sysfs BAR0 is unavailable.
+pub(super) fn sysfs_bar0_read_gpc0(bdf: &str) -> Option<u32> {
     use std::fs::File;
     use std::os::fd::AsFd;
 
-    let file = File::open("/sys/bus/pci/devices/0000:4c:00.0/resource0").ok()?;
+    let bdf_resolved = std::env::var("CORALREEF_PRI_DEBUG_BDF").unwrap_or_else(|_| bdf.to_string());
+    let path = format!("/sys/bus/pci/devices/{bdf_resolved}/resource0");
+    let file = File::open(&path).ok()?;
+
+    const MAP_LEN: usize = 0x80_0000;
+    const REG_OFF: usize = 0x50_2608;
+
+    // SAFETY: `path` selects this GPU's sysfs `resource0`; map the first `MAP_LEN` bytes
+    // read-only MAP_SHARED from offset 0 (normal BAR0 window).
     let map = unsafe {
         rustix::mm::mmap(
             std::ptr::null_mut(),
-            0x80_0000,
+            MAP_LEN,
             rustix::mm::ProtFlags::READ,
             rustix::mm::MapFlags::SHARED,
             file.as_fd(),
@@ -217,9 +229,13 @@ pub(super) fn sysfs_bar0_read_gpc0() -> Option<u32> {
         )
         .ok()?
     };
-    let val = unsafe { std::ptr::read_volatile(map.cast::<u8>().add(0x50_2608).cast::<u32>()) };
+
+    // SAFETY: `REG_OFF + 4 <= MAP_LEN`; `map` spans `MAP_LEN` bytes from a valid mmap.
+    let val = unsafe { std::ptr::read_volatile(map.cast::<u8>().add(REG_OFF).cast::<u32>()) };
+
+    // SAFETY: unmmap paired with successful mmap above, same length.
     unsafe {
-        let _ = rustix::mm::munmap(map, 0x80_0000);
+        let _ = rustix::mm::munmap(map, MAP_LEN);
     }
     Some(val)
 }

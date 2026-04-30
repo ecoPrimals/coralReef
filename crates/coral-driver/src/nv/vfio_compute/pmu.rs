@@ -190,12 +190,12 @@ pub(super) fn gk110_pmu_boot(guard: &super::hardware_guard::GuardedBar<'_>) -> b
         wr(PMU_BASE + 0x010, 0x0000_00E0);
     } else {
         let cpuctl_final = rd(PMU_CPUCTL);
-        let pc = rd(PMU_BASE + 0x110);     // UC_PC (microcode PC)
-        let epc = rd(PMU_BASE + 0x030);    // TRACEPC[0]
-        let epc1 = rd(PMU_BASE + 0x034);   // TRACEPC[1]
-        let exci = rd(PMU_BASE + 0x04C);   // EXC_INTR (exception info)
-        let trap = rd(PMU_BASE + 0x028);    // EXCP_CAUSE
-        let sctl = rd(PMU_BASE + 0x240);    // SCTL (engine specific)
+        let pc = rd(PMU_BASE + 0x110); // UC_PC (microcode PC)
+        let epc = rd(PMU_BASE + 0x030); // TRACEPC[0]
+        let epc1 = rd(PMU_BASE + 0x034); // TRACEPC[1]
+        let exci = rd(PMU_BASE + 0x04C); // EXC_INTR (exception info)
+        let trap = rd(PMU_BASE + 0x028); // EXCP_CAUSE
+        let sctl = rd(PMU_BASE + 0x240); // SCTL (engine specific)
         let fbif_ctrl = rd(PMU_BASE + 0x600); // FBIF control
         let fbif_stat = rd(PMU_BASE + 0x604); // FBIF status
         tracing::warn!(

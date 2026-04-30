@@ -96,7 +96,6 @@ pub(crate) mod pfifo {
     pub const fn gv100_runlist_submit_value(iova: u64, entry_count: u32) -> u32 {
         ((iova >> 44) as u32) | (entry_count << 16)
     }
-    #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Runlist pending status. Per-runlist at stride 8.
     pub const RUNLIST_PENDING: usize = 0x0000_2284;
     #[expect(dead_code, reason = "diagnostic matrix migration in progress")]

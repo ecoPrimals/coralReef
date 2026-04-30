@@ -85,7 +85,10 @@ pub(super) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
             }
         }
         use std::fmt::Write;
-        let _ = write!(step_log, "[{i}:{addr:#08x} pre={pre:#010x} wr={data:#010x} post={post:#010x} ok={ok}] ");
+        let _ = write!(
+            step_log,
+            "[{i}:{addr:#08x} pre={pre:#010x} wr={data:#010x} post={post:#010x} ok={ok}] "
+        );
         if !ok {
             tracing::warn!(
                 addr = format_args!("{addr:#010x}"),
@@ -149,6 +152,7 @@ pub(super) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
 /// Use when PGRAPH is already enabled and FECS is in "software halt" —
 /// a PMC toggle would put FECS into "hardware reset halt" where STARTCPU
 /// is silently ignored.
+#[expect(dead_code, reason = "WIP: hotspring Kepler boot strategies")]
 pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'_>) {
     let bar0 = guard.inner();
     let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
@@ -349,6 +353,7 @@ pub(super) fn nvidia470_pgob_disable(guard: &super::hardware_guard::GuardedBar<'
 ///
 /// Derived from `_nv029114rm` in `nv-kernel.o_binary`.
 /// Inverse of `nvidia470_pgob_disable`: sets bit 1, triggers, clears trigger.
+#[expect(dead_code, reason = "WIP: hotspring Kepler boot strategies")]
 pub(super) fn nvidia470_pgob_enable(guard: &super::hardware_guard::GuardedBar<'_>) {
     let bar0 = guard.inner();
     let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };

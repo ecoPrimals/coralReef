@@ -289,6 +289,8 @@ impl CudaComputeDevice {
             builder.arg(size);
         }
 
+        // SAFETY: `(ptr, size)` pairs are device pointers/sizes from this stream's buffers,
+        // in the same order the PTX kernel expects; `config` matches `dims` and `info`.
         unsafe {
             builder.launch(config).map_err(|e| {
                 DriverError::DispatchFailed(format!("CUDA PTX kernel launch: {e}").into())

@@ -556,7 +556,7 @@ impl NvVfioComputeDevice {
                     }
                 }
 
-                super::init::kepler_warm_gr_init(&guard);
+                super::init::kepler_warm_gr_init(&guard, bdf);
 
                 // Diagnostic: probe PFIFO scheduler domain AFTER GR init
                 {

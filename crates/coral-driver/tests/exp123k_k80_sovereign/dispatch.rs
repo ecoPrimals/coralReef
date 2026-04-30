@@ -224,8 +224,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         target: coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm35),
         ..coral_reef::CompileOptions::default()
     };
-    let compiled =
-        coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile write_42 for SM35");
+    let compiled = coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile write_42 for SM35");
     eprintln!(
         "Compiled: {} bytes, {} GPRs",
         compiled.binary.len(),

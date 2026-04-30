@@ -247,7 +247,12 @@ pub fn fecs_probe_methods(bar0: &MappedBar) -> FecsMethodProbe {
 /// flag (bit 31) is still set from FECS init, so the poll succeeds immediately.
 /// The "method" is really just writing scratch registers that FECS reads
 /// asynchronously after waking from halt.
-fn fecs_internal_method(bar0: &MappedBar, method: u32, data: u32, timeout_ms: u64) -> DriverResult<()> {
+fn fecs_internal_method(
+    bar0: &MappedBar,
+    method: u32,
+    data: u32,
+    timeout_ms: u64,
+) -> DriverResult<()> {
     let _ = bar0.write_u32(falcon::FECS_BASE + 0x840, 0x8000_0000);
     let _ = bar0.write_u32(FECS_MTHD_DATA, data);
     let _ = bar0.write_u32(FECS_MTHD_CMD, method);
@@ -263,7 +268,9 @@ fn fecs_internal_method(bar0: &MappedBar, method: u32, data: u32, timeout_ms: u6
             return Ok(());
         }
         if std::time::Instant::now() > deadline {
-            let cpuctl = bar0.read_u32(falcon::FECS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD);
+            let cpuctl = bar0
+                .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
+                .unwrap_or(0xDEAD);
             return Err(DriverError::OracleError(
                 format!(
                     "FECS internal method {method:#06x} timeout ({timeout_ms}ms): \
@@ -326,10 +333,7 @@ pub fn fecs_internal_save_context(bar0: &MappedBar) -> DriverResult<()> {
         }
         if std::time::Instant::now() > deadline {
             return Err(DriverError::OracleError(
-                format!(
-                    "FECS internal context save timeout: 0x409b00={val:#010x}"
-                )
-                .into(),
+                format!("FECS internal context save timeout: 0x409b00={val:#010x}").into(),
             ));
         }
     }

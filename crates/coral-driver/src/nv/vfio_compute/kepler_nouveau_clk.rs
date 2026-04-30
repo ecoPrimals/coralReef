@@ -121,10 +121,7 @@ pub(super) fn test_137xxx_writability(
 /// Sets up the minimum viable clock tree: crystal (27 MHz) through
 /// divider path (bypass PLL). This provides a low but functional clock
 /// for FECS falcon boot.
-pub(super) fn program_crystal_clocks(
-    r: &dyn Fn(u32) -> u32,
-    w: &dyn Fn(u32, u32),
-) {
+pub(super) fn program_crystal_clocks(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) {
     // Disable PLL mode for all standard engines (0-6)
     // SSEL = 0 means all engines use divider path
     let ssel = r(0x13_7100);
@@ -179,10 +176,7 @@ pub(super) fn program_crystal_clocks(
 /// With crystal ref (27 MHz):
 ///   coef = 0x0001_0F01 → 27 * 15 / (1*1) = 405 MHz
 ///   coef = 0x0001_1E01 → 27 * 30 / (1*1) = 810 MHz
-pub(super) fn program_engine_plls(
-    r: &dyn Fn(u32) -> u32,
-    w: &dyn Fn(u32, u32),
-) {
+pub(super) fn program_engine_plls(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) {
     // First ensure PLL reference dividers provide crystal input
     for idx in 0..3u32 {
         w(0x13_7120 + idx * 4, 0x0000_0003); // VCO source

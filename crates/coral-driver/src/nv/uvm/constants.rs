@@ -85,6 +85,9 @@ pub const UVM_REGISTER_GPU_VASPACE: u32 = 25;
 /// Unregister a GPU VA space from UVM (clears auto-registered default).
 pub const UVM_UNREGISTER_GPU_VASPACE: u32 = 26;
 
+/// Register a channel with UVM for resource binding (Blackwell+ externally-owned VA spaces).
+pub const UVM_REGISTER_CHANNEL: u32 = 27;
+
 /// Create an external VA range for mapping.
 pub const UVM_CREATE_EXTERNAL_RANGE: u32 = 73;
 
@@ -197,15 +200,11 @@ pub const FERMI_VASPACE_A: u32 = 0x0000_90F1;
 /// and placed on a runlist.
 pub const FERMI_CONTEXT_SHARE_A: u32 = 0x0000_9067;
 
-/// VA space flag: enable replayable faults at the RM/hardware level.
-///
-/// When set, MMU faults in this VA space are replayable rather than fatal.
 /// VA space flag: basic RM-level faulting (0x04).
 pub const NV_VASPACE_FLAGS_ENABLE_FAULTING: u32 = 0x0000_0004;
 
-/// VA space flag: externally-owned (UVM manages page tables). Value 0x08
-/// from CUDA R580 trace. Must be combined with ENABLE_FAULTING_EXTERNAL
-/// for Blackwell.
+/// VA space flag: externally-owned (UVM manages page tables). Corrected to
+/// 0x08 from CUDA R580 trace.
 pub const NV_VASPACE_FLAGS_IS_EXTERNALLY_OWNED: u32 = 0x0000_0008;
 
 /// VA space flag: enable external (UVM) faulting / page faulting (0x40).

@@ -173,6 +173,7 @@ impl ComputeDevice for NvUvmComputeDevice {
             let base = (buf.cpu_addr + offset) as *const u8;
             let mut off = 0_usize;
             while off < len {
+                // SAFETY: `offset + len <= buf.size` and `cpu_addr != 0`; each `base.add(off)` is in-range for the mmap.
                 unsafe { uvm_cache_line_flush(base.add(off)) };
                 off += 64;
             }

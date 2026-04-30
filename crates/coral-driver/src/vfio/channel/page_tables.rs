@@ -408,10 +408,6 @@ pub(super) fn populate_kepler_instance_block(
 ///   `[31:12] INST_PTR, [9:8] INST_TARGET, [0] CHANNEL_ENABLE`
 ///
 /// Unlike GV100, there's no TSG header and each entry is 8 bytes (not 16).
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "IOVA values always fit u32 for our allocation range"
-)]
 pub(super) fn populate_kepler_runlist(rl: &mut [u8], _instance_iova: u64, channel_id: u32) {
     // GK104 runlist entry format (from Nouveau gk104_fifo_runlist_commit):
     //   DW0 = channel_id

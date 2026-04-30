@@ -175,9 +175,8 @@ pub fn nouveau_gr_warmup(bdf: &str) -> Result<(), String> {
     if let Some(ref drv) = current_driver {
         let unbind_path = format!("/sys/bus/pci/drivers/{drv}/unbind");
         eprintln!("[nouveau_warmup] Unbinding from {drv}...");
-        std::fs::write(&unbind_path, bdf).map_err(|e| {
-            format!("unbind from {drv} failed: {e} (are you root?)")
-        })?;
+        std::fs::write(&unbind_path, bdf)
+            .map_err(|e| format!("unbind from {drv} failed: {e} (are you root?)"))?;
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 
@@ -221,9 +220,8 @@ pub fn nouveau_gr_warmup(bdf: &str) -> Result<(), String> {
             );
             let _ = std::fs::write(&driver_override, "nouveau");
             std::thread::sleep(std::time::Duration::from_millis(50));
-            std::fs::write("/sys/bus/pci/drivers_probe", bdf).map_err(|e2| {
-                format!("nouveau bind failed: direct={e}, reprobe={e2}")
-            })?;
+            std::fs::write("/sys/bus/pci/drivers_probe", bdf)
+                .map_err(|e2| format!("nouveau bind failed: direct={e}, reprobe={e2}"))?;
         }
     }
 
@@ -275,9 +273,7 @@ pub fn nouveau_gr_warmup(bdf: &str) -> Result<(), String> {
         ));
     }
 
-    eprintln!(
-        "[nouveau_warmup] nouveau bound. render_node={render_node:?}"
-    );
+    eprintln!("[nouveau_warmup] nouveau bound. render_node={render_node:?}");
 
     // Step 6: Open the render node to trigger lazy GR init (if applicable).
     // On some kernels, GR is initialized lazily on first channel creation.
@@ -304,9 +300,8 @@ pub fn nouveau_gr_warmup(bdf: &str) -> Result<(), String> {
 
     // Step 7: Unbind from nouveau
     eprintln!("[nouveau_warmup] Unbinding from nouveau...");
-    std::fs::write("/sys/bus/pci/drivers/nouveau/unbind", bdf).map_err(|e| {
-        format!("unbind from nouveau failed: {e}")
-    })?;
+    std::fs::write("/sys/bus/pci/drivers/nouveau/unbind", bdf)
+        .map_err(|e| format!("unbind from nouveau failed: {e}"))?;
     std::thread::sleep(std::time::Duration::from_millis(500));
 
     // Step 8: Rebind to vfio-pci
@@ -317,12 +312,9 @@ pub fn nouveau_gr_warmup(bdf: &str) -> Result<(), String> {
     match std::fs::write("/sys/bus/pci/drivers/vfio-pci/bind", bdf) {
         Ok(()) => {}
         Err(e) => {
-            eprintln!(
-                "[nouveau_warmup] Direct vfio-pci bind failed ({e}), trying reprobe..."
-            );
-            std::fs::write("/sys/bus/pci/drivers_probe", bdf).map_err(|e2| {
-                format!("vfio-pci rebind failed: direct={e}, reprobe={e2}")
-            })?;
+            eprintln!("[nouveau_warmup] Direct vfio-pci bind failed ({e}), trying reprobe...");
+            std::fs::write("/sys/bus/pci/drivers_probe", bdf)
+                .map_err(|e2| format!("vfio-pci rebind failed: direct={e}, reprobe={e2}"))?;
         }
     }
 
@@ -333,9 +325,7 @@ pub fn nouveau_gr_warmup(bdf: &str) -> Result<(), String> {
         .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
 
     if final_driver.as_deref() != Some("vfio-pci") {
-        return Err(format!(
-            "vfio-pci rebind failed (driver={final_driver:?})"
-        ));
+        return Err(format!("vfio-pci rebind failed (driver={final_driver:?})"));
     }
 
     eprintln!("[nouveau_warmup] Success: nouveau GR warmup complete, back on vfio-pci");

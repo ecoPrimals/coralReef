@@ -521,8 +521,7 @@ pub fn init_pfifo_engine_kepler(
     {
         let pfifo_intr_pre = guard.read_u32(pfifo::INTR as u32).unwrap_or(0xDEAD);
         let pbdma0_intr = guard.read_u32(pbdma::intr(0) as u32).unwrap_or(0xDEAD);
-        let pfifo_faulted = pri::is_pri_error(pfifo_intr_pre)
-            || pfifo_intr_pre == 0xDEAD_DEAD;
+        let pfifo_faulted = pri::is_pri_error(pfifo_intr_pre) || pfifo_intr_pre == 0xDEAD_DEAD;
         tracing::info!(
             pfifo_intr = format_args!("{pfifo_intr_pre:#010x}"),
             pbdma0_intr = format_args!("{pbdma0_intr:#010x}"),
@@ -564,11 +563,7 @@ pub fn init_pfifo_engine_kepler(
     let mut gr_runlist_id: Option<u32> = None;
     for seq in 0..pbdma_nr {
         let rl = guard.read_u32(0x2390 + seq * 4).unwrap_or(0xFFFF);
-        tracing::info!(
-            seq,
-            runlist = rl,
-            "PBDMA→runlist assignment (0x2390)"
-        );
+        tracing::info!(seq, runlist = rl, "PBDMA→runlist assignment (0x2390)");
         // Runlist IDs > 31 are garbage from stale/uninitialized state.
         // Take the first valid runlist ID as our GR runlist.
         if gr_runlist_id.is_none() && rl < 32 {
