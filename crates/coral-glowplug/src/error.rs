@@ -10,6 +10,7 @@
 //! consumption via JSON-RPC error responses.
 
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Errors from device lifecycle operations.
@@ -119,6 +120,45 @@ impl fmt::Display for ConfigLoadError {
 }
 
 impl std::error::Error for ConfigLoadError {}
+
+/// Load/save failures for [`crate::capture::TrainingRecipe`] JSON persistence.
+#[derive(Debug, thiserror::Error)]
+pub enum TrainingRecipeError {
+    #[error("cannot read recipe {}: {source}", path.display())]
+    Read {
+        /// Path attempted.
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("cannot parse recipe {}: {source}", path.display())]
+    Parse {
+        /// Path to invalid JSON.
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("cannot create directory {}: {source}", parent.display())]
+    CreateParent {
+        /// Parent directory to create.
+        parent: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("cannot serialize recipe: {0}")]
+    Serialize(#[from] serde_json::Error),
+
+    #[error("cannot write recipe {}: {source}", path.display())]
+    Write {
+        /// Output path.
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
 
 /// Blocking CUDA / base64 steps for `device.dispatch`.
 #[derive(Debug, thiserror::Error)]

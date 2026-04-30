@@ -14,6 +14,7 @@ use std::sync::{Arc, RwLock};
 use crate::error::EmberIpcError;
 use crate::hold::HeldDevice;
 
+use super::held_bar::map_held_bar0;
 use super::jsonrpc::{write_jsonrpc_error, write_jsonrpc_ok};
 
 /// Probe PMU falcon and devinit state without executing anything.
@@ -28,10 +29,10 @@ pub(crate) fn devinit_status(
         .and_then(|v| v.as_str())
         .ok_or(EmberIpcError::InvalidRequest("missing 'bdf'"))?;
 
-    let bar0 = match map_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -80,10 +81,10 @@ pub(crate) fn devinit_execute(
         .and_then(|v| v.as_str())
         .ok_or(EmberIpcError::InvalidRequest("missing 'bdf'"))?;
 
-    let bar0 = match map_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -130,10 +131,10 @@ pub(crate) fn vbios_read(
         .and_then(|v| v.as_str())
         .unwrap_or("auto");
 
-    let bar0 = match map_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -181,19 +182,6 @@ pub(crate) fn vbios_read(
         }
     }
     Ok(())
-}
-
-fn map_bar0(
-    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
-    bdf: &str,
-) -> Result<coral_driver::vfio::device::MappedBar, String> {
-    let map = held.read().map_err(|_| "lock poisoned".to_string())?;
-    let dev = map
-        .get(bdf)
-        .ok_or_else(|| format!("device {bdf} not held by ember"))?;
-    dev.device
-        .map_bar(0)
-        .map_err(|e| format!("BAR0 map failed: {e}"))
 }
 
 fn sha256_hex(data: &[u8]) -> String {

@@ -2,10 +2,11 @@
 
 # IPC Composition & Compile Latency Guide
 
-**Last updated**: April 12, 2026 (Iteration 80)
+**Last updated**: April 30, 2026 (Iteration 88)
 **Audience**: Spring teams composing with coralReef (`shader.compile.*`)
 **Wire contract**: See [SHADER_COMPILE_WIRE_CONTRACT.md](SHADER_COMPILE_WIRE_CONTRACT.md)
 for exact request/response/error JSON shapes.
+**IPC transports**: JSON-RPC 2.0 (TCP, Unix socket), tarpc (binary, Unix socket)
 
 ---
 
@@ -21,6 +22,19 @@ the `gpu.dispatch` provider (toadStool, coralDriver, etc.).
 | WGSL → NVIDIA SASS (SM70) | ~10 ms | ~25 ms | Full pipeline: naga parse → IR → f64 lower → optimize → legalize → RA → encode |
 | WGSL → AMD RDNA2 (GFX1030) | ~0.09 ms | ~0.5 ms | Shorter pipeline: no SASS scheduling pass |
 | SPIR-V → NVIDIA SASS (SM70) | ~19 ms | ~35 ms | Skips WGSL parse but adds SPIR-V → naga front-end |
+
+### IPC transport overhead (Iteration 88)
+
+| Transport | Overhead | Notes |
+|-----------|----------|-------|
+| Unix socket JSON-RPC | ~0.1–0.3 ms | Newline-delimited, serde round-trip |
+| TCP JSON-RPC (localhost) | ~0.3–0.8 ms | Same protocol, loopback socket |
+| tarpc (Unix socket) | ~0.05–0.15 ms | Binary bincode, lower serialization cost |
+
+IPC transport overhead is negligible relative to compile time for any
+non-trivial shader. For sub-millisecond compiles (AMD RDNA2), tarpc
+via Unix socket minimizes overhead. For NVIDIA compiles (~10 ms), the
+transport choice is immaterial.
 
 ### Scaling guidance
 

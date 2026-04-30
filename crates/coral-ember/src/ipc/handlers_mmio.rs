@@ -16,28 +16,15 @@ use std::io::Write;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use coral_driver::vfio::device::MappedBar;
 use coral_driver::vfio::isolation::IsolationResult;
 
 use crate::error::EmberIpcError;
 use crate::hold::HeldDevice;
 
+use super::held_bar::map_held_bar0;
 use super::jsonrpc::{write_jsonrpc_error, write_jsonrpc_ok};
 
 const MMIO_TIMEOUT: Duration = Duration::from_secs(3);
-
-fn held_bar0(
-    held: &Arc<RwLock<HashMap<String, HeldDevice>>>,
-    bdf: &str,
-) -> Result<MappedBar, String> {
-    let map = held.read().map_err(|_| "lock poisoned".to_string())?;
-    let dev = map
-        .get(bdf)
-        .ok_or_else(|| format!("device {bdf} not held by ember"))?;
-    dev.device
-        .map_bar(0)
-        .map_err(|e| format!("BAR0 map failed: {e}"))
-}
 
 // ─── Layer 1: raw BAR0 proxy ────────────────────────────────────────
 
@@ -56,10 +43,10 @@ pub(crate) fn read32(
         .and_then(|v| v.as_u64())
         .ok_or(EmberIpcError::InvalidRequest("missing 'offset'"))? as u32;
 
-    let bar0 = match held_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -120,10 +107,10 @@ pub(crate) fn write32(
         .and_then(|v| v.as_u64())
         .ok_or(EmberIpcError::InvalidRequest("missing 'value'"))? as u32;
 
-    let bar0 = match held_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -193,10 +180,10 @@ pub(crate) fn batch(
         ops.push((offset, value));
     }
 
-    let bar0 = match held_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -253,10 +240,10 @@ pub(crate) fn pramin_read32(
         .ok_or(EmberIpcError::InvalidRequest("missing 'vram_offset'"))?
         as u32;
 
-    let bar0 = match held_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -332,10 +319,10 @@ pub(crate) fn bar0_probe(
         .and_then(|v| v.as_str())
         .ok_or(EmberIpcError::InvalidRequest("missing 'bdf'"))?;
 
-    let bar0 = match held_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };
@@ -427,10 +414,10 @@ pub(crate) fn falcon_status(
         }
     };
 
-    let bar0 = match held_bar0(held, bdf) {
+    let bar0 = match map_held_bar0(held, bdf) {
         Ok(b) => b,
         Err(e) => {
-            write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
             return Ok(());
         }
     };

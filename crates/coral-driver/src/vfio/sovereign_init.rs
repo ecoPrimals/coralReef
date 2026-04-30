@@ -69,7 +69,7 @@ pub fn sovereign_init(
             stages.push(StageResult {
                 name: "bar0_probe".into(),
                 status: StageStatus::Failed,
-                detail: Some(e),
+                detail: Some(e.to_string()),
                 duration_ms: t.elapsed().as_millis() as u64,
             });
             return finish(bdf, boot0, chip_id, stages, None, pipeline_start, false);
@@ -101,7 +101,7 @@ pub fn sovereign_init(
             stages.push(StageResult {
                 name: "pmc_enable".into(),
                 status: StageStatus::Failed,
-                detail: Some(e),
+                detail: Some(e.to_string()),
                 duration_ms: t.elapsed().as_millis() as u64,
             });
             return finish(bdf, boot0, chip_id, stages, None, pipeline_start, false);
@@ -161,7 +161,7 @@ pub fn sovereign_init(
                     stages.push(StageResult {
                         name: "memory_training".into(),
                         status: StageStatus::Failed,
-                        detail: Some(e),
+                        detail: Some(e.to_string()),
                         duration_ms: t.elapsed().as_millis() as u64,
                     });
                     return finish(
@@ -206,7 +206,7 @@ pub fn sovereign_init(
                 stages.push(StageResult {
                     name: "hbm2_training".into(),
                     status: StageStatus::Failed,
-                    detail: Some(e),
+                    detail: Some(e.to_string()),
                     duration_ms: t.elapsed().as_millis() as u64,
                 });
                 return finish(
@@ -258,7 +258,7 @@ pub fn sovereign_init(
             stages.push(StageResult {
                 name: "falcon_boot".into(),
                 status: StageStatus::Failed,
-                detail: Some(e),
+                detail: Some(e.to_string()),
                 duration_ms: t.elapsed().as_millis() as u64,
             });
             return finish(
@@ -310,7 +310,7 @@ pub fn sovereign_init(
                 stages.push(StageResult {
                     name: "gr_init".into(),
                     status: StageStatus::Failed,
-                    detail: Some(e),
+                    detail: Some(e.to_string()),
                     duration_ms: t.elapsed().as_millis() as u64,
                 });
                 return finish(
@@ -351,7 +351,7 @@ pub fn sovereign_init(
             stages.push(StageResult {
                 name: "verify".into(),
                 status: StageStatus::Failed,
-                detail: Some(e),
+                detail: Some(e.to_string()),
                 duration_ms: t.elapsed().as_millis() as u64,
             });
             return finish(

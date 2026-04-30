@@ -19,6 +19,8 @@ mod handlers_mmio;
 #[cfg(target_os = "linux")]
 mod handlers_sovereign;
 #[cfg(target_os = "linux")]
+mod held_bar;
+#[cfg(target_os = "linux")]
 mod helpers;
 
 #[cfg(all(test, target_os = "linux"))]

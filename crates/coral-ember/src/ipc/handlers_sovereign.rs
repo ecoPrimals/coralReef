@@ -15,8 +15,10 @@ use std::sync::{Arc, RwLock};
 
 use coral_driver::vfio::sovereign_init::{SovereignInitOptions, SovereignInitResult};
 
-use crate::error::EmberIpcError;
+use crate::error::{EmberIpcError, GoldenStateLoadError};
 use crate::hold::HeldDevice;
+
+use super::held_bar::map_held_bar0_with_dma_backend;
 
 use super::jsonrpc::{write_jsonrpc_error, write_jsonrpc_ok};
 
@@ -24,9 +26,11 @@ use super::jsonrpc::{write_jsonrpc_error, write_jsonrpc_ok};
 /// 1. Raw array of `[offset, value]` pairs: `[[4096, 255], ...]`
 /// 2. A `TrainingRecipe` JSON (has `training_writes` with domain captures) —
 ///    flattened to `(offset, value)` pairs automatically.
-fn load_golden_state(path: &str) -> Result<Vec<(usize, u32)>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("cannot read golden state {path}: {e}"))?;
+fn load_golden_state(path: &str) -> Result<Vec<(usize, u32)>, GoldenStateLoadError> {
+    let content = std::fs::read_to_string(path).map_err(|e| GoldenStateLoadError::Read {
+        path: path.to_string(),
+        source: e,
+    })?;
 
     if let Ok(pairs) = serde_json::from_str::<Vec<(usize, u32)>>(&content) {
         return Ok(pairs);
@@ -48,14 +52,16 @@ fn load_golden_state(path: &str) -> Result<Vec<(usize, u32)>, String> {
             .flat_map(|d| d.registers)
             .collect();
         if pairs.is_empty() {
-            return Err(format!("recipe {path} has no training writes"));
+            return Err(GoldenStateLoadError::EmptyRecipe {
+                path: path.to_string(),
+            });
         }
         return Ok(pairs);
     }
 
-    Err(format!(
-        "{path}: not a valid golden state (expected [[offset,value],...] or TrainingRecipe JSON)"
-    ))
+    Err(GoldenStateLoadError::InvalidFormat {
+        path: path.to_string(),
+    })
 }
 
 pub(crate) fn sovereign_init(
@@ -92,7 +98,9 @@ pub(crate) fn sovereign_init(
             }
             Err(e) => {
                 tracing::warn!(path, error = %e, "failed to load golden state");
-                write_jsonrpc_error(stream, id, -32000, &e).map_err(EmberIpcError::from)?;
+                let rpc: EmberIpcError = e.into();
+                write_jsonrpc_error(stream, id, -32000, &rpc.to_string())
+                    .map_err(EmberIpcError::from)?;
                 return Ok(());
             }
         }
@@ -123,30 +131,12 @@ pub(crate) fn sovereign_init(
         }
     }
 
-    let (bar0, dma_backend) = {
-        let map = held.read().map_err(|_| EmberIpcError::LockPoisoned)?;
-        let dev = match map.get(bdf) {
-            Some(d) => d,
-            None => {
-                write_jsonrpc_error(
-                    stream,
-                    id,
-                    -32000,
-                    &format!("device {bdf} not held by ember"),
-                )
-                .map_err(EmberIpcError::from)?;
-                return Ok(());
-            }
-        };
-        let b = match dev.device.map_bar(0) {
-            Ok(b) => b,
-            Err(e) => {
-                write_jsonrpc_error(stream, id, -32000, &format!("BAR0 map failed: {e}"))
-                    .map_err(EmberIpcError::from)?;
-                return Ok(());
-            }
-        };
-        (b, dev.device.dma_backend())
+    let (bar0, dma_backend) = match map_held_bar0_with_dma_backend(held, bdf) {
+        Ok(v) => v,
+        Err(e) => {
+            write_jsonrpc_error(stream, id, -32000, &e.to_string()).map_err(EmberIpcError::from)?;
+            return Ok(());
+        }
     };
 
     opts.dma_backend = Some(dma_backend);

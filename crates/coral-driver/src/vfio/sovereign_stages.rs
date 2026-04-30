@@ -3,6 +3,7 @@
 
 use std::time::{Duration, Instant};
 
+use crate::error::SovereignStagesError;
 use crate::vfio::channel::hbm2_training::{self, Hbm2Controller};
 use crate::vfio::device::MappedBar;
 use crate::vfio::sovereign_types::SovereignInitOptions;
@@ -15,25 +16,23 @@ pub(crate) const PTIMER_TIME_1: usize = 0x0000_9410;
 
 pub(crate) const ISOLATE_TIMEOUT: Duration = Duration::from_secs(3);
 
-pub(crate) fn bar0_probe(bar0: &MappedBar) -> Result<(u32, u32), String> {
+pub(crate) fn bar0_probe(bar0: &MappedBar) -> Result<(u32, u32), SovereignStagesError> {
     let result = bar0.isolated_read_u32(PMC_BOOT_0 as u32, ISOLATE_TIMEOUT);
     let boot0 = match result {
         super::isolation::IsolationResult::Ok(v) => v,
         super::isolation::IsolationResult::Timeout => {
-            return Err("BAR0 probe timed out — GPU unreachable".into());
+            return Err(SovereignStagesError::Bar0ProbeTimeout);
         }
         super::isolation::IsolationResult::ChildFailed { status } => {
-            return Err(format!("BAR0 probe child failed (status={status})"));
+            return Err(SovereignStagesError::Bar0ProbeChildFailed { status });
         }
         super::isolation::IsolationResult::ForkError(e) => {
-            return Err(format!("BAR0 probe fork error: {e}"));
+            return Err(SovereignStagesError::Bar0ProbeFork(e));
         }
     };
 
     if boot0 == 0 || boot0 == 0xFFFF_FFFF {
-        return Err(format!(
-            "BAR0 returned {boot0:#010x} — device not responding"
-        ));
+        return Err(SovereignStagesError::Bar0ProbeNonResponsive { boot0 });
     }
 
     let chip_id = (boot0 >> 20) & 0x1FF;
@@ -45,17 +44,19 @@ pub(crate) fn bar0_probe(bar0: &MappedBar) -> Result<(u32, u32), String> {
     Ok((boot0, chip_id))
 }
 
-pub(crate) fn pmc_enable(bar0: &MappedBar) -> Result<String, String> {
+pub(crate) fn pmc_enable(bar0: &MappedBar) -> Result<String, SovereignStagesError> {
     let before = bar0.read_u32(PMC_ENABLE).unwrap_or(0xDEAD_DEAD);
     tracing::debug!(pmc_before = format!("0x{before:08x}"), "PMC_ENABLE before");
 
     match bar0.isolated_write_u32(PMC_ENABLE as u32, 0xFFFF_FFFF, ISOLATE_TIMEOUT) {
         super::isolation::IsolationResult::Ok(()) => {}
         super::isolation::IsolationResult::Timeout => {
-            return Err("PMC_ENABLE write TIMED OUT — GPU hung (child killed)".into());
+            return Err(SovereignStagesError::PmcEnableWriteTimeout);
         }
         other => {
-            return Err(format!("PMC_ENABLE write failed: {other:?}"));
+            return Err(SovereignStagesError::PmcEnableIsolationFailure {
+                message: format!("PMC_ENABLE write failed: {other:?}"),
+            });
         }
     }
     std::thread::sleep(Duration::from_millis(50));
@@ -64,7 +65,7 @@ pub(crate) fn pmc_enable(bar0: &MappedBar) -> Result<String, String> {
     tracing::debug!(pmc_after = format!("0x{after:08x}"), "PMC_ENABLE after");
 
     if after == 0 || after == 0xDEAD_DEAD {
-        return Err(format!("PMC_ENABLE stuck at 0x{after:08x} after write"));
+        return Err(SovereignStagesError::PmcEnableStuck { after });
     }
 
     match bar0.isolated_write_u32(PMC_INTR_EN_0 as u32, 0xFFFF_FFFF, ISOLATE_TIMEOUT) {
@@ -82,7 +83,7 @@ pub(crate) fn run_hbm2_training(
     bdf: &str,
     fbpa_count: usize,
     opts: &SovereignInitOptions,
-) -> Result<crate::vfio::channel::hbm2_training::TrainingLog, String> {
+) -> Result<crate::vfio::channel::hbm2_training::TrainingLog, SovereignStagesError> {
     let mut ctrl = Hbm2Controller::new(bar0, Some(bdf), fbpa_count);
 
     if let Some(golden) = &opts.golden_state {
@@ -94,9 +95,9 @@ pub(crate) fn run_hbm2_training(
             .with_backend(hbm2_training::TrainingBackend::VbiosInterpreter { rom: rom.clone() });
     }
 
-    let phy = ctrl.enable_phy().map_err(|e| format!("enable_phy: {e}"))?;
-    let linked = phy.train_links().map_err(|e| format!("train_links: {e}"))?;
-    let dram = linked.init_dram().map_err(|e| format!("init_dram: {e}"))?;
+    let phy = ctrl.enable_phy()?;
+    let linked = phy.train_links()?;
+    let dram = linked.init_dram()?;
 
     match dram.verify_vram() {
         Ok(verified) => {
@@ -107,7 +108,7 @@ pub(crate) fn run_hbm2_training(
             );
             Ok(log)
         }
-        Err(e) => Err(format!("verify_vram: {e}")),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -121,7 +122,7 @@ pub(crate) fn is_kepler(sm: u32) -> bool {
 /// trained after PCI reset.  This function reads the VBIOS, runs the
 /// DEVINIT script interpreter (via PMU falcon or host-side fallback),
 /// and verifies PRAMIN returns valid data afterward.
-pub(crate) fn gddr5_training(bar0: &MappedBar, bdf: &str) -> Result<String, String> {
+pub(crate) fn gddr5_training(bar0: &MappedBar, bdf: &str) -> Result<String, SovereignStagesError> {
     use crate::vfio::channel::devinit;
 
     if pramin_sentinel_test(bar0) {
@@ -135,21 +136,21 @@ pub(crate) fn gddr5_training(bar0: &MappedBar, bdf: &str) -> Result<String, Stri
             if pramin_sentinel_test(bar0) {
                 Ok("GDDR5 trained via DEVINIT — PRAMIN verified".into())
             } else {
-                Err("DEVINIT completed but PRAMIN still returns bad data".into())
+                Err(SovereignStagesError::Gddr5PraminDeadAfterDevinit)
             }
         }
         Ok(false) => {
             if pramin_sentinel_test(bar0) {
                 Ok("DEVINIT reports already done — PRAMIN verified".into())
             } else {
-                Err("DEVINIT not needed per register but PRAMIN is dead".into())
+                Err(SovereignStagesError::Gddr5PraminDeadDevinitSkipped)
             }
         }
-        Err(e) => Err(format!("GDDR5 DEVINIT failed: {e}")),
+        Err(e) => Err(e.into()),
     }
 }
 
-fn kepler_falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, String> {
+fn kepler_falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, SovereignStagesError> {
     use crate::nv::vfio_compute::fecs_boot::{falcon_upload_dmem, falcon_upload_imem};
     use crate::vfio::channel::registers::falcon;
 
@@ -161,9 +162,12 @@ fn kepler_falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, Strin
     crate::nv::vfio_compute::NvVfioComputeDevice::apply_gr_bar0_init(bar0, sm_version);
 
     let fw_dir = format!("/lib/firmware/nvidia/{}", profile.firmware_chip);
-    let load = |name: &str| -> Result<Vec<u8>, String> {
+    let load = |name: &str| -> Result<Vec<u8>, SovereignStagesError> {
         let path = format!("{fw_dir}/{name}");
-        std::fs::read(&path).map_err(|e| format!("{path}: {e}"))
+        std::fs::read(&path).map_err(|e| SovereignStagesError::KeplerFirmwareRead {
+            path: path.clone(),
+            source: e,
+        })
     };
 
     let gpccs_inst = load("gpccs_inst.bin")?;
@@ -179,58 +183,61 @@ fn kepler_falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, Strin
         "Kepler falcon boot: firmware loaded from {fw_dir}"
     );
 
-    let boot_falcon =
-        |name: &'static str, base: usize, inst: &[u8], data: &[u8]| -> Result<(u32, u32), String> {
-            let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
-            tracing::info!(
-                name,
-                cpuctl = format!("{cpuctl:#010x}"),
-                "Kepler {name}: starting PIO upload"
-            );
+    let boot_falcon = |name: &'static str,
+                       base: usize,
+                       inst: &[u8],
+                       data: &[u8]|
+     -> Result<(u32, u32), SovereignStagesError> {
+        let cpuctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
+        tracing::info!(
+            name,
+            cpuctl = format!("{cpuctl:#010x}"),
+            "Kepler {name}: starting PIO upload"
+        );
 
-            let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_HRESET);
+        let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_HRESET);
+        std::thread::sleep(Duration::from_millis(5));
+
+        falcon_upload_dmem(bar0, base, 0, data);
+        falcon_upload_imem(bar0, base, 0, inst, false);
+
+        let _ = bar0.write_u32(base + falcon::BOOTVEC, 0);
+        let _ = bar0.write_u32(base + falcon::MAILBOX0, 0);
+        let _ = bar0.write_u32(base + falcon::MAILBOX1, 0);
+        let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_IINVAL);
+        std::thread::sleep(Duration::from_millis(1));
+        let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_STARTCPU);
+
+        let start = Instant::now();
+        let timeout = Duration::from_secs(2);
+        loop {
             std::thread::sleep(Duration::from_millis(5));
+            let ctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
+            let mb0 = bar0.read_u32(base + falcon::MAILBOX0).unwrap_or(0);
 
-            falcon_upload_dmem(bar0, base, 0, data);
-            falcon_upload_imem(bar0, base, 0, inst, false);
-
-            let _ = bar0.write_u32(base + falcon::BOOTVEC, 0);
-            let _ = bar0.write_u32(base + falcon::MAILBOX0, 0);
-            let _ = bar0.write_u32(base + falcon::MAILBOX1, 0);
-            let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_IINVAL);
-            std::thread::sleep(Duration::from_millis(1));
-            let _ = bar0.write_u32(base + falcon::CPUCTL, falcon::CPUCTL_STARTCPU);
-
-            let start = Instant::now();
-            let timeout = Duration::from_secs(2);
-            loop {
-                std::thread::sleep(Duration::from_millis(5));
-                let ctl = bar0.read_u32(base + falcon::CPUCTL).unwrap_or(0xDEAD);
-                let mb0 = bar0.read_u32(base + falcon::MAILBOX0).unwrap_or(0);
-
-                if mb0 != 0 {
-                    tracing::info!(
-                        name,
-                        cpuctl = format!("{ctl:#010x}"),
-                        mb0 = format!("{mb0:#010x}"),
-                        "mailbox response"
-                    );
-                    return Ok((ctl, mb0));
-                }
-                if ctl & falcon::CPUCTL_HALTED != 0 && ctl & falcon::CPUCTL_HRESET == 0 {
-                    tracing::warn!(
-                        name,
-                        cpuctl = format!("{ctl:#010x}"),
-                        "halted without mailbox"
-                    );
-                    return Ok((ctl, 0));
-                }
-                if start.elapsed() > timeout {
-                    tracing::error!(name, cpuctl = format!("{ctl:#010x}"), "timeout");
-                    return Err(format!("{name}: boot timeout (cpuctl={ctl:#010x})"));
-                }
+            if mb0 != 0 {
+                tracing::info!(
+                    name,
+                    cpuctl = format!("{ctl:#010x}"),
+                    mb0 = format!("{mb0:#010x}"),
+                    "mailbox response"
+                );
+                return Ok((ctl, mb0));
             }
-        };
+            if ctl & falcon::CPUCTL_HALTED != 0 && ctl & falcon::CPUCTL_HRESET == 0 {
+                tracing::warn!(
+                    name,
+                    cpuctl = format!("{ctl:#010x}"),
+                    "halted without mailbox"
+                );
+                return Ok((ctl, 0));
+            }
+            if start.elapsed() > timeout {
+                tracing::error!(name, cpuctl = format!("{ctl:#010x}"), "timeout");
+                return Err(SovereignStagesError::KeplerFalconBootTimeout { name, cpuctl: ctl });
+            }
+        }
+    };
 
     let (gpccs_ctl, gpccs_mb0) =
         boot_falcon("GPCCS", falcon::GPCCS_BASE, &gpccs_inst, &gpccs_data)?;
@@ -246,7 +253,7 @@ fn kepler_falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, Strin
     if fecs_running {
         Ok(detail)
     } else {
-        Err(format!("Kepler falcon not running: {detail}"))
+        Err(SovereignStagesError::KeplerFalconNotRunning { detail })
     }
 }
 
@@ -255,7 +262,7 @@ pub(crate) fn falcon_boot(
     sm_version: u32,
     dma: Option<&crate::vfio::device::DmaBackend>,
     warm_detected: bool,
-) -> Result<String, String> {
+) -> Result<String, SovereignStagesError> {
     use crate::vfio::channel::registers::falcon;
 
     if is_kepler(sm_version) {
@@ -407,14 +414,16 @@ pub(crate) fn falcon_boot(
             if result.running {
                 Ok(detail)
             } else {
-                Err(format!("falcon not running: {detail}"))
+                Err(SovereignStagesError::FalconBootNotRunning { detail })
             }
         }
-        Err(e) => Err(format!("all boot paths failed: {e} | acr:[{acr_detail}]")),
+        Err(e) => Err(SovereignStagesError::FalconBootPathsExhausted {
+            detail: format!("{e} | acr:[{acr_detail}]"),
+        }),
     }
 }
 
-pub(crate) fn gr_init(bar0: &MappedBar, sm_version: u32) -> Result<String, String> {
+pub(crate) fn gr_init(bar0: &MappedBar, sm_version: u32) -> Result<String, SovereignStagesError> {
     // apply_gr_bar0_init is idempotent — safe to call again, but we already
     // called it in falcon_boot. The FECS channel init is what matters here.
     let chip = crate::nv::identity::chip_name(sm_version);
@@ -424,15 +433,14 @@ pub(crate) fn gr_init(bar0: &MappedBar, sm_version: u32) -> Result<String, Strin
             "GR ready: FECS mb0=0x{:08x} mb1=0x{:08x}",
             result.mailbox0, result.mailbox1,
         )),
-        Ok(result) => Err(format!(
-            "GR FECS not running: cpuctl=0x{:08x}",
-            result.cpuctl_after,
-        )),
-        Err(e) => Err(format!("GR init: {e}")),
+        Ok(result) => Err(SovereignStagesError::GrFecsNotRunning {
+            cpuctl: result.cpuctl_after,
+        }),
+        Err(e) => Err(SovereignStagesError::vfio_compute(e)),
     }
 }
 
-pub(crate) fn verify(bar0: &MappedBar) -> Result<String, String> {
+pub(crate) fn verify(bar0: &MappedBar) -> Result<String, SovereignStagesError> {
     // PTIMER liveness: both low and high timer registers should be non-zero
     // on a running GPU.
     let ops = vec![
@@ -449,7 +457,7 @@ pub(crate) fn verify(bar0: &MappedBar) -> Result<String, String> {
             let pmc = vals.get(2).copied().unwrap_or(0);
 
             if timer_lo == 0 && timer_hi == 0 {
-                return Err(format!("PTIMER dead (lo=0 hi=0), PMC=0x{pmc:08x}"));
+                return Err(SovereignStagesError::VerifyPtimerDead { pmc });
             }
 
             // VRAM sentinel via PRAMIN
@@ -465,14 +473,14 @@ pub(crate) fn verify(bar0: &MappedBar) -> Result<String, String> {
                 Ok(detail)
             } else {
                 tracing::warn!("sovereign verify: VRAM sentinel failed but PTIMER alive");
-                Err(detail)
+                Err(SovereignStagesError::VerifyVramSentinelFailed { detail })
             }
         }
-        super::isolation::IsolationResult::Timeout => Err("verify timed out — GPU D-state".into()),
+        super::isolation::IsolationResult::Timeout => Err(SovereignStagesError::VerifyTimeout),
         super::isolation::IsolationResult::ChildFailed { status } => {
-            Err(format!("verify child failed (status={status})"))
+            Err(SovereignStagesError::VerifyChildFailed { status })
         }
-        super::isolation::IsolationResult::ForkError(e) => Err(format!("verify fork error: {e}")),
+        super::isolation::IsolationResult::ForkError(e) => Err(SovereignStagesError::VerifyFork(e)),
     }
 }
 

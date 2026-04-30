@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: April 30, 2026  
-**Phase**: 10 — Iteration 87 (P1: UDS JSON-RPC protocol fix + deep debt safety audit)
+**Phase**: 10 — Iteration 88 (deep debt: smart file splits, typed errors, hotspring merge)
 
 ---
 
@@ -22,8 +22,8 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4550 passing, 0 failed, ~155 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
-| Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`); `String` → `thiserror` evolution across 3 waves (PCI discovery, channel oracle, devinit pipeline); zero production `.unwrap()` |
+| Tests | A+ | 4639 passing, 0 failed, ~177 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |

@@ -17,6 +17,7 @@ use coral_driver::vfio::channel::hbm2_training::{
 };
 
 use crate::ember::EmberClient;
+use crate::error::TrainingRecipeError;
 use crate::sovereign::{BootStep, StepStatus};
 use crate::sysfs;
 
@@ -50,23 +51,30 @@ pub struct TrainingRecipe {
 
 impl TrainingRecipe {
     /// Load a training recipe from a JSON file.
-    pub fn load(path: &Path) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("cannot read recipe {}: {e}", path.display()))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("cannot parse recipe {}: {e}", path.display()))
+    pub fn load(path: &Path) -> Result<Self, TrainingRecipeError> {
+        let content = std::fs::read_to_string(path).map_err(|e| TrainingRecipeError::Read {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+        serde_json::from_str(&content).map_err(|e| TrainingRecipeError::Parse {
+            path: path.to_path_buf(),
+            source: e,
+        })
     }
 
     /// Save this recipe to a JSON file, creating parent directories as needed.
-    pub fn save(&self, path: &Path) -> Result<(), String> {
+    pub fn save(&self, path: &Path) -> Result<(), TrainingRecipeError> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("cannot create directory {}: {e}", parent.display()))?;
+            std::fs::create_dir_all(parent).map_err(|e| TrainingRecipeError::CreateParent {
+                parent: parent.to_path_buf(),
+                source: e,
+            })?;
         }
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("cannot serialize recipe: {e}"))?;
-        std::fs::write(path, json)
-            .map_err(|e| format!("cannot write recipe {}: {e}", path.display()))
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, json).map_err(|e| TrainingRecipeError::Write {
+            path: path.to_path_buf(),
+            source: e,
+        })
     }
 
     /// Flatten all domain writes into a single `(offset, value)` list.

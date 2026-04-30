@@ -359,6 +359,144 @@ impl ChannelError {
     }
 }
 
+/// Errors from sovereign init stage helpers (`sovereign_stages`): BAR0 probe, PMC,
+/// HBM2/GDDR training, falcon boot, GR init, verification.
+///
+/// Does not nest [`DriverError`] via `#[from]` to avoid a conversion cycle with
+/// [`DriverError::SovereignStages`]. Use [`SovereignStagesError::vfio_compute`] for
+/// `DriverError` values from FECS/GPCCS/boot paths.
+#[derive(Debug, thiserror::Error)]
+pub enum SovereignStagesError {
+    /// BAR0 isolated read exceeded the hang timeout (child killed).
+    #[error("BAR0 probe timed out — GPU unreachable")]
+    Bar0ProbeTimeout,
+    /// Isolated BAR0 child exited uncleanly.
+    #[error("BAR0 probe child failed (status={status})")]
+    Bar0ProbeChildFailed {
+        /// Exit code or negative signal number from the isolate worker.
+        status: i32,
+    },
+    /// Fork or pipe setup failed before BAR0 isolation.
+    #[error("BAR0 probe fork error: {0}")]
+    Bar0ProbeFork(#[source] std::io::Error),
+    /// BOOT0 read as zero or `0xffff_ffff` — device missing or inaccessible.
+    #[error("BAR0 returned {boot0:#010x} — device not responding")]
+    Bar0ProbeNonResponsive {
+        /// Raw BOOT0 sample.
+        boot0: u32,
+    },
+
+    /// Isolated PMC_ENABLE write timed out.
+    #[error("PMC_ENABLE write timed out — GPU hung (child killed)")]
+    PmcEnableWriteTimeout,
+    /// Isolated PMC_ENABLE write failed (`IsolationResult::ChildFailed`, `ForkError`, etc.).
+    #[error("PMC_ENABLE isolated MMIO failure: {message}")]
+    PmcEnableIsolationFailure {
+        /// Debug snapshot of isolate outcome (`{other:?}` from `IsolationResult`).
+        message: String,
+    },
+    /// PMC_ENABLE read back as zero placeholder after programmed write.
+    #[error("PMC_ENABLE stuck at 0x{after:08x} after write")]
+    PmcEnableStuck {
+        /// Post-write register sample.
+        after: u32,
+    },
+
+    /// HBM2 typestate pipeline failed.
+    #[error(transparent)]
+    Hbm2Training(#[from] crate::vfio::channel::hbm2_training::Hbm2TrainingError),
+    /// VBIOS / PMU devinit for GDDR5 cold training failed.
+    #[error(transparent)]
+    Devinit(#[from] DevinitError),
+    /// PMU path reported success but PRAMIN sentinel still failed.
+    #[error("DEVINIT completed but PRAMIN still returns bad data")]
+    Gddr5PraminDeadAfterDevinit,
+    /// Registers said devinit not needed yet VRAM probe is dead.
+    #[error("DEVINIT not needed per register but PRAMIN is dead")]
+    Gddr5PraminDeadDevinitSkipped,
+
+    /// Kepler firmware blob read from `/lib/firmware/nvidia/...`.
+    #[error("Kepler firmware read {path}: {source}")]
+    KeplerFirmwareRead {
+        /// Firmware file path.
+        path: String,
+        /// Underlying filesystem error.
+        #[source]
+        source: std::io::Error,
+    },
+    /// PIO falcon mailbox did not come up before timeout.
+    #[error("{name}: Falcon boot timeout (cpuctl={cpuctl:#010x})")]
+    KeplerFalconBootTimeout {
+        /// Logical falcon (`"FECS"`, `"GPCCS"`).
+        name: &'static str,
+        /// Last observed `CPUCTL`.
+        cpuctl: u32,
+    },
+    /// Kepler direct boot path did not report a running FECS.
+    #[error("Kepler falcon not running: {detail}")]
+    KeplerFalconNotRunning {
+        /// Diagnostics string (mailbox / cpuctl state).
+        detail: String,
+    },
+
+    /// Cold falcon boot did not yield a runnable FECS (detail line for logs).
+    #[error("falcon boot did not succeed: {detail}")]
+    FalconBootNotRunning {
+        /// Concatenated boot-path diagnostics.
+        detail: String,
+    },
+    /// Direct boot failed after solver attempt; aggregates last driver error + ACR notes.
+    #[error("all falcon boot paths failed: {detail}")]
+    FalconBootPathsExhausted {
+        /// Printable summary including nested driver error display.
+        detail: String,
+    },
+
+    /// GR FECS reachable but halted / not mailbox-ready (`boot_fecs` success path).
+    #[error("GR FECS not running: cpuctl=0x{cpuctl:08x}")]
+    GrFecsNotRunning {
+        /// Post-attempt `CPUCTL` sample.
+        cpuctl: u32,
+    },
+
+    /// Wraps [`DriverError`] from VFIO compute boot (`boot_gr_falcons`, `boot_fecs`, ACR).
+    #[error("VFIO compute: {0}")]
+    VfioCompute(#[source] Box<DriverError>),
+
+    /// Isolated verify batch timed out.
+    #[error("verify timed out — GPU D-state")]
+    VerifyTimeout,
+    /// Isolated verify child failed.
+    #[error("verify child failed (status={status})")]
+    VerifyChildFailed {
+        /// Exit code or negative signal number from the isolate worker.
+        status: i32,
+    },
+    /// Isolate worker could not fork for verify.
+    #[error("verify fork error: {0}")]
+    VerifyFork(#[source] std::io::Error),
+    /// PTIMER stuck at zero while PMC read succeeded.
+    #[error("PTIMER dead (lo=0 hi=0), PMC=0x{pmc:08x}")]
+    VerifyPtimerDead {
+        /// Last PMC_ENABLE sample from isolate batch.
+        pmc: u32,
+    },
+    /// VRAM sentinel failed while PTIMER was alive (`verify` prefers soft-fail semantics).
+    #[error("VRAM verify failed ({detail}); PTIMER ok")]
+    VerifyVramSentinelFailed {
+        /// Matches prior string detail (`ptimer=...`, etc.).
+        detail: String,
+    },
+}
+
+impl SovereignStagesError {
+    /// Bridges `DriverResult`/`DriverError` from GR/FECS helpers into this enum without a
+    /// `#[from]` impl (avoids ambiguity with [`DriverError::SovereignStages`] conversions).
+    pub(crate) fn vfio_compute(err: DriverError) -> Self {
+        Self::VfioCompute(Box::new(err))
+    }
+}
+
 /// Result alias for driver operations.
 ///
 /// All GPU device operations return this type; errors are [`DriverError`] variants.
@@ -457,6 +595,10 @@ pub enum DriverError {
     /// VBIOS / devinit (PROM, interpreter, PMU upload) failed.
     #[error("devinit: {0}")]
     Devinit(#[from] DevinitError),
+
+    /// Sovereign init stage helpers (BAR0 probe, memory training, falcon/GR boot, verify).
+    #[error("sovereign stages: {0}")]
+    SovereignStages(#[from] SovereignStagesError),
 }
 
 impl DriverError {
@@ -644,6 +786,23 @@ mod tests {
         let e: DriverError = inner.into();
         assert!(e.to_string().contains("devinit"));
         assert!(e.to_string().contains("BIT"));
+    }
+
+    #[test]
+    fn error_display_sovereign_stages_variant() {
+        let inner = SovereignStagesError::Bar0ProbeTimeout;
+        let e: DriverError = inner.into();
+        assert!(e.to_string().contains("sovereign stages"));
+        assert!(e.to_string().contains("BAR0"));
+    }
+
+    #[test]
+    fn sovereign_stages_vfio_compute_preserves_source() {
+        let inner = DriverError::DeviceNotFound(std::borrow::Cow::Borrowed("missing firmware"));
+        let sse = SovereignStagesError::vfio_compute(inner);
+        let de: DriverError = sse.into();
+        assert!(de.source().is_some());
+        assert!(de.to_string().contains("sovereign stages"));
     }
 
     #[test]

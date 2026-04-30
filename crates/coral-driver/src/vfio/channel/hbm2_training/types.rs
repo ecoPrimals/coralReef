@@ -82,20 +82,16 @@ impl fmt::Debug for Verified {
 // ── Training phase error ────────────────────────────────────────────────
 
 /// Which phase of HBM2 training failed and why.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("HBM2 training failed at {phase}: {detail}")]
 pub struct Hbm2TrainingError {
+    /// Last completed phase identifier before failure.
     pub phase: &'static str,
+    /// Human-readable diagnosis.
     pub detail: String,
+    /// Observed BAR0 register pairs near the fault.
     pub register_snapshot: Vec<(usize, u32)>,
 }
-
-impl fmt::Display for Hbm2TrainingError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HBM2 training failed at {}: {}", self.phase, self.detail)
-    }
-}
-
-impl std::error::Error for Hbm2TrainingError {}
 
 // ── Training log ────────────────────────────────────────────────────────
 

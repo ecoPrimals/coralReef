@@ -161,9 +161,55 @@ pub enum EmberIpcError {
     JsonSerialize(String),
     #[error("sendmsg failed: {0}")]
     SendMsg(String),
-    /// String errors from synchronous JSON-RPC handlers (I/O mapping, lock poison as string, etc.).
+    #[error("golden state load failed: {0}")]
+    GoldenStateLoad(#[from] GoldenStateLoadError),
+    #[error("BAR0 map for held device: {0}")]
+    HeldBar0(#[from] HeldBar0Error),
+    /// String errors from synchronous JSON-RPC handlers (legacy paths).
     #[error("{0}")]
     Dispatch(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GoldenStateLoadError {
+    #[error("cannot read golden state {path}: {source}")]
+    Read {
+        /// File path attempted.
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("recipe {path} has no training writes")]
+    EmptyRecipe {
+        /// JSON file path.
+        path: String,
+    },
+    #[error(
+        "{path}: not a valid golden state (expected [[offset,value],...] or TrainingRecipe JSON)"
+    )]
+    InvalidFormat {
+        /// Path to the malformed file.
+        path: String,
+    },
+}
+
+/// VFIO held-device BAR0 mapping failures (daemon RW lock held-device table).
+#[derive(Debug, thiserror::Error)]
+pub enum HeldBar0Error {
+    #[error("RwLock poisoned while accessing held devices")]
+    LockPoisoned,
+    #[error("device {bdf} not held by ember")]
+    NotHeld {
+        /// Requested PCI BDF.
+        bdf: String,
+    },
+    #[error("BAR0 map failed for {bdf}: {source}")]
+    Bar0MapFailed {
+        /// PCI BDF.
+        bdf: String,
+        #[source]
+        source: coral_driver::error::DriverError,
+    },
 }
 
 impl From<String> for EmberIpcError {
