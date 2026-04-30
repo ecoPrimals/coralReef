@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 87.
+**Current position**: Phase 10 — Iteration 88.
 
-**Last completed**: P1 UDS JSON-RPC protocol fix — `resolve_uds_binds` separates composition socket (JSON-RPC) from tarpc (dedicated `-tarpc.sock`). Fixes primalSpring v0.9.24 composition experiment failures. Deep debt safety audit: added missing `// SAFETY:` comments in `channel_setup.rs`, `isolation.rs`, `mapped_bar.rs`, standardized bytemuck impls in `structs.rs`. Full codebase hygiene audit confirmed clean.
+**Last completed**: Branch consolidation (hotspring-sec2-hal merge: GPU generation profiles, PTX emitter, Intel/AMD dispatch), smart file refactoring (6 files >1000L → all under 1000L as cohesive submodules), CR-04 typed errors Wave 4 (zero `Result<_, String>` in production), IPC timing characterization, primalSpring Phase 56c audit reconciliation.
 
-**Tests**: 4550 passing, 0 failed, 155 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4639 passing, 0 failed, 177 ignored (hardware-gated). Zero clippy warnings.
 
-**Next focus**: Shader artifact signing via `BearDog` `crypto.sign` (low priority, deferred per primalSpring v0.9.20); coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
+**Last updated**: April 30, 2026.
 
-**Last updated**: April 30, 2026 (Phase 10 — Iteration 87 — UDS JSON-RPC protocol fix)
+**Next focus**: Coverage push toward 90%; PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration.
 
 ---
 
@@ -614,15 +614,17 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4506 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4639 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.
+GPU generation profiles: GenerationProfile dispatch for SM35–SM120 + AmdArch + Intel xe/i915.
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
 IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.list` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); Songbird ecosystem registration wired (`ecosystem.rs`).
 Firmware probing: glowPlug mailbox (FECS/GPCCS/SEC2/PMU posted commands) + multi-ring (ordered, timed, fence-based GPU dispatch) — hotSpring integration wired. Ember ring-keeper persists state across glowplug restarts.
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
+Zero `Result<_, String>` in production. Typed errors via thiserror across 4 waves.
 MmioRegion RAII wrapper consolidates unsafe BAR0 ops. MockBar0 + NvidiaFirmwareSource enable hardware-free testing.
 Default builds are vendor-SDK-free (CUDA opt-in via `--features cuda`). Workspace deps centralized.
 ecoBin v3 `deny.toml` bans all C/FFI deps. Compile latency + ML pipeline composition discoverable via `capability.list`.

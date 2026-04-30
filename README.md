@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10+ — UDS JSON-RPC Protocol Fix (Iter 87)  
+**Status**: Phase 10+ — Deep Debt & Typed Errors (Iter 88)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

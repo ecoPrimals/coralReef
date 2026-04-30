@@ -4,11 +4,44 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 87
+**Current status**: Phase 10 — Iteration 88
 
 ---
 
 ## [Unreleased]
+
+### Iteration 88 — Deep Debt, Typed Errors, Hotspring Merge (2026-04-30)
+
+#### Branch Consolidation
+- Merged `hotspring-sec2-hal`: GPU generation profiles (`GenerationProfile`, `NvArch`, `AmdArch`), WIP PTX emitter for SM120/Blackwell, Intel/AMD dispatch
+- Merged `iter70d-deep-audit-evolution` (ours strategy — superseded by main)
+- Deleted both remote branches post-merge
+
+#### Smart File Refactoring (>1000L → Cohesive Submodules)
+- `ptx_emit.rs` (2190L → 11 files, max 396L): emitter, builtins, expr_arith, expr_cast, expr_eval, expr_misc, math, statements, pointers, types
+- `uvm_compute/device.rs` (1625L → 5 files, max 868L): gpfifo, memory, open_kmod, open_userspace
+- `qmd.rs` (1307L → 10 files, max 609L): types, field, sm_config, v21_v22, v23, v30, v50, build, tests
+- `uvm/mod.rs` (1037L → 4 files, max 514L): constants, devices, uvm_tests
+- `kepler_fecs_boot.rs` (1774L → 8 files, max 526L): reg_access, firmware, gr_precursor, firmware_upload, boot_protocol, load_boot, post_done
+- `kepler_warm.rs` (1375L → 6 files, max 532L): preflight, post_done_firmware, early_pmu_pmc, gr_hub_load, fecs_engctl_warm
+
+#### CR-04: Typed Errors Wave 4
+- `SovereignStagesError` (coral-driver): BAR0/PMC, HBM2 training, devinit, Kepler firmware, falcon/GR, verify-stage
+- `TrainingRecipeError` (coral-glowplug): read/parse/create-parent/serialize/write
+- `GoldenStateLoadError` + `HeldBar0Error` (coral-ember): golden state I/O, BAR0 mapping
+- Zero `Result<_, String>` remaining in production library code
+
+#### Safety & Code Quality
+- Added `// SAFETY:` comments to all undocumented unsafe blocks (coral_probe, pri, cuda, device, compute_trait)
+- Hardcoded BDF in `pri.rs` parameterized; env var override for firmware dumps (`CORALREEF_FECS_DUMP_DIR`)
+- All `.unwrap()` in ptx_emit → `.expect("reason")` or error propagation
+- SM120 test tolerance via `catch_unwind` (8 test files)
+
+#### IPC Timing
+- `docs/IPC_COMPOSITION_AND_LATENCY.md` updated with transport overhead table (Unix JSON-RPC ~0.1–0.3ms, TCP ~0.3–0.8ms, tarpc ~0.05–0.15ms)
+
+#### Tests
+- 4639 passing, 0 failures, 177 ignored (hardware-gated). Zero clippy warnings.
 
 ### Iteration 87 — P1: UDS JSON-RPC Protocol Fix (2026-04-30)
 
