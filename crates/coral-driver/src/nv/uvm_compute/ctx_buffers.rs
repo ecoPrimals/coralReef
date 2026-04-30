@@ -12,6 +12,10 @@ use super::types::{CtxBuffer, GpuGen};
 /// Returns promoted [`CtxBuffer`] entries and whether kmod `BindChannelResources`
 /// already bound the context (`kmod_bind_ok`).
 #[expect(
+    dead_code,
+    reason = "WIP: userspace GPU_PROMOTE_CTX fallback when coral-kmod path owns bind"
+)]
+#[expect(
     clippy::too_many_arguments,
     reason = "GPU_PROMOTE_CTX path threads many RM object handles together"
 )]
@@ -32,10 +36,12 @@ pub(super) fn promote_ctx_buffers_userspace(
     // which calls nvUvmInterface{RetainChannel,BindChannelResources} from
     // kernel context. Falls back to userspace GPU_PROMOTE_CTX for older GPUs.
     let (ctx_buffers, kmod_bind_ok) = 'promote: {
-        // Try kernel-privileged binding via coral-kmod (Blackwell+).
-        if sm >= 100
-            && let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open()
-        {
+        let profile = crate::nv::generation::profile_for_sm(sm);
+        let is_blackwell_plus = matches!(
+            profile.boot_strategy,
+            crate::nv::generation::BootStrategy::KmodPromote
+        );
+        if is_blackwell_plus && let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open() {
             match kmod.bind_channel(gpu_uuid, client.handle(), h_vaspace, h_channel, sm) {
                 Ok(result) => {
                     tracing::info!(
@@ -139,17 +145,15 @@ pub(super) fn promote_ctx_buffers_userspace(
                 "ctx_buf allocated"
             );
 
-            let mut entry = PromoteCtxBufferEntry {
+            let entry = PromoteCtxBufferEntry {
+                gpu_phys_addr: 0,
                 gpu_virt_addr: gpu_va,
+                size: if desc.needs_init { desc.size } else { 0 },
+                phys_attr: if desc.needs_init { 4 } else { 0 },
                 buffer_id: desc.buffer_id,
                 b_initialize: u8::from(desc.needs_init),
                 b_nonmapped: u8::from(desc.is_nonmapped),
-                ..Default::default()
             };
-            if desc.needs_init {
-                entry.size = desc.size;
-                entry.phys_attr = 4;
-            }
             promote_entries.push(entry);
 
             allocated.push(CtxBuffer {
@@ -193,6 +197,10 @@ pub(super) fn promote_ctx_buffers_userspace(
 }
 
 /// Bind GR context-switch state after promotion. Skips when kmod already bound.
+#[expect(
+    dead_code,
+    reason = "WIP: paired with promote_ctx_buffers_userspace when UVM RM path activates"
+)]
 pub(super) fn gr_ctxsw_setup_after_promotion(
     client: &mut RmClient,
     kmod_bind_ok: bool,
@@ -218,6 +226,6 @@ pub(super) fn gr_ctxsw_setup_after_promotion(
 }
 
 /// Whether this GPU generation uses semaphore-based GPFIFO completion (Blackwell+).
-pub(super) const fn uses_semaphore_fence_for_gen(gpu_gen: GpuGen) -> bool {
-    matches!(gpu_gen, GpuGen::BlackwellA | GpuGen::BlackwellB)
+pub(super) fn uses_semaphore_fence_for_gen(gpu_gen: GpuGen) -> bool {
+    gpu_gen.uses_semaphore_fence()
 }

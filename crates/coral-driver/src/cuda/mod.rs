@@ -2,10 +2,15 @@
 //! CUDA backend for the `ComputeDevice` trait via `cudarc`.
 //!
 //! Wraps `cudarc::driver` to provide buffer allocation, data transfers,
-//! PTX kernel dispatch, and synchronization through the same trait
+//! PTX/cubin kernel dispatch, and synchronization through the same trait
 //! interface used by DRM and VFIO backends.
 //!
+//! Supports both PTX text (UTF-8) and cubin ELF binaries — format is
+//! auto-detected by ELF magic (`\x7fELF`).
+//!
 //! Gated behind the `cuda` feature flag in `coral-driver`.
+
+pub mod cubin;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -127,6 +132,39 @@ impl CudaComputeDevice {
     pub const fn ordinal(&self) -> usize {
         self.ordinal
     }
+
+    /// SM version of this device (e.g. 70, 86, 89, 120).
+    ///
+    /// Returns 0 if the attribute query fails.
+    #[must_use]
+    pub fn sm_version(&self) -> u32 {
+        let major = self
+            .ctx
+            .attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)
+            .unwrap_or(0);
+        let minor = self
+            .ctx
+            .attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)
+            .unwrap_or(0);
+        (major * 10 + minor) as u32
+    }
+
+    /// Dispatch raw SASS bytes by wrapping them in a cubin ELF on the fly.
+    ///
+    /// Use this when you have native SASS from `coral-reef` but not a
+    /// pre-assembled cubin. The cubin is built with the device's SM version
+    /// and the provided `ShaderInfo` metadata.
+    pub fn dispatch_sass(
+        &mut self,
+        sass: &[u8],
+        buffers: &[BufferHandle],
+        dims: DispatchDims,
+        info: &ShaderInfo,
+    ) -> DriverResult<()> {
+        let cubin_info = cubin::CubinKernelInfo::from_shader_info(info, self.sm_version());
+        let elf = cubin::assemble_cubin(sass, &cubin_info);
+        self.dispatch_named(&elf, buffers, dims, info, "main_kernel")
+    }
 }
 
 impl CudaComputeDevice {
@@ -142,15 +180,20 @@ impl CudaComputeDevice {
         info: &ShaderInfo,
         kernel_name: &str,
     ) -> DriverResult<()> {
-        let ptx_src = std::str::from_utf8(shader).map_err(|e| {
-            DriverError::DispatchFailed(format!("shader is not valid PTX UTF-8: {e}").into())
-        })?;
-
-        let ptx = Ptx::from_src(ptx_src);
-        let module = self
-            .ctx
-            .load_module(ptx)
-            .map_err(|e| DriverError::DispatchFailed(format!("CUDA module load: {e}").into()))?;
+        let module = if cubin::is_cubin(shader) {
+            let ptx = Ptx::from_binary(shader.to_vec());
+            self.ctx
+                .load_module(ptx)
+                .map_err(|e| DriverError::DispatchFailed(format!("CUDA cubin load: {e}").into()))?
+        } else {
+            let ptx_src = std::str::from_utf8(shader).map_err(|e| {
+                DriverError::DispatchFailed(format!("shader is not valid PTX UTF-8: {e}").into())
+            })?;
+            let ptx = Ptx::from_src(ptx_src);
+            self.ctx
+                .load_module(ptx)
+                .map_err(|e| DriverError::DispatchFailed(format!("CUDA module load: {e}").into()))?
+        };
         let func = module.load_function(kernel_name).map_err(|e| {
             DriverError::DispatchFailed(format!("kernel '{kernel_name}' not found: {e}").into())
         })?;
@@ -189,6 +232,66 @@ impl CudaComputeDevice {
         unsafe {
             builder.launch(config).map_err(|e| {
                 DriverError::DispatchFailed(format!("CUDA kernel launch: {e}").into())
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Dispatch a PTX kernel compiled by `coral-reef` for SM100+ targets.
+    ///
+    /// The PTX parameter convention includes both buffer pointers and byte
+    /// sizes (for `arrayLength` support): `(ptr0, size0, ptr1, size1, ...)`.
+    pub fn dispatch_ptx_compiled(
+        &mut self,
+        ptx: &[u8],
+        buffers: &[BufferHandle],
+        dims: DispatchDims,
+        info: &ShaderInfo,
+    ) -> DriverResult<()> {
+        let ptx_src = std::str::from_utf8(ptx).map_err(|e| {
+            DriverError::DispatchFailed(format!("PTX is not valid UTF-8: {e}").into())
+        })?;
+        let module = self
+            .ctx
+            .load_module(Ptx::from_src(ptx_src))
+            .map_err(|e| DriverError::DispatchFailed(format!("CUDA PTX load: {e}").into()))?;
+        let func = module.load_function("main_kernel").map_err(|e| {
+            DriverError::DispatchFailed(format!("kernel 'main_kernel' not found: {e}").into())
+        })?;
+
+        let config = cudarc::driver::LaunchConfig {
+            grid_dim: (dims.x, dims.y, dims.z),
+            block_dim: (
+                info.workgroup[0].max(1),
+                info.workgroup[1].max(1),
+                info.workgroup[2].max(1),
+            ),
+            shared_mem_bytes: info.shared_mem_bytes,
+        };
+
+        let buf_info: Vec<(cudarc::driver::sys::CUdeviceptr, u64)> = buffers
+            .iter()
+            .map(|bh| {
+                self.buffers
+                    .get(&bh.0)
+                    .map(|b| {
+                        let (ptr, _guard) = b.slice.device_ptr(&self.stream);
+                        (ptr, b.size)
+                    })
+                    .ok_or(DriverError::BufferNotFound(*bh))
+            })
+            .collect::<DriverResult<Vec<_>>>()?;
+
+        let mut builder = self.stream.launch_builder(&func);
+        for (ptr, size) in &buf_info {
+            builder.arg(ptr);
+            builder.arg(size);
+        }
+
+        unsafe {
+            builder.launch(config).map_err(|e| {
+                DriverError::DispatchFailed(format!("CUDA PTX kernel launch: {e}").into())
             })?;
         }
 
@@ -283,5 +386,9 @@ impl ComputeDevice for CudaComputeDevice {
             .synchronize()
             .map_err(|e| DriverError::SyncFailed(format!("CUDA synchronize: {e}").into()))?;
         Ok(())
+    }
+
+    fn capabilities(&self) -> &crate::HardwareCapabilities {
+        &crate::HardwareCapabilities::UNKNOWN
     }
 }

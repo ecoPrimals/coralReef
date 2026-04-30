@@ -106,6 +106,14 @@ pub fn build_qmd_v50(params: &QmdParams) -> Vec<u32> {
     qmd_set_field_dyn(&mut q, 1280, 16, u64::from(params.grid.y));
     qmd_set_field_dyn(&mut q, 1312, 16, u64::from(params.grid.z));
 
+    // GRID_{WIDTH,HEIGHT,DEPTH}_RESUME — SKED reads these for S2R NCTAID.
+    // For a fresh (non-resumed) dispatch, they must match the grid dimensions.
+    // MW(255:224) GRID_WIDTH_RESUME, MW(271:256) GRID_HEIGHT_RESUME,
+    // MW(287:272) GRID_DEPTH_RESUME
+    qmd_set_field_dyn(&mut q, 224, 32, u64::from(params.grid.x));
+    qmd_set_field_dyn(&mut q, 256, 16, u64::from(params.grid.y));
+    qmd_set_field_dyn(&mut q, 272, 16, u64::from(params.grid.z));
+
     // Constant buffer bindings — v5.0 layout per clcec0qmd.h
     for cb in &params.cbufs {
         let idx = cb.index as usize;

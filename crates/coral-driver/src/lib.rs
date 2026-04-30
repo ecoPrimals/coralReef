@@ -72,13 +72,15 @@
 //! ## Supported backends
 //!
 //! All DRM backends compile by default. VFIO requires `--features vfio`.
-//! CUDA requires `--features cuda`. Runtime selection via `DriverPreference`.
+//! CUDA requires `--features cuda`. Intel requires `--features intel`.
+//! Runtime selection via `DriverPreference`.
 //!
 //! - **AMD**: `amdgpu` DRM driver — GEM buffers, PM4 command streams, CS submit, fence sync
 //! - **NVIDIA (nouveau)**: `nouveau` DRM driver — sovereign path (our channel, QMD, pushbuf)
 //! - **NVIDIA (proprietary)**: `nvidia-drm` — compatibility path (probe + pending UVM dispatch)
 //! - **NVIDIA (VFIO)**: `vfio-pci` — direct BAR0/DMA dispatch, no kernel driver (feature `vfio`)
 //! - **NVIDIA (CUDA)**: `cudarc` — CUDA driver API for PTX dispatch (feature `cuda`)
+//! - **Intel**: `i915`/`xe` DRM driver — skeleton for Arc Alchemist / Battlemage (feature `intel`)
 //!
 //! ## Architecture
 //!
@@ -90,6 +92,7 @@
 //! │  NvDevice                │  ← nouveau DRM backend
 //! │  NvVfioComputeDevice     │  ← VFIO direct-dispatch backend
 //! │  CudaComputeDevice       │  ← CUDA driver API backend
+//! │  IntelDevice             │  ← Intel i915/xe skeleton
 //! └──────────────────────────┘
 //!          │                │
 //!     ioctl::drm        vfio/   ← pure Rust ioctl wrappers
@@ -98,6 +101,7 @@
 //! ```
 
 pub mod error;
+pub mod hardware;
 
 /// Linux sysfs/procfs path roots (`CORALREEF_SYSFS_ROOT`, `CORALREEF_PROC_ROOT`).
 pub mod linux_paths;
@@ -123,9 +127,13 @@ pub mod vfio;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 
+#[cfg(feature = "intel")]
+pub mod intel;
+
 pub mod gsp;
 
 pub use error::{ChannelError, DevinitError, DriverError, DriverResult, PciDiscoveryError};
+pub use hardware::{CompletionStyle, HardwareCapabilities, MemoryType, Vendor, WaveSize};
 
 /// An opaque GPU buffer handle.
 ///
@@ -325,6 +333,14 @@ pub trait ComputeDevice: Send + Sync {
     ///
     /// Returns [`DriverError`] if the fence wait fails or times out.
     fn sync(&mut self) -> DriverResult<()>;
+
+    /// Query the hardware capabilities of this device.
+    ///
+    /// Returns a vendor-agnostic description of the GPU's precision support,
+    /// memory type, wave size, and completion mechanism. Callers use this to
+    /// adapt behavior (e.g. precision routing, batch sizing) without knowing
+    /// the vendor or architecture.
+    fn capabilities(&self) -> &HardwareCapabilities;
 }
 
 #[cfg(test)]

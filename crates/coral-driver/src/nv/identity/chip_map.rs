@@ -38,16 +38,17 @@ pub const fn chip_name(sm: u32) -> &'static str {
 pub const fn boot0_to_sm(boot0: u32) -> Option<u32> {
     let chipset = (boot0 >> 20) & 0xFFF;
     match chipset {
-        0x0F0..=0x0F1 => Some(35),  // Kepler GK110/GK110B (K40/K80 first die)
-        0x0F2..=0x0FF => Some(37),  // Kepler GK210 (K80 — exact ID TBD from real silicon)
-        0x120..=0x12F => Some(50),  // Maxwell GM200
-        0x130..=0x13F => Some(60),  // Pascal GP100/GP102/GP104/GP106/GP107/GP108
-        0x140 => Some(70),          // Volta GV100
-        0x164..=0x168 => Some(75),  // Turing TU102/TU104/TU106/TU116/TU117
-        0x170 => Some(80),          // Ampere GA100
-        0x172..=0x177 => Some(86),  // Ampere GA102/GA103/GA104/GA106/GA107
-        0x180 => Some(90),          // Hopper GH100 (H100/H200)
-        0x192..=0x197 => Some(89),  // Ada Lovelace AD102/AD103/AD104/AD106/AD107
+        0x0E4..=0x0E7 => Some(35), // Kepler GK104/GK106/GK107/GK210 (K80, GTX 680/660/650)
+        0x0F0..=0x0F1 => Some(35), // Kepler GK110/GK110B (K40, Tesla K20/K40)
+        0x0F2..=0x0FF => Some(37), // Kepler GK210 (K80 second die variant)
+        0x120..=0x12F => Some(50), // Maxwell GM200
+        0x130..=0x13F => Some(60), // Pascal GP100/GP102/GP104/GP106/GP107/GP108
+        0x140 => Some(70),         // Volta GV100
+        0x164..=0x168 => Some(75), // Turing TU102/TU104/TU106/TU116/TU117
+        0x170 => Some(80),         // Ampere GA100
+        0x172..=0x177 => Some(86), // Ampere GA102/GA103/GA104/GA106/GA107
+        0x180 => Some(90),         // Hopper GH100 (H100/H200)
+        0x192..=0x197 => Some(89), // Ada Lovelace AD102/AD103/AD104/AD106/AD107
         0x1A0 | 0x1A2 => Some(100), // Blackwell GB100/GB102 (B100/B200 datacenter)
         0x1B2..=0x1B7 => Some(120), // Blackwell GB202/GB203/GB205/GB206/GB207 (RTX 50-series)
         _ => None,
@@ -97,18 +98,9 @@ pub const fn chipset_variant(boot0: u32) -> &'static str {
 
 /// Map SM version to the NVIDIA compute engine class constant.
 ///
-/// Single source of truth — used by VFIO, DRM, and test harnesses.
-/// Returns the DRM/VFIO class ID for the compute engine on this GPU.
+/// Delegates to [`super::super::generation::profile_for_sm`] — the
+/// authoritative per-generation registry.
 #[must_use]
-pub const fn sm_to_compute_class(sm: u32) -> u32 {
-    match sm {
-        35..=37 => 0xA1C0, // KEPLER_COMPUTE_B (GK110/GK210)
-        50..=52 => 0xB0C0, // MAXWELL_COMPUTE_B
-        60..=62 => 0xC0C0, // PASCAL_COMPUTE_A
-        70..=74 => 0xC3C0, // VOLTA_COMPUTE_A
-        75..=79 => 0xC5C0, // TURING_COMPUTE_A
-        80..=89 => 0xC6C0, // AMPERE_COMPUTE_A (also Ada)
-        90..=99 => 0xC7C0, // HOPPER_COMPUTE_A
-        _ => 0xC8C0,       // BLACKWELL_COMPUTE_A (SM 100+)
-    }
+pub fn sm_to_compute_class(sm: u32) -> u32 {
+    super::super::generation::profile_for_sm(sm).compute_class
 }

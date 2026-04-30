@@ -9,6 +9,7 @@
 //! shared compiler infrastructure to prepare for multi-vendor backend
 //! extraction into dedicated crates.
 
+pub mod ptx_emit;
 pub mod shader_header;
 pub mod sm120_instr_latencies;
 pub mod sm20;

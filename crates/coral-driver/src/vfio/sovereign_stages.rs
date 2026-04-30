@@ -49,7 +49,15 @@ pub(crate) fn pmc_enable(bar0: &MappedBar) -> Result<String, String> {
     let before = bar0.read_u32(PMC_ENABLE).unwrap_or(0xDEAD_DEAD);
     tracing::debug!(pmc_before = format!("0x{before:08x}"), "PMC_ENABLE before");
 
-    let _ = bar0.write_u32(PMC_ENABLE, 0xFFFF_FFFF);
+    match bar0.isolated_write_u32(PMC_ENABLE as u32, 0xFFFF_FFFF, ISOLATE_TIMEOUT) {
+        super::isolation::IsolationResult::Ok(()) => {}
+        super::isolation::IsolationResult::Timeout => {
+            return Err("PMC_ENABLE write TIMED OUT — GPU hung (child killed)".into());
+        }
+        other => {
+            return Err(format!("PMC_ENABLE write failed: {other:?}"));
+        }
+    }
     std::thread::sleep(Duration::from_millis(50));
 
     let after = bar0.read_u32(PMC_ENABLE).unwrap_or(0xDEAD_DEAD);
@@ -59,8 +67,12 @@ pub(crate) fn pmc_enable(bar0: &MappedBar) -> Result<String, String> {
         return Err(format!("PMC_ENABLE stuck at 0x{after:08x} after write"));
     }
 
-    // Enable interrupts
-    let _ = bar0.write_u32(PMC_INTR_EN_0, 0xFFFF_FFFF);
+    match bar0.isolated_write_u32(PMC_INTR_EN_0 as u32, 0xFFFF_FFFF, ISOLATE_TIMEOUT) {
+        super::isolation::IsolationResult::Ok(()) => {}
+        other => {
+            tracing::warn!("PMC_INTR_EN_0 write issue: {other:?}");
+        }
+    }
 
     Ok(format!("before=0x{before:08x} after=0x{after:08x}"))
 }
@@ -100,24 +112,55 @@ pub(crate) fn run_hbm2_training(
 }
 
 pub(crate) fn is_kepler(sm: u32) -> bool {
-    (35..=37).contains(&sm)
+    crate::nv::generation::is_kepler(crate::nv::generation::profile_for_sm(sm))
 }
 
-fn kepler_falcon_boot(bar0: &MappedBar) -> Result<String, String> {
+/// GDDR5 memory training for Kepler GPUs.
+///
+/// Cold K80s return `0xbad0fb0*` from PRAMIN because GDDR5 hasn't been
+/// trained after PCI reset.  This function reads the VBIOS, runs the
+/// DEVINIT script interpreter (via PMU falcon or host-side fallback),
+/// and verifies PRAMIN returns valid data afterward.
+pub(crate) fn gddr5_training(bar0: &MappedBar, bdf: &str) -> Result<String, String> {
+    use crate::vfio::channel::devinit;
+
+    if pramin_sentinel_test(bar0) {
+        return Ok("GDDR5 already trained (PRAMIN sentinel OK)".into());
+    }
+
+    tracing::info!("GDDR5 cold detected — running DEVINIT for memory training");
+
+    match devinit::execute_devinit_with_diagnostics(bar0, Some(bdf)) {
+        Ok(true) => {
+            if pramin_sentinel_test(bar0) {
+                Ok("GDDR5 trained via DEVINIT — PRAMIN verified".into())
+            } else {
+                Err("DEVINIT completed but PRAMIN still returns bad data".into())
+            }
+        }
+        Ok(false) => {
+            if pramin_sentinel_test(bar0) {
+                Ok("DEVINIT reports already done — PRAMIN verified".into())
+            } else {
+                Err("DEVINIT not needed per register but PRAMIN is dead".into())
+            }
+        }
+        Err(e) => Err(format!("GDDR5 DEVINIT failed: {e}")),
+    }
+}
+
+fn kepler_falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, String> {
     use crate::nv::vfio_compute::fecs_boot::{falcon_upload_dmem, falcon_upload_imem};
     use crate::vfio::channel::registers::falcon;
 
-    // Kepler PGRAPH clock gating: write 0x260=1 to enable register access
-    // to PGRAPH subsystem (FECS/GPCCS/GPC). This mirrors nouveau's
-    // pmc_unk260() call before falcon loading.
+    let profile = crate::nv::generation::profile_for_sm(sm_version);
+
     let _ = bar0.write_u32(0x260, 1);
     std::thread::sleep(Duration::from_millis(10));
 
-    // Also apply GR engine firmware init writes from sw_nonctx.bin etc.
-    // to configure the PGRAPH register space for Kepler.
-    crate::nv::vfio_compute::NvVfioComputeDevice::apply_gr_bar0_init(bar0, 35);
+    crate::nv::vfio_compute::NvVfioComputeDevice::apply_gr_bar0_init(bar0, sm_version);
 
-    let fw_dir = "/lib/firmware/nvidia/gk210";
+    let fw_dir = format!("/lib/firmware/nvidia/{}", profile.firmware_chip);
     let load = |name: &str| -> Result<Vec<u8>, String> {
         let path = format!("{fw_dir}/{name}");
         std::fs::read(&path).map_err(|e| format!("{path}: {e}"))
@@ -211,6 +254,7 @@ pub(crate) fn falcon_boot(
     bar0: &MappedBar,
     sm_version: u32,
     dma: Option<&crate::vfio::device::DmaBackend>,
+    warm_detected: bool,
 ) -> Result<String, String> {
     use crate::vfio::channel::registers::falcon;
 
@@ -219,7 +263,73 @@ pub(crate) fn falcon_boot(
             sm = sm_version,
             "Kepler GPU detected — using direct PIO falcon boot (no ACR)"
         );
-        return kepler_falcon_boot(bar0);
+        return kepler_falcon_boot(bar0, sm_version);
+    }
+
+    // ── FECS warm-preservation detection ─────────────────────────────
+    //
+    // After a nouveau warm handoff with livepatch freeze, FECS may be
+    // in one of these states:
+    //   a) HALTED + MAILBOX0 != 0: warm-preserved (context-switch-ready
+    //      halt).  The firmware is still in IMEM/DMEM and runlist was
+    //      frozen — skip ACR/PIO entirely.
+    //   b) cpuctl == 0x12 (STARTCPU|HRESET, no HALTED): inconsistent
+    //      post-teardown state.  Attempt direct PIO re-bootstrap since
+    //      firmware may still be resident in IMEM from nouveau's ACR load.
+    //   c) Otherwise: cold or unknown — fall through to normal boot.
+    if warm_detected {
+        let fecs_cpuctl = bar0
+            .read_u32(falcon::FECS_BASE + falcon::CPUCTL)
+            .unwrap_or(0xDEAD_DEAD);
+        let fecs_mb0 = bar0
+            .read_u32(falcon::FECS_BASE + falcon::MAILBOX0)
+            .unwrap_or(0);
+
+        tracing::info!(
+            fecs_cpuctl = format!("{fecs_cpuctl:#010x}"),
+            fecs_mb0 = format!("{fecs_mb0:#010x}"),
+            "warm FECS state check"
+        );
+
+        let halted = fecs_cpuctl & falcon::CPUCTL_HALTED != 0;
+        let is_0x12 = fecs_cpuctl == (falcon::CPUCTL_STARTCPU | falcon::CPUCTL_HRESET);
+
+        if halted && fecs_mb0 != 0 {
+            // (a) Warm-preserved: FECS was frozen by livepatch before teardown.
+            tracing::info!(
+                "FECS warm-preserved (HALTED + mb0={fecs_mb0:#010x}) — skipping ACR/PIO"
+            );
+            return Ok(format!(
+                "warm-preserved: FECS cpuctl={fecs_cpuctl:#010x} mb0={fecs_mb0:#010x}"
+            ));
+        }
+
+        if is_0x12 {
+            // (b) Inconsistent: nouveau teardown halted FECS without a clean
+            //     freeze.  Firmware may still be in IMEM — try direct PIO kick.
+            tracing::warn!("FECS at cpuctl=0x12 (STARTCPU+HRESET) — attempting PIO re-bootstrap");
+            let chip = crate::nv::identity::chip_name(sm_version);
+            match crate::nv::vfio_compute::fecs_boot::boot_gr_falcons(bar0, chip) {
+                Ok(result) if result.running => {
+                    return Ok(format!(
+                        "warm re-bootstrap OK: FECS cpuctl=0x{:08x} mb0=0x{:08x}",
+                        result.cpuctl_after, result.mailbox0,
+                    ));
+                }
+                Ok(result) => {
+                    tracing::warn!(
+                        cpuctl = format!("0x{:08x}", result.cpuctl_after),
+                        "PIO re-bootstrap: FECS not running — falling through to cold path"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "PIO re-bootstrap failed — falling through to cold path"
+                    );
+                }
+            }
+        }
     }
 
     let chip = crate::nv::identity::chip_name(sm_version);
@@ -375,22 +485,19 @@ fn pramin_sentinel_test(bar0: &MappedBar) -> bool {
     }
 }
 
-/// Map chip_id → SM version (approximate, for Volta/Kepler we care about).
+/// Map chip_id → SM version.
+///
+/// Delegates to the authoritative [`boot0_to_sm`](crate::nv::identity::boot0_to_sm)
+/// by reconstructing a synthetic BOOT0 from the chip_id. Falls back to Volta
+/// (SM 70) for unrecognized chipsets with a warning.
 pub(crate) fn chip_id_to_sm(chip_id: u32) -> u32 {
-    match chip_id {
-        0x140 => 70,         // GV100 (Titan V)
-        0x102 => 75,         // TU102
-        0x104 => 75,         // TU104
-        0x106 => 75,         // TU106
-        0x116 => 75,         // TU116
-        0x117 => 75,         // TU117
-        0x0E7 => 35,         // GK110 (original Kepler mapping)
-        0x0F0..=0x0FF => 35, // GK210 (Tesla K80) — Kepler, no ACR/WPR
-        0x120..=0x12F => 50, // GM200 (Maxwell)
-        _ => {
+    let synthetic_boot0 = chip_id << 20;
+    match crate::nv::identity::boot0_to_sm(synthetic_boot0) {
+        Some(sm) => sm,
+        None => {
             tracing::warn!(
                 chip_id = format!("0x{chip_id:03x}"),
-                "unknown chip — assuming SM 70"
+                "unknown chip — defaulting to SM 70 (Volta)"
             );
             70
         }

@@ -230,9 +230,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     ));
                 }
                 naga::AddressSpace::Immediate => {
-                    return Err(CompileError::NotImplemented(
-                        "push constant bindings in compute prologue not yet supported".into(),
-                    ));
+                    // Push constants: treated like a read-only uniform
+                    // binding. The driver maps them through constant buffer
+                    // slot 0 (NV) or user SGPRs (AMD). If the global has a
+                    // binding, expr translation handles it via the standard
+                    // CBUF path; if not, the data must be inlined by the
+                    // driver at dispatch time.
+                    let _ = binding;
                 }
                 naga::AddressSpace::TaskPayload => {
                     return Err(CompileError::NotImplemented(

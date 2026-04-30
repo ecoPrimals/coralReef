@@ -12,6 +12,65 @@ use crate::error::DriverError;
 use super::VfioDevice;
 
 impl VfioDevice {
+    /// Disable PCI Bus Master to stop all DMA transactions.
+    ///
+    /// Must be called before VFIO teardown to prevent the GPU from
+    /// generating DMA after the IOMMU domain is removed. Without this,
+    /// `IO_PAGE_FAULT` → secondary bus reset occurs, wiping GPU state.
+    pub fn disable_bus_master(&self) {
+        const VFIO_PCI_CONFIG_REGION_INDEX: u32 = 7;
+        const PCI_COMMAND: u64 = 0x04;
+        const PCI_COMMAND_BUS_MASTER: u16 = 0x0004;
+
+        let mut region_info = VfioRegionInfo {
+            argsz: std::mem::size_of::<VfioRegionInfo>() as u32,
+            index: VFIO_PCI_CONFIG_REGION_INDEX,
+            ..Default::default()
+        };
+        if ioctl::device_get_region_info(self.device.as_fd(), &mut region_info).is_err() {
+            tracing::warn!("disable_bus_master: failed to get config region info");
+            return;
+        }
+        let config_offset = region_info.offset;
+
+        let mut cmd_buf = [0u8; 2];
+        if rustix::io::pread(
+            self.device.as_fd(),
+            &mut cmd_buf,
+            config_offset + PCI_COMMAND,
+        )
+        .is_err()
+        {
+            tracing::warn!("disable_bus_master: failed to read PCI command register");
+            return;
+        }
+        let cmd = u16::from_le_bytes(cmd_buf);
+
+        let new_cmd = cmd & !PCI_COMMAND_BUS_MASTER;
+        let _ = rustix::io::pwrite(
+            self.device.as_fd(),
+            &new_cmd.to_le_bytes(),
+            config_offset + PCI_COMMAND,
+        );
+
+        // Readback verify — PCIe write posting means the device may not
+        // have processed the write yet. Read forces the write to complete.
+        let mut verify_buf = [0u8; 2];
+        let _ = rustix::io::pread(
+            self.device.as_fd(),
+            &mut verify_buf,
+            config_offset + PCI_COMMAND,
+        );
+        let verified = u16::from_le_bytes(verify_buf);
+
+        tracing::info!(
+            before = format_args!("{cmd:#06x}"),
+            after = format_args!("{verified:#06x}"),
+            bus_master_cleared = verified & PCI_COMMAND_BUS_MASTER == 0,
+            "disable_bus_master"
+        );
+    }
+
     /// Enable PCI Bus Master and transition to D0 power state.
     ///
     /// After VFIO FLR the GPU's bus master bit is cleared and the device
@@ -21,7 +80,7 @@ impl VfioDevice {
     ///
     /// PCI config space is accessed via pread/pwrite on the VFIO device fd
     /// at region index 7 (VFIO_PCI_CONFIG_REGION_INDEX).
-    pub(super) fn enable_bus_master(&self) -> Result<(), DriverError> {
+    pub fn enable_bus_master(&self) -> Result<(), DriverError> {
         const VFIO_PCI_CONFIG_REGION_INDEX: u32 = 7;
         const PCI_COMMAND: u64 = 0x04;
         const PCI_COMMAND_BUS_MASTER: u16 = 0x0004;

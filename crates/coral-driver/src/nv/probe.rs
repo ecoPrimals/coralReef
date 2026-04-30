@@ -6,7 +6,6 @@ use crate::gsp::{self, GrFirmwareBlobs, GrInitSequence};
 
 use super::bar0;
 use super::ioctl;
-use super::pushbuf;
 
 /// Syncobj wait timeout in nanoseconds (5 seconds).
 ///
@@ -21,14 +20,10 @@ pub fn syncobj_deadline() -> i64 {
 
 /// Select the compute engine class for a GPU architecture.
 ///
-/// Returns the DRM class ID that the kernel needs to instantiate a compute
-/// engine on this GPU generation.
-pub const fn compute_class_for_sm(sm: u32) -> u32 {
-    match sm {
-        75 => pushbuf::class::TURING_COMPUTE_A,
-        80..=89 => pushbuf::class::AMPERE_COMPUTE_A,
-        _ => pushbuf::class::VOLTA_COMPUTE_A,
-    }
+/// Delegates to [`super::generation::profile_for_sm`] — the authoritative
+/// per-generation registry.
+pub fn compute_class_for_sm(sm: u32) -> u32 {
+    super::generation::profile_for_sm(sm).compute_class
 }
 
 /// Map SM architecture version to the chip codename used by firmware paths.

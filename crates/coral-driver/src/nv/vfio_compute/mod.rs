@@ -31,17 +31,32 @@ pub mod diagnostics;
 mod dispatch;
 pub mod falcon_capability;
 pub mod fecs_boot;
+mod gr_bar0;
 pub mod gr_context;
 mod gr_engine_status;
+pub mod hardware_guard;
 mod init;
+mod kepler_clock;
+mod kepler_cold;
+pub mod kepler_csdata;
+mod kepler_fecs_boot;
+mod kepler_gr_init;
+mod kepler_recovery;
+mod kepler_warm;
 mod layout;
+mod pgob;
+mod pmu;
+mod pri;
+mod quiesce;
 mod raw_device;
 mod submission;
+mod vbios_devinit;
+mod warm_channel;
 
 pub use gr_engine_status::GrEngineStatus;
 pub use raw_device::RawVfioDevice;
 
-pub(super) use layout::{LOCAL_MEM_WINDOW_LEGACY, LOCAL_MEM_WINDOW_VOLTA, gpfifo, sm_to_chip};
+pub(super) use layout::{gpfifo, sm_to_chip};
 
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::channel::VfioChannel;
@@ -75,6 +90,18 @@ pub struct NvVfioComputeDevice {
     container: DmaBackend,
     buffers: HashMap<u32, VfioBuffer>,
     inflight: Vec<BufferHandle>,
+    caps: crate::HardwareCapabilities,
+    /// Blackwell+ semaphore fence: GPU writes completion value here.
+    uses_semaphore_fence: bool,
+    fence_buf: Option<DmaBuffer>,
+    fence_pb_buf: Option<DmaBuffer>,
+    fence_value: u32,
+    /// Guard page at IOVA 0x0 — absorbs firmware DMA to low addresses.
+    #[expect(
+        dead_code,
+        reason = "WIP: wired when IOC path maps guard explicitly; retains allocation for bring-up"
+    )]
+    guard_page: Option<DmaBuffer>,
     device: VfioDevice,
 }
 
@@ -399,6 +426,10 @@ impl ComputeDevice for NvVfioComputeDevice {
         }
         Ok(())
     }
+
+    fn capabilities(&self) -> &crate::HardwareCapabilities {
+        &self.caps
+    }
 }
 
 impl NvVfioComputeDevice {
@@ -430,6 +461,14 @@ impl NvVfioComputeDevice {
 
 impl Drop for NvVfioComputeDevice {
     fn drop(&mut self) {
+        // CRITICAL ORDER: disable bus mastering FIRST to immediately cut all
+        // outbound DMA, preventing AMD-Vi IO_PAGE_FAULTs that freeze the IOMMU
+        // globally (stalling display GPU translations → UI freeze).
+        self.device.disable_bus_master();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        quiesce::quiesce_gpu_engines(&self.bar0);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
         let inflight = std::mem::take(&mut self.inflight);
         for h in inflight {
             let _ = self.free(h);
@@ -458,7 +497,8 @@ mod tests {
 
     #[test]
     fn open_nonexistent_device() {
-        let result = NvVfioComputeDevice::open("9999:99:99.9", 86, 0xC6C0);
+        let profile = crate::nv::generation::profile_for_sm(86);
+        let result = NvVfioComputeDevice::open("9999:99:99.9", 86, profile.compute_class);
         assert!(result.is_err());
     }
 }

@@ -167,7 +167,7 @@ pub fn sm_target_from_sysfs(path: &str) -> GpuTarget {
 /// through Blackwell use the same constants as BAR0 / VFIO paths.
 #[cfg(all(target_os = "linux", feature = "vfio"))]
 #[must_use]
-pub const fn sm_to_compute_class(sm: u32) -> u32 {
+pub fn sm_to_compute_class(sm: u32) -> u32 {
     coral_driver::nv::identity::sm_to_compute_class(sm)
 }
 

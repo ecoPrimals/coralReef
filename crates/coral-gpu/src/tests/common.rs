@@ -101,6 +101,10 @@ impl coral_driver::ComputeDevice for MockDevice {
     fn sync(&mut self) -> DriverResult<()> {
         Ok(())
     }
+
+    fn capabilities(&self) -> &coral_driver::HardwareCapabilities {
+        &coral_driver::HardwareCapabilities::UNKNOWN
+    }
 }
 
 pub(super) fn ctx_with_mock() -> GpuContext {
@@ -269,6 +273,10 @@ impl coral_driver::ComputeDevice for FailingMockDevice {
             return Err(DriverError::FenceTimeout { ms: 5000 });
         }
         Ok(())
+    }
+
+    fn capabilities(&self) -> &coral_driver::HardwareCapabilities {
+        &coral_driver::HardwareCapabilities::UNKNOWN
     }
 }
 

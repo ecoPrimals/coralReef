@@ -219,6 +219,12 @@ impl ComputeDevice for NvDrmDevice {
             .as_mut()
             .map_or(Ok(()), NvUvmComputeDevice::sync)
     }
+
+    fn capabilities(&self) -> &crate::HardwareCapabilities {
+        self.compute
+            .as_ref()
+            .map_or(&crate::HardwareCapabilities::UNKNOWN, |c| c.capabilities())
+    }
 }
 
 #[cfg(test)]

@@ -23,10 +23,11 @@
 
 use std::time::Instant;
 
+use crate::nv::generation::{self, BootStrategy, MemoryType};
 use crate::vfio::channel::hbm2_training::TrainingLog;
 use crate::vfio::device::MappedBar;
 use crate::vfio::sovereign_stages::{
-    PMC_ENABLE, bar0_probe, chip_id_to_sm, falcon_boot, gr_init, is_kepler, is_warm_gpu,
+    PMC_ENABLE, bar0_probe, chip_id_to_sm, falcon_boot, gddr5_training, gr_init, is_warm_gpu,
     pmc_enable, run_hbm2_training, verify,
 };
 
@@ -118,16 +119,64 @@ pub fn sovereign_init(
         return finish_halted(bdf, boot0, chip_id, "hbm2_training", stages, pipeline_start);
     }
 
+    let sm = opts.sm_version.unwrap_or(chip_id_to_sm(chip_id));
+    let profile = generation::profile_for_sm(sm);
+
     // Warm detection: if PMC_ENABLE has many engines on AND PRAMIN is
     // accessible, the GPU was previously trained (e.g. by nouveau warm
     // handoff). Skip the full typestate pipeline.
-    // Kepler uses GDDR5, not HBM2 — the typestate pipeline doesn't apply.
-    let sm = opts.sm_version.unwrap_or(chip_id_to_sm(chip_id));
     let pmc_before = bar0.read_u32(PMC_ENABLE).unwrap_or(0);
-    let warm_detected = is_kepler(sm) || is_warm_gpu(pmc_before, bar0);
+    let is_hbm2 = matches!(profile.memory_type, MemoryType::Hbm2);
+    let is_gddr5 = matches!(profile.memory_type, MemoryType::Gddr5);
+    let warm_detected = is_warm_gpu(pmc_before, bar0);
 
     let t = Instant::now();
-    if warm_detected {
+    if is_gddr5 {
+        // GDDR5 (Kepler/K80): never use HBM2 typestate pipeline.
+        // If cold (PRAMIN dead), run DEVINIT-based GDDR5 training.
+        if warm_detected {
+            tracing::info!(
+                pmc_enable = format!("0x{pmc_before:08x}"),
+                "GDDR5 GPU warm — skipping memory training"
+            );
+            stages.push(StageResult {
+                name: "memory_training".into(),
+                status: StageStatus::Skipped,
+                detail: Some(format!(
+                    "GDDR5 warm (pmc=0x{pmc_before:08x}, PRAMIN sentinel ok)"
+                )),
+                duration_ms: t.elapsed().as_millis() as u64,
+            });
+        } else {
+            match gddr5_training(bar0, bdf) {
+                Ok(detail) => {
+                    stages.push(StageResult {
+                        name: "memory_training".into(),
+                        status: StageStatus::Ok,
+                        detail: Some(detail),
+                        duration_ms: t.elapsed().as_millis() as u64,
+                    });
+                }
+                Err(e) => {
+                    stages.push(StageResult {
+                        name: "memory_training".into(),
+                        status: StageStatus::Failed,
+                        detail: Some(e),
+                        duration_ms: t.elapsed().as_millis() as u64,
+                    });
+                    return finish(
+                        bdf,
+                        boot0,
+                        chip_id,
+                        stages,
+                        training_log,
+                        pipeline_start,
+                        warm_detected,
+                    );
+                }
+            }
+        }
+    } else if is_hbm2 && warm_detected {
         tracing::info!(
             pmc_enable = format!("0x{pmc_before:08x}"),
             "warm GPU detected — skipping HBM2 training"
@@ -140,7 +189,7 @@ pub fn sovereign_init(
             )),
             duration_ms: t.elapsed().as_millis() as u64,
         });
-    } else {
+    } else if is_hbm2 {
         let fbpa_count = opts.fbpa_count.unwrap_or(4);
         match run_hbm2_training(bar0, bdf, fbpa_count, opts) {
             Ok(log) => {
@@ -171,6 +220,17 @@ pub fn sovereign_init(
                 );
             }
         }
+    } else {
+        // Other memory types (GDDR6, etc.): skip training unless cold.
+        stages.push(StageResult {
+            name: "memory_training".into(),
+            status: StageStatus::Skipped,
+            detail: Some(format!(
+                "memory_type={:?} (pmc=0x{pmc_before:08x})",
+                profile.memory_type
+            )),
+            duration_ms: t.elapsed().as_millis() as u64,
+        });
     }
 
     // ── Stage 4: Falcon Boot ────────────────────────────────────────────
@@ -185,7 +245,7 @@ pub fn sovereign_init(
     }
 
     let t = Instant::now();
-    match falcon_boot(bar0, sm, opts.dma_backend.as_ref()) {
+    match falcon_boot(bar0, sm, opts.dma_backend.as_ref(), warm_detected) {
         Ok(detail) => {
             stages.push(StageResult {
                 name: "falcon_boot".into(),
@@ -214,13 +274,13 @@ pub fn sovereign_init(
     }
 
     // ── Stage 5: GR Init ────────────────────────────────────────────────
-    // Kepler FECS was already booted in the falcon_boot stage (direct PIO).
+    // NoAcr GPUs (Kepler) boot FECS via direct PIO in the falcon_boot stage.
     // The GV100+ gr_init path re-boots FECS with BL firmware that doesn't
-    // exist for Kepler. Skip GR init for Kepler — the falcon_boot result
-    // already confirms FECS is running.
-    if opts.halt_before == Some(HaltBefore::GrInit) || opts.skip_gr_init || is_kepler(sm) {
-        let reason = if is_kepler(sm) {
-            "kepler: FECS already booted via PIO"
+    // exist for NoAcr GPUs. Skip GR init when the profile says NoAcr.
+    let no_acr = matches!(profile.boot_strategy, BootStrategy::NoAcr);
+    if opts.halt_before == Some(HaltBefore::GrInit) || opts.skip_gr_init || no_acr {
+        let reason = if no_acr {
+            "NoAcr boot strategy: FECS already booted via PIO"
         } else if opts.skip_gr_init {
             "skip_gr_init=true"
         } else {

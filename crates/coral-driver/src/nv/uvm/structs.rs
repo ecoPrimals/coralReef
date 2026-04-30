@@ -25,6 +25,20 @@ pub struct UvmInitializeParams {
     pub padding: u32,
 }
 
+/// Arguments for `UVM_MM_INITIALIZE`.
+///
+/// Pins the calling process's `mm_struct` to the UVM VA space so that
+/// `UVM_REGISTER_GPU_VASPACE` can retain page tables. Must be called on a
+/// secondary `/dev/nvidia-uvm` FD, passing the primary UVM FD.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct UvmMmInitializeParams {
+    /// File descriptor of the primary UVM context (the FD that called `UVM_INITIALIZE`).
+    pub uvm_fd: i32,
+    /// RM status code returned by kernel.
+    pub rm_status: u32,
+}
+
 /// Arguments for `UVM_REGISTER_GPU` (driver 535+).
 ///
 /// Layout (40 bytes):
@@ -271,10 +285,10 @@ pub struct NvChannelGroupAllocParams {
 pub struct NvCtxShareAllocParams {
     /// VA space handle (same as the TSG's VA space).
     pub h_vaspace: u32,
-    /// Flags (0 for default).
+    /// Flags: 0 = default, 1 = `SUBCONTEXT_ASYNC` (required on Blackwell+).
     pub flags: u32,
-    /// Subdevice handle.
-    pub h_subdevice: u32,
+    /// Subcontext ID (NOT an RM subdevice handle). Use 0x3F for auto-assign.
+    pub sub_ctx_id: u32,
 }
 
 /// Memory descriptor for RM structures (push buffer, USERD, etc.).
@@ -587,6 +601,80 @@ pub struct UvmRegisterGpuVaspaceParams {
     pub rm_status: u32,
 }
 
+/// `UVM_UNREGISTER_GPU_VASPACE` parameters.
+///
+/// Unregisters a previously-registered GPU VA space from UVM. Used to clear
+/// auto-registered default VA spaces before registering a faulting one.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct UvmUnregisterGpuVaspaceParams {
+    /// GPU UUID (same 16 bytes used in `UVM_REGISTER_GPU`).
+    pub gpu_uuid: [u8; 16],
+    /// RM status code returned by kernel.
+    pub rm_status: u32,
+}
+
+/// `UVM_FREE` parameters.
+///
+/// Frees a UVM VA range (managed or external). Any existing mappings
+/// within the range are unmapped automatically.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct UvmFreeParams {
+    /// Base VA of the range to free (must be page-aligned).
+    pub base: u64,
+    /// Length of the range in bytes (must be page-aligned).
+    pub length: u64,
+    /// GPU UUID (16 bytes). Zeroed for CPU-only ranges.
+    pub gpu_uuid: [u8; 16],
+    /// RM status code returned by kernel.
+    pub rm_status: u32,
+    /// Padding for 8-byte alignment.
+    pub pad: u32,
+}
+
+/// `UVM_REGISTER_CHANNEL` parameters.
+///
+/// Registers an RM channel with UVM so that internal context buffer resources
+/// are retained, mapped into the GPU VA space, and bound. This is the standard
+/// path CUDA uses for externally-owned VA spaces on Blackwell+ — the UVM module
+/// calls `nvUvmInterfaceRetainChannel` + `nvUvmInterfaceBindChannelResources`
+/// using its own session, avoiding the client mismatch that occurs when
+/// attempting this from a separate kernel module.
+///
+/// Layout (56 bytes):
+/// ```text
+/// 0x00  gpu_uuid     [u8; 16]
+/// 0x10  rm_ctrl_fd   i32
+/// 0x14  h_client     u32
+/// 0x18  h_channel    u32
+/// 0x1C  (pad)        u32       — alignment for base
+/// 0x20  base         u64       — GPU VA start for resource mapping
+/// 0x28  length       u64       — GPU VA range length
+/// 0x30  rm_status    u32
+/// 0x34  (pad)        u32       — struct alignment
+/// ```
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct UvmRegisterChannelParams {
+    /// GPU UUID (same 16 bytes used in `UVM_REGISTER_GPU`).
+    pub gpu_uuid: [u8; 16],
+    /// RM control FD (nvidiactl).
+    pub rm_ctrl_fd: i32,
+    /// RM client handle that owns the channel.
+    pub h_client: u32,
+    /// RM channel handle.
+    pub h_channel: u32,
+    _pad0: u32,
+    /// Base GPU VA for UVM to map channel resources into.
+    pub base: u64,
+    /// Length of the GPU VA range available for resource mapping.
+    pub length: u64,
+    /// RM status code returned by kernel.
+    pub rm_status: u32,
+    _pad1: u32,
+}
+
 /// `UVM_CREATE_EXTERNAL_RANGE` parameters.
 ///
 /// Reserves a GPU VA range in the UVM VA space for subsequent
@@ -798,7 +886,11 @@ pub struct GpuPromoteCtxParams {
     /// Number of valid entries in `promote_entry`.
     pub entry_count: u32,
     /// Explicit padding for 8-byte alignment of `promote_entry`.
-    pub pad: u32,
+    #[expect(
+        clippy::pub_underscore_fields,
+        reason = "NV RM ioctl struct exposes ABI padding"
+    )]
+    pub _pad: u32,
     /// Buffer entries to promote to RM.
     pub promote_entry: [PromoteCtxBufferEntry; GPU_PROMOTE_CONTEXT_MAX_ENTRIES],
 }

@@ -160,7 +160,8 @@ fn imm32_to_src_encoding(val: u32) -> SrcEncoding {
 ///
 /// On AMD, constant buffer data is passed via COMPUTE_USER_DATA registers
 /// which populate SGPRs s[0..N]. The naga translation lays out storage
-/// buffer addresses as: `CBuf::Binding(group)[binding * 8 + component]`.
+/// buffer addresses as: `CBuf::Binding(group)[binding * 8 + component]`
+/// (8-byte stride on AMD; NV uses 16-byte stride for `arrayLength` support).
 ///
 /// Returns the SGPR register index (0..105) suitable for VOP1/VOP2 src fields.
 pub fn cbuf_to_user_sgpr_encoding(buf: &CBuf, byte_offset: u16) -> Result<u16, CompileError> {

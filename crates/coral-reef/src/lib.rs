@@ -60,7 +60,7 @@ pub mod tolerances;
 // builder traits and ISA variants reserved for future use.
 mod codegen;
 
-pub use backend::{AmdBackend, Backend, CompiledBinary, NvidiaBackend};
+pub use backend::{AmdBackend, Backend, BinaryFormat, CompiledBinary, NvidiaBackend};
 pub use codegen::ir::{Shader, ShaderModel};
 pub use codegen::pipeline::CompiledShader;
 pub use error::CompileError;
@@ -455,6 +455,12 @@ pub fn compile_wgsl_full_with(
         "coral-reef compile_wgsl_full"
     );
 
+    if let Some(nv) = options.target.as_nvidia() {
+        if nv.sm() >= 100 {
+            return codegen::nv::ptx_emit::emit_compute_ptx(&prepared, nv.sm_version());
+        }
+    }
+
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_wgsl(&prepared, sm.as_ref())?;
     shader.fma_policy = options.fma_policy;
@@ -481,6 +487,13 @@ pub fn compile_wgsl_with(
         opt = options.opt_level,
         "coral-reef compile_wgsl"
     );
+
+    if let Some(nv) = options.target.as_nvidia() {
+        if nv.sm() >= 100 {
+            let compiled = codegen::nv::ptx_emit::emit_compute_ptx(&prepared, nv.sm_version())?;
+            return Ok(compiled.binary);
+        }
+    }
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_wgsl(&prepared, sm.as_ref())?;

@@ -122,15 +122,57 @@ impl NvVfioComputeDevice {
         Ok(captures)
     }
 
-    /// Poll USERD GP_GET until it catches up to GP_PUT, indicating
-    /// the GPU has consumed all submitted GPFIFO entries.
+    /// Submit a semaphore fence release via the compute engine.
     ///
-    /// The GPU writes GP_GET back to the USERD DMA page at the Volta
-    /// RAMUSERD offset (0x88). We poll this with a spin-loop + sleep,
-    /// matching the UVM path's `poll_gpfifo_completion()` pattern.
+    /// Writes a 5-dword `SET_REPORT_SEMAPHORE_A/B/C/D` push buffer that
+    /// tells the compute engine to write `fence_value` to the fence DMA
+    /// buffer after all prior compute work completes. This mirrors the
+    /// UVM path's `submit_fence_release` for Blackwell+ where USERD
+    /// GP_GET is no longer available.
+    pub(super) fn submit_fence_release(&mut self) -> DriverResult<()> {
+        let (Some(fence_buf), Some(fence_pb)) =
+            (self.fence_buf.as_ref(), self.fence_pb_buf.as_ref())
+        else {
+            return Ok(());
+        };
+
+        self.fence_value += 1;
+        let fv = self.fence_value;
+        let fva = fence_buf.iova();
+
+        const SUBCHAN_COMPUTE: u32 = 1;
+        const REPORT_SEM_A: u32 = 0x1B00;
+        const SEM_D_RELEASE_ONE_WORD: u32 = 1 << 28;
+
+        let header = (1_u32 << 29) | (4 << 16) | (SUBCHAN_COMPUTE << 13) | (REPORT_SEM_A >> 2);
+        let words: [u32; 5] = [
+            header,
+            (fva >> 32) as u32,
+            (fva & 0xFFFF_FFFF) as u32,
+            fv,
+            SEM_D_RELEASE_ONE_WORD,
+        ];
+
+        for (i, &w) in words.iter().enumerate() {
+            fence_pb.volatile_write_u32(i * 4, w);
+        }
+        clflush_range(&fence_pb.as_slice()[..20]);
+        memory_fence();
+
+        let pb_iova = fence_pb.iova();
+        self.submit_pushbuf(pb_iova, 20)?;
+        tracing::debug!(fence_value = fv, "VFIO: semaphore fence release submitted");
+        Ok(())
+    }
+
+    /// Poll for completion — uses semaphore fence on Blackwell+, GP_GET otherwise.
     pub(super) fn poll_gpfifo_completion(&self) -> DriverResult<()> {
         if self.gpfifo_put == 0 {
             return Ok(());
+        }
+
+        if self.uses_semaphore_fence {
+            return self.poll_fence_completion();
         }
 
         let deadline = std::time::Instant::now() + SYNC_TIMEOUT;
@@ -168,6 +210,54 @@ impl NvVfioComputeDevice {
                     pbdma_1_intr = format!("{:#010x}", pbdma_intr[1]),
                     pbdma_1_state = format!("{:#010x}", pbdma_state[1]),
                     "Fence timeout: GPFIFO completion stalled — see MMU fault above"
+                );
+                return Err(DriverError::FenceTimeout {
+                    ms: SYNC_TIMEOUT.as_millis() as u64,
+                });
+            }
+
+            std::hint::spin_loop();
+            std::thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    /// Poll the semaphore fence dword until it reaches the expected value.
+    ///
+    /// The GPU writes `fence_value` to `fence_buf` via `SET_REPORT_SEMAPHORE`
+    /// after compute work completes. We flush the CPU cache line before each
+    /// read so we see the GPU's DMA write through the IOMMU.
+    fn poll_fence_completion(&self) -> DriverResult<()> {
+        let fence_buf = self.fence_buf.as_ref().ok_or_else(|| {
+            DriverError::SyncFailed("semaphore fence enabled but fence_buf missing".into())
+        })?;
+        let expected = self.fence_value;
+        let deadline = std::time::Instant::now() + SYNC_TIMEOUT;
+
+        loop {
+            clflush_range(&fence_buf.as_slice()[..4]);
+            memory_fence();
+            let current = fence_buf.volatile_read_u32(0);
+
+            if current >= expected {
+                return Ok(());
+            }
+
+            if std::time::Instant::now() > deadline {
+                let r = |reg: usize| self.bar0.read_u32(reg).unwrap_or(0xDEAD);
+
+                let mmu_info = mmu_fault::read_mmu_faults(&self.bar0);
+                mmu_fault::log_mmu_faults(&mmu_info);
+
+                let pfifo_intr = r(pfifo::INTR);
+                let pccsr_chan = r(pccsr::channel(self.channel.id()));
+
+                tracing::error!(
+                    current,
+                    expected,
+                    channel_id = self.channel.id(),
+                    pfifo_intr = format!("{pfifo_intr:#010x}"),
+                    pccsr_chan = format!("{pccsr_chan:#010x}"),
+                    "VFIO semaphore fence timeout — see MMU fault above"
                 );
                 return Err(DriverError::FenceTimeout {
                     ms: SYNC_TIMEOUT.as_millis() as u64,

@@ -92,15 +92,17 @@ impl ComputeDevice for NvUvmComputeDevice {
             .buffers
             .remove(&handle.0)
             .ok_or(DriverError::BufferNotFound(handle))?;
-        // Unmap GPU VA first so RM tears down page table entries and the
-        // GPU TLB won't hold stale mappings when the same VA is reused.
         if buf.gpu_va != 0 {
-            let _ = self.client.rm_unmap_memory_dma(
-                self.h_device,
-                self.h_virt_mem,
-                buf.h_memory,
-                buf.gpu_va,
-            );
+            if self.uses_uvm_mapping {
+                let _ = self.uvm.uvm_free(buf.gpu_va, buf.size, &self.gpu_uuid);
+            } else {
+                let _ = self.client.rm_unmap_memory_dma(
+                    self.h_device,
+                    self.h_virt_mem,
+                    buf.h_memory,
+                    buf.gpu_va,
+                );
+            }
         }
         if buf.cpu_addr != 0 {
             let _ = self
@@ -215,9 +217,7 @@ impl ComputeDevice for NvUvmComputeDevice {
             let exit_shader: [u32; 4] = [0x0000794D, 0x00000000, 0x03800000, 0x03FFC000];
             let exit_bytes = bytemuck::cast_slice::<u32, u8>(&exit_shader);
             self.upload(shader_handle, 0, exit_bytes)?;
-            tracing::debug!(
-                "DIAG_EXIT_ONLY: replaced shader with single EXIT instruction (16 bytes)"
-            );
+            tracing::warn!("DIAG_EXIT_ONLY: replaced shader with single EXIT instruction");
         }
 
         // DIAG_DIRECT_ADDR: patch the first two LDC instructions into MOV
@@ -257,16 +257,11 @@ impl ComputeDevice for NvUvmComputeDevice {
                     // Strong(System) = 0xa → bits 13=0, 14=1, 15=0, 16=1.
                     if words.len() > 14 {
                         words[14] = (words[14] & !(0xF << 13)) | (0xa << 13);
-                        tracing::debug!(
-                            "DIAG_DIRECT_ADDR: also patched STG mem_order → Strong(System)"
-                        );
                     }
 
-                    tracing::debug!(
-                        r0 = format_args!("0x{va_lo:08X}"),
-                        r1 = format_args!("0x{va_hi:08X}"),
+                    tracing::warn!(
                         va = format_args!("0x{va:016X}"),
-                        "DIAG_DIRECT_ADDR: patched LDC→MOV"
+                        "DIAG_DIRECT_ADDR: patched LDC→MOV + STG mem_order→Strong"
                     );
                 }
                 self.upload(shader_handle, 0, &patched)?;
@@ -279,23 +274,20 @@ impl ComputeDevice for NvUvmComputeDevice {
 
         let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |b| b.gpu_va);
 
-        // Build CBUF descriptor table at the aligned offset inside the
-        // same buffer.  The compiler generates `c[0][binding * 8]` to
-        // load buffer addresses, so CBUF 0 must hold the descriptor table.
+        // Build CBUF descriptor table at the aligned offset inside the same
+        // buffer.  The compiler generates `c[0][binding * 16]` to load buffer
+        // addresses (16-byte stride per binding: [va_lo, va_hi, size, pad]).
         let mut desc_data = vec![0u8; desc_data_len];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
-                let off = i * 8;
+                let off = i * 16;
                 let va = buf.gpu_va;
                 let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
                 let va_lo = (va & 0xFFFF_FFFF) as u32;
                 let va_hi = (va >> 32) as u32;
                 desc_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
                 desc_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
-                let sz_off = off + 8;
-                if sz_off + 4 <= desc_data.len() {
-                    desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
-                }
+                desc_data[off + 8..off + 12].copy_from_slice(&sz.to_le_bytes());
             }
         }
         self.upload(
@@ -305,17 +297,24 @@ impl ComputeDevice for NvUvmComputeDevice {
             &desc_data,
         )?;
         let desc_va = shader_va + desc_offset as u64;
-        let desc_buf_size = desc_data_len as u64;
 
-        // Set ALL 8 CBUFs to the descriptor table to diagnose which
-        // index the hardware actually maps c[0] to on Blackwell.
-        let cbufs: Vec<qmd::CbufBinding> = (0..8)
-            .map(|i| qmd::CbufBinding {
-                index: i,
-                addr: desc_va,
-                size: desc_cbuf_size,
-            })
-            .collect();
+        // CBUF 7: driver constants (grid dimensions for num_workgroups).
+        let driver_const_handle =
+            self.alloc(u64::from(qmd::DRIVER_CONST_SIZE), MemoryDomain::Gtt)?;
+        let driver_consts = qmd::encode_driver_constants(&dims);
+        self.upload(driver_const_handle, 0, &driver_consts)?;
+        let driver_const_va = self
+            .buffers
+            .get(&driver_const_handle.0)
+            .map_or(0, |b| b.gpu_va);
+
+        // CBUFs 0-6 → descriptor table; CBUF 7 → driver constants.
+        let cbufs = qmd::build_standard_cbufs(
+            desc_va,
+            desc_cbuf_size,
+            driver_const_va,
+            qmd::DRIVER_CONST_SIZE,
+        );
 
         let qmd_params = qmd::QmdParams {
             shader_va,
@@ -331,75 +330,16 @@ impl ComputeDevice for NvUvmComputeDevice {
         tracing::debug!(
             shader_va = format_args!("0x{shader_va:016X}"),
             desc_va = format_args!("0x{desc_va:016X}"),
-            desc_size = desc_buf_size,
             grid = ?dims,
-            workgroup = ?info.workgroup,
-            gpr_count = info.gpr_count,
+            wg = ?info.workgroup,
+            gpr = info.gpr_count,
             sm = self.sm_version(),
-            "dispatch layout"
+            buffers = buffers.len(),
+            "dispatch"
         );
-        for (i, bh) in buffers.iter().enumerate() {
-            if let Some(buf) = self.buffers.get(&bh.0) {
-                tracing::debug!(
-                    index = i,
-                    gpu_va = format_args!("0x{:016X}", buf.gpu_va),
-                    size = buf.size,
-                    "dispatch buffer"
-                );
-            }
-        }
-
-        // Hex dump descriptor table for debugging address loading issues
-        tracing::debug!(byte_len = desc_data.len(), "descriptor table hex dump");
-        for chunk in desc_data.chunks(16) {
-            let hex: String = chunk
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            tracing::debug!(row = %hex, "desc row");
-        }
-
-        // Hex dump first 128 bytes of shader binary
-        let shader_preview = shader.len().min(128);
-        tracing::debug!(
-            preview_len = shader_preview,
-            total_len = shader.len(),
-            "shader binary hex dump (prefix)"
-        );
-        for chunk in shader[..shader_preview].chunks(16) {
-            let hex: String = chunk
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            tracing::debug!(row = %hex, "shader row");
-        }
 
         let qmd_words = qmd::build_qmd_for_sm(self.sm_version(), &qmd_params);
         let qmd_bytes = u32_slice_as_bytes(&qmd_words);
-
-        // Hex dump QMD for debugging field encoding
-        tracing::debug!(
-            word_count = qmd_words.len(),
-            byte_len = qmd_bytes.len(),
-            "QMD hex dump"
-        );
-        for (i, chunk) in qmd_words.chunks(8).enumerate() {
-            let hex: String = chunk
-                .iter()
-                .map(|w| format!("{w:08x}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let lo = i * 8;
-            let hi = i * 8 + chunk.len() - 1;
-            tracing::debug!(
-                range_lo = lo,
-                range_hi = hi,
-                words = %hex,
-                "QMD row"
-            );
-        }
 
         let qmd_handle = self.alloc(
             u64::try_from(qmd_bytes.len())
@@ -429,7 +369,7 @@ impl ComputeDevice for NvUvmComputeDevice {
         // physical pages shuffle, stale GPU TLB entries could read old data.
         #[cfg(target_arch = "x86_64")]
         {
-            for &h in &[shader_handle, qmd_handle, pb_handle] {
+            for &h in &[shader_handle, qmd_handle, pb_handle, driver_const_handle] {
                 if let Some(buf) = self.buffers.get(&h.0)
                     && buf.cpu_addr != 0
                     && buf.size > 0
@@ -459,6 +399,7 @@ impl ComputeDevice for NvUvmComputeDevice {
         self.inflight.push(shader_handle);
         self.inflight.push(qmd_handle);
         self.inflight.push(pb_handle);
+        self.inflight.push(driver_const_handle);
 
         Ok(())
     }
@@ -471,6 +412,10 @@ impl ComputeDevice for NvUvmComputeDevice {
         let inflight = std::mem::take(&mut self.inflight);
         self.deferred_free.extend(inflight);
         Ok(())
+    }
+
+    fn capabilities(&self) -> &crate::HardwareCapabilities {
+        &self.caps
     }
 }
 
@@ -494,12 +439,16 @@ impl Drop for NvUvmComputeDevice {
         let ctx_bufs = std::mem::take(&mut self.ctx_buffers);
         for cb in ctx_bufs {
             if cb.gpu_va != 0 {
-                let _ = self.client.rm_unmap_memory_dma(
-                    self.h_device,
-                    self.h_virt_mem,
-                    cb.h_memory,
-                    cb.gpu_va,
-                );
+                if self.uses_uvm_mapping {
+                    let _ = self.uvm.uvm_free(cb.gpu_va, cb.size, &self.gpu_uuid);
+                } else {
+                    let _ = self.client.rm_unmap_memory_dma(
+                        self.h_device,
+                        self.h_virt_mem,
+                        cb.h_memory,
+                        cb.gpu_va,
+                    );
+                }
             }
             let _ = self.client.free_object(self.h_device, cb.h_memory);
         }

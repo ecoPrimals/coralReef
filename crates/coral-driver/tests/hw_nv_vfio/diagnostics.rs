@@ -79,13 +79,17 @@ fn vfio_layer7_diagnostic() {
     eprintln!("\n── Dispatching nop shader with timed PBDMA captures ──");
     let sm = dev.sm_version();
     let wgsl = "@compute @workgroup_size(64) fn main() {}";
+    let arch = match sm {
+        0..=37 => coral_reef::NvArch::Sm35,
+        38..=74 => coral_reef::NvArch::Sm70,
+        75..=79 => coral_reef::NvArch::Sm75,
+        80..=85 => coral_reef::NvArch::Sm80,
+        86..=88 => coral_reef::NvArch::Sm86,
+        89..=99 => coral_reef::NvArch::Sm89,
+        _ => coral_reef::NvArch::Sm120,
+    };
     let opts = coral_reef::CompileOptions {
-        target: match sm {
-            70 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm70),
-            75 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm75),
-            80 => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm80),
-            _ => coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm86),
-        },
+        target: coral_reef::GpuTarget::Nvidia(arch),
         ..coral_reef::CompileOptions::default()
     };
     let compiled = coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile");

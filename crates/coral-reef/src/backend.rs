@@ -14,13 +14,27 @@ use crate::codegen::ir::ShaderStageInfo;
 use crate::error::CompileError;
 use crate::gpu_arch::GpuTarget;
 
+/// Binary format of the compiled output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BinaryFormat {
+    /// Raw SASS instruction bytes — must be wrapped in cubin ELF for CUDA,
+    /// or dispatched directly via QMD for DRM/VFIO.
+    #[default]
+    Sass,
+    /// UTF-8 PTX source text — the CUDA driver JIT-compiles to native SASS.
+    /// Used for SM100+ (Blackwell) where cubin ELF format is unsupported.
+    Ptx,
+}
+
 /// Output of a successful compilation.
 #[derive(Debug, Clone)]
 pub struct CompiledBinary {
-    /// The final binary (header + code as little-endian bytes).
+    /// The final binary (header + code as little-endian bytes, or UTF-8 PTX).
     pub binary: Vec<u8>,
     /// Metadata from compilation (register count, etc.).
     pub info: CompilationInfo,
+    /// Binary format — determines how the driver should dispatch.
+    pub format: BinaryFormat,
 }
 
 /// Summary statistics from a compilation pass.
@@ -104,6 +118,7 @@ impl Backend for NvidiaBackend {
                 barrier_count,
                 local_size,
             },
+            format: BinaryFormat::Sass,
         })
     }
 }
@@ -136,6 +151,7 @@ impl Backend for AmdBackend {
                 barrier_count,
                 local_size,
             },
+            format: BinaryFormat::Sass,
         })
     }
 }

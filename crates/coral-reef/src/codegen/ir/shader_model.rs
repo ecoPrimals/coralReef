@@ -89,6 +89,15 @@ pub trait ShaderModel {
         self.is_blackwell_a() || self.is_blackwell_b()
     }
 
+    /// Whether RCP64H/RSQ64H produce correct f64 seeds in hardware.
+    ///
+    /// True for SM50-SM89, false for SM35 (no 64-bit MUFU) and SM120+
+    /// (Blackwell emits the instructions but produces wrong results).
+    /// Aligns with `GenerationProfile::has_hardware_f64_rcp` in coral-driver.
+    fn has_hardware_f64_rcp(&self) -> bool {
+        !self.is_blackwell() && self.sm() >= 50
+    }
+
     fn reg_count(&self, file: RegFile) -> u32;
     fn hw_reserved_gpr_count(&self) -> u32;
     fn crs_size(&self, max_crs_depth: u32) -> u32;

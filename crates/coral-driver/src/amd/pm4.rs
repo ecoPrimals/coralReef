@@ -8,6 +8,7 @@
 //! 3. `COMPUTE_NUM_THREAD_X`/`Y`/`Z` — workgroup size
 //! 4. `DISPATCH_DIRECT` — launch the compute shader
 
+use super::generation::{AmdGenerationProfile, CacheMethod};
 use crate::{DispatchDims, ShaderInfo};
 
 // PM4 packet types
@@ -37,17 +38,9 @@ const COMPUTE_USER_DATA_0: u32 = 0x2E40;
 // SI shader register base for SET_SH_REG
 const SI_SH_REG_BASE: u32 = 0x2C00;
 
-/// Build a PM4 command stream for a compute dispatch.
+/// Build a PM4 command stream for a compute dispatch (legacy interface).
 ///
-/// `buffer_vas` contains the GPU virtual addresses of each bound buffer.
-/// These are loaded into `COMPUTE_USER_DATA` registers so the shader can
-/// read them from user SGPRs (2 SGPRs per 64-bit VA).
-///
-/// `gfx_major`: 9=GCN5/Vega, 10=RDNA2, 11=RDNA3, 12=RDNA4.
-/// Controls register encoding differences (MEM_ORDERED, WGP_MODE, cache GCR).
-///
-/// Uses compiler-derived `info` for workgroup size and register allocation.
-/// Returns the PM4 words ready for submission via `DRM_AMDGPU_CS`.
+/// Delegates to [`build_compute_dispatch_profiled`] via [`profile_for_gfx`](super::generation::profile_for_gfx).
 #[must_use]
 pub fn build_compute_dispatch(
     shader_va: u64,
@@ -56,13 +49,33 @@ pub fn build_compute_dispatch(
     buffer_vas: &[u64],
     gfx_major: u8,
 ) -> Vec<u32> {
-    let mut pm4 = Vec::with_capacity(96);
+    let profile = super::generation::profile_for_gfx(gfx_major);
+    build_compute_dispatch_profiled(shader_va, dims, info, buffer_vas, profile)
+}
 
-    // ── Preamble registers (matches Mesa radeonsi / RADV GFX9 preamble) ──
+/// Build a PM4 command stream for a compute dispatch.
+///
+/// `buffer_vas` contains the GPU virtual addresses of each bound buffer.
+/// These are loaded into `COMPUTE_USER_DATA` registers so the shader can
+/// read them from user SGPRs (2 SGPRs per 64-bit VA).
+///
+/// Uses the [`AmdGenerationProfile`] for register encoding differences
+/// (WGP_MODE, MEM_ORDERED, cache method, VGPR granularity).
+///
+/// Uses compiler-derived `info` for workgroup size and register allocation.
+/// Returns the PM4 words ready for submission via `DRM_AMDGPU_CS`.
+#[must_use]
+pub fn build_compute_dispatch_profiled(
+    shader_va: u64,
+    dims: DispatchDims,
+    info: &ShaderInfo,
+    buffer_vas: &[u64],
+    profile: &AmdGenerationProfile,
+) -> Vec<u32> {
+    let mut pm4 = Vec::with_capacity(96);
 
     emit_set_sh_reg(&mut pm4, COMPUTE_PERFCOUNT_ENABLE, &[0]);
 
-    // Enable all CUs on all shader engines (MI50 has 4 SEs)
     let cu_en = 0xFFFF_FFFFu32;
     emit_set_sh_reg(&mut pm4, COMPUTE_STATIC_THREAD_MGMT_SE0, &[cu_en]);
     emit_set_sh_reg(&mut pm4, COMPUTE_STATIC_THREAD_MGMT_SE1, &[cu_en]);
@@ -70,8 +83,6 @@ pub fn build_compute_dispatch(
     emit_set_sh_reg(&mut pm4, COMPUTE_STATIC_THREAD_MGMT_SE3, &[cu_en]);
 
     emit_set_sh_reg(&mut pm4, COMPUTE_START_X, &[0, 0, 0]);
-
-    // ── Per-dispatch shader state ──
 
     #[expect(
         clippy::cast_possible_truncation,
@@ -81,21 +92,11 @@ pub fn build_compute_dispatch(
     let pgm_hi = (shader_va >> 40) as u32;
     emit_set_sh_reg(&mut pm4, COMPUTE_PGM_LO, &[pgm_lo, pgm_hi]);
 
-    // +3 for TID save prologue (v0/v1/v2 → safe VGPRs), +2 for scratch
     let vgpr_count = (info.gpr_count + 5).max(4);
     let sgpr_count = 16_u32;
-    let vgpr_gran = if info.wave_size >= 64 { 4 } else { 8 };
-    let rsrc1 = compute_pgm_rsrc1(vgpr_count, sgpr_count, vgpr_gran, gfx_major);
+    let rsrc1 = compute_pgm_rsrc1_profiled(vgpr_count, sgpr_count, profile);
     emit_set_sh_reg(&mut pm4, COMPUTE_PGM_RSRC1, &[rsrc1]);
 
-    // User data layout (SGPRs):
-    //   s[0..2N-1]     buffer VAs  (N buffers × 2 dwords each)
-    //   s[2N..2N+2]    NTID        (workgroup_size.x/y/z)
-    //   s[2N+3..2N+5]  NCTAID      (num_workgroups.x/y/z)
-    //   ── hardware-appended after user_sgpr_count ──
-    //   s[2N+6]        TGID_X      (workgroup_id.x)
-    //   s[2N+7]        TGID_Y      (workgroup_id.y)
-    //   s[2N+8]        TGID_Z      (workgroup_id.z)
     #[expect(
         clippy::cast_possible_truncation,
         reason = "buffer count limited to 5 (10 + 6 system = 16 user SGPRs max)"
@@ -126,21 +127,18 @@ pub fn build_compute_dispatch(
     let rsrc2 = compute_pgm_rsrc2(user_sgpr_count);
     emit_set_sh_reg(&mut pm4, COMPUTE_PGM_RSRC2, &[rsrc2]);
 
-    // GFX9: WAVES_PER_SH must be nonzero (Mesa: "set the limit to max
-    // instead of 0 to fix high priority compute"). MI50 has 60 CUs × 4
-    // SIMDs × 10 waves/SIMD = 2400 max waves, ~600 per shader engine.
-    let resource_limits = compute_resource_limits(info);
+    let resource_limits = compute_resource_limits_profiled(info, profile);
     emit_set_sh_reg(&mut pm4, COMPUTE_RESOURCE_LIMITS, &[resource_limits]);
 
     emit_set_sh_reg(&mut pm4, COMPUTE_TMPRING_SIZE, &[0]);
 
     emit_set_sh_reg(&mut pm4, COMPUTE_NUM_THREAD_X, &info.workgroup);
 
-    emit_cache_invalidate(&mut pm4, gfx_major);
+    emit_cache_invalidate_profiled(&mut pm4, profile);
 
     emit_dispatch_direct(&mut pm4, dims, info.wave_size);
 
-    emit_acquire_mem(&mut pm4, gfx_major);
+    emit_acquire_mem_profiled(&mut pm4, profile);
 
     emit_nop(&mut pm4);
 
@@ -176,69 +174,61 @@ fn emit_dispatch_direct(pm4: &mut Vec<u32>, dims: DispatchDims, wave_size: u32) 
     pm4.push(initiator);
 }
 
-/// Emit a PM4 `ACQUIRE_MEM` packet to invalidate caches before dispatch.
-///
-/// Before compute dispatch, CPU-uploaded data may not be visible to the GPU
-/// because stale entries in L1/L2 shadow the new content. This packet
-/// invalidates both cache levels so GLOBAL_LOAD reads fresh data.
-///
-/// GFX9:  6-dword body; cache control in CP_COHER_CNTL (body\[0\]).
-/// GFX10+: 7-dword body; CP_COHER_CNTL unused, GCR_CNTL in body\[6\].
-fn emit_cache_invalidate(pm4: &mut Vec<u32>, gfx_major: u8) {
-    if gfx_major >= 10 {
-        let header = pm4_type3_header(PM4_ACQUIRE_MEM, 7);
-        pm4.push(header);
-        pm4.push(0); // CP_COHER_CNTL (unused on GFX10+)
-        pm4.push(0xFFFF_FFFF); // COHER_SIZE
-        pm4.push(0x0000_00FF); // COHER_SIZE_HI
-        pm4.push(0); // COHER_BASE_LO
-        pm4.push(0); // COHER_BASE_HI
-        pm4.push(0); // reserved
-        // GCR_CNTL (PM4 ACQUIRE_MEM dword 6):
-        //   GL2_INV [14] | GL1_INV [9] | GLV_INV [8] | GLK_INV [7] | GLM_INV [5]
-        pm4.push((1 << 14) | (1 << 9) | (1 << 8) | (1 << 7) | (1 << 5));
-    } else {
-        let header = pm4_type3_header(PM4_ACQUIRE_MEM, 6);
-        pm4.push(header);
-        // GFX9 CP_COHER_CNTL: TC_ACTION_ENA [23] | TCL1_ACTION_ENA [25]
-        pm4.push((1 << 23) | (1 << 25));
-        pm4.push(0xFFFF_FFFF); // COHER_SIZE
-        pm4.push(0x0000_00FF); // COHER_SIZE_HI
-        pm4.push(0); // COHER_BASE_LO
-        pm4.push(0); // COHER_BASE_HI
-        pm4.push(10); // POLL_INTERVAL
+/// Emit a PM4 `ACQUIRE_MEM` to invalidate caches before dispatch (profile-driven).
+fn emit_cache_invalidate_profiled(pm4: &mut Vec<u32>, profile: &AmdGenerationProfile) {
+    match profile.cache_method {
+        CacheMethod::Gcr => {
+            let header = pm4_type3_header(PM4_ACQUIRE_MEM, 7);
+            pm4.push(header);
+            pm4.push(0); // CP_COHER_CNTL (unused on GCR path)
+            pm4.push(0xFFFF_FFFF); // COHER_SIZE
+            pm4.push(0x0000_00FF); // COHER_SIZE_HI
+            pm4.push(0); // COHER_BASE_LO
+            pm4.push(0); // COHER_BASE_HI
+            pm4.push(0); // reserved
+            // GCR_CNTL: GL2_INV [14] | GL1_INV [9] | GLV_INV [8] | GLK_INV [7] | GLM_INV [5]
+            pm4.push((1 << 14) | (1 << 9) | (1 << 8) | (1 << 7) | (1 << 5));
+        }
+        CacheMethod::CpCoher => {
+            let header = pm4_type3_header(PM4_ACQUIRE_MEM, 6);
+            pm4.push(header);
+            // CP_COHER_CNTL: TC_ACTION_ENA [23] | TCL1_ACTION_ENA [25]
+            pm4.push((1 << 23) | (1 << 25));
+            pm4.push(0xFFFF_FFFF); // COHER_SIZE
+            pm4.push(0x0000_00FF); // COHER_SIZE_HI
+            pm4.push(0); // COHER_BASE_LO
+            pm4.push(0); // COHER_BASE_HI
+            pm4.push(10); // POLL_INTERVAL
+        }
     }
 }
 
-/// Emit a PM4 `ACQUIRE_MEM` packet to flush the GPU L2 cache.
-///
-/// After compute dispatch, GLOBAL stores may reside in L2. This packet
-/// forces L2 writeback so subsequent CPU reads see the correct data.
-///
-/// GFX9:  6-dword body; TC_WB_ACTION_ENA / TC_ACTION_ENA in CP_COHER_CNTL.
-/// GFX10+: 7-dword body; GL2_WB / GL2_INV / GL1_INV in GCR_CNTL (body\[6\]).
-fn emit_acquire_mem(pm4: &mut Vec<u32>, gfx_major: u8) {
-    if gfx_major >= 10 {
-        let header = pm4_type3_header(PM4_ACQUIRE_MEM, 7);
-        pm4.push(header);
-        pm4.push(0); // CP_COHER_CNTL (unused on GFX10+)
-        pm4.push(0xFFFF_FFFF); // COHER_SIZE
-        pm4.push(0x0000_00FF); // COHER_SIZE_HI
-        pm4.push(0); // COHER_BASE_LO
-        pm4.push(0); // COHER_BASE_HI
-        pm4.push(0); // reserved
-        // GCR_CNTL: GL2_WB [15] | GL2_INV [14] | GL1_INV [9]
-        pm4.push((1 << 15) | (1 << 14) | (1 << 9));
-    } else {
-        let header = pm4_type3_header(PM4_ACQUIRE_MEM, 6);
-        pm4.push(header);
-        // GFX9 CP_COHER_CNTL: TC_WB_ACTION_ENA [18] | TC_ACTION_ENA [23]
-        pm4.push((1 << 18) | (1 << 23));
-        pm4.push(0xFFFF_FFFF); // COHER_SIZE
-        pm4.push(0x0000_00FF); // COHER_SIZE_HI
-        pm4.push(0); // COHER_BASE_LO
-        pm4.push(0); // COHER_BASE_HI
-        pm4.push(10); // POLL_INTERVAL
+/// Emit a PM4 `ACQUIRE_MEM` to flush the GPU L2 cache after dispatch (profile-driven).
+fn emit_acquire_mem_profiled(pm4: &mut Vec<u32>, profile: &AmdGenerationProfile) {
+    match profile.cache_method {
+        CacheMethod::Gcr => {
+            let header = pm4_type3_header(PM4_ACQUIRE_MEM, 7);
+            pm4.push(header);
+            pm4.push(0); // CP_COHER_CNTL (unused on GCR path)
+            pm4.push(0xFFFF_FFFF); // COHER_SIZE
+            pm4.push(0x0000_00FF); // COHER_SIZE_HI
+            pm4.push(0); // COHER_BASE_LO
+            pm4.push(0); // COHER_BASE_HI
+            pm4.push(0); // reserved
+            // GCR_CNTL: GL2_WB [15] | GL2_INV [14] | GL1_INV [9]
+            pm4.push((1 << 15) | (1 << 14) | (1 << 9));
+        }
+        CacheMethod::CpCoher => {
+            let header = pm4_type3_header(PM4_ACQUIRE_MEM, 6);
+            pm4.push(header);
+            // CP_COHER_CNTL: TC_WB_ACTION_ENA [18] | TC_ACTION_ENA [23]
+            pm4.push((1 << 18) | (1 << 23));
+            pm4.push(0xFFFF_FFFF); // COHER_SIZE
+            pm4.push(0x0000_00FF); // COHER_SIZE_HI
+            pm4.push(0); // COHER_BASE_LO
+            pm4.push(0); // COHER_BASE_HI
+            pm4.push(10); // POLL_INTERVAL
+        }
     }
 }
 
@@ -256,10 +246,11 @@ const fn pm4_type3_header(opcode: u32, count: u32) -> u32 {
     PM4_TYPE3 | (((count - 1) & 0x3FFF) << 16) | ((opcode & 0xFF) << 8)
 }
 
-/// Build `COMPUTE_PGM_RSRC1` register value.
-///
-/// `vgpr_granularity`: 4 for GCN5 wave64, 8 for RDNA wave32.
-/// `gfx_major`: 9=GCN5, 10+=RDNA. Controls MEM_ORDERED/WGP_MODE/FWD_PROGRESS.
+/// Build `COMPUTE_PGM_RSRC1` register value (legacy interface).
+#[expect(
+    dead_code,
+    reason = "WIP: legacy pre-profile AMD compute PM4 register encoding"
+)]
 const fn compute_pgm_rsrc1(
     vgpr_count: u32,
     sgpr_count: u32,
@@ -267,6 +258,27 @@ const fn compute_pgm_rsrc1(
     gfx_major: u8,
 ) -> u32 {
     let vgpr_encoded = (vgpr_count.div_ceil(vgpr_granularity)).saturating_sub(1);
+    let sgpr_encoded = (sgpr_count.div_ceil(16)).saturating_sub(1);
+    let float_mode = 0xC0_u32;
+    let mut rsrc1 = vgpr_encoded | (sgpr_encoded << 6) | (float_mode << 12) | (1 << 21) | (1 << 23);
+    if gfx_major >= 10 {
+        rsrc1 |= 1 << 29;
+        rsrc1 |= 1 << 30;
+        rsrc1 |= 1 << 31;
+    }
+    rsrc1
+}
+
+/// Build `COMPUTE_PGM_RSRC1` register value (profile-driven).
+///
+/// Uses [`AmdGenerationProfile`] fields for VGPR granularity and RDNA mode bits
+/// instead of branching on raw `gfx_major`.
+fn compute_pgm_rsrc1_profiled(
+    vgpr_count: u32,
+    sgpr_count: u32,
+    profile: &AmdGenerationProfile,
+) -> u32 {
+    let vgpr_encoded = (vgpr_count.div_ceil(profile.vgpr_granularity)).saturating_sub(1);
     let sgpr_encoded = (sgpr_count.div_ceil(16)).saturating_sub(1);
     // FLOAT_MODE [19:12] = 0xC0 (IEEE f64 denorms enabled, matches Mesa default)
     // DX10_CLAMP [21] = 1 (clamp NaN to 0, required by Mesa/RADV)
@@ -278,13 +290,13 @@ const fn compute_pgm_rsrc1(
         | (1 << 21) // DX10_CLAMP
         | (1 << 23); // IEEE_MODE
 
-    // GFX10+ (RDNA): additional RSRC1 bits that don't exist on GFX9.
-    //   [29] WGP_MODE    = 1 — use full Work Group Processor (2 CUs) for compute
-    //   [30] MEM_ORDERED  = 1 — stores complete before S_ENDPGM (CRITICAL!)
-    //        Without this, GLOBAL_STORE may be silently dropped when the wave retires.
-    //   [31] FWD_PROGRESS = 1 — forward progress guarantee
-    if gfx_major >= 10 {
+    // RDNA mode bits (WGP_MODE, MEM_ORDERED, FWD_PROGRESS) are profile-driven:
+    // MEM_ORDERED is CRITICAL — without it, GLOBAL_STORE may be silently
+    // dropped when the wave retires.
+    if profile.has_wgp_mode {
         rsrc1 |= 1 << 29; // WGP_MODE
+    }
+    if profile.has_mem_ordered {
         rsrc1 |= 1 << 30; // MEM_ORDERED
         rsrc1 |= 1 << 31; // FWD_PROGRESS
     }
@@ -292,26 +304,34 @@ const fn compute_pgm_rsrc1(
     rsrc1
 }
 
-/// Build `COMPUTE_RESOURCE_LIMITS` register value.
-///
-/// On GFX9, WAVES_PER_SH must be set to the max rather than 0
-/// (Mesa: "Gfx9 should set the limit to max instead of 0 to fix
-/// high priority compute").
-const fn compute_resource_limits(info: &ShaderInfo) -> u32 {
+/// Build `COMPUTE_RESOURCE_LIMITS` register value (profile-driven).
+fn compute_resource_limits_profiled(info: &ShaderInfo, profile: &AmdGenerationProfile) -> u32 {
     let threads_per_wg = info.workgroup[0] * info.workgroup[1] * info.workgroup[2];
     let waves_per_threadgroup = threads_per_wg.div_ceil(info.wave_size);
 
-    // SIMD_DEST_CNTL: round-robin when waves_per_threadgroup is multiple of 4
     let simd_dest = if waves_per_threadgroup.is_multiple_of(4) {
         1_u32
     } else {
         0
     };
 
-    // MI50 (Vega 20): 60 CUs, 4 SEs → 15 CUs/SE, 4 SIMDs/CU, 10 waves/SIMD
-    // max_waves_per_sh = 15 * 4 * 10 = 600
-    let max_waves_per_sh = 600_u32;
+    (simd_dest << 4) | (profile.max_waves_per_sh << 12)
+}
 
+/// Build `COMPUTE_RESOURCE_LIMITS` register value (legacy interface).
+#[expect(
+    dead_code,
+    reason = "WIP: legacy pre-profile AMD compute PM4 register encoding"
+)]
+const fn compute_resource_limits(info: &ShaderInfo) -> u32 {
+    let threads_per_wg = info.workgroup[0] * info.workgroup[1] * info.workgroup[2];
+    let waves_per_threadgroup = threads_per_wg.div_ceil(info.wave_size);
+    let simd_dest = if waves_per_threadgroup.is_multiple_of(4) {
+        1_u32
+    } else {
+        0
+    };
+    let max_waves_per_sh = 600_u32;
     (simd_dest << 4) | (max_waves_per_sh << 12)
 }
 

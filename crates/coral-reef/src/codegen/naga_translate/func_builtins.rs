@@ -5,6 +5,10 @@ use crate::error::CompileError;
 
 use super::sys_regs;
 
+/// CBUF slot for driver-injected constants (grid dimensions, etc.).
+/// Must match the index used in coral-driver's dispatch path.
+pub const DRIVER_CBUF_INDEX: u8 = 7;
+
 impl FuncTranslator<'_, '_> {
     pub(super) fn read_sys_reg(&mut self, idx: u8) -> SSAValue {
         let dst = self.alloc_ssa(RegFile::GPR);
@@ -89,21 +93,42 @@ impl FuncTranslator<'_, '_> {
             }
             naga::BuiltIn::NumWorkGroups => {
                 let v = self.alloc_ssa_vec(RegFile::GPR, 3);
-                let x = self.read_sys_reg(sys_regs::SR_NCTAID_X);
-                let y = self.read_sys_reg(sys_regs::SR_NCTAID_Y);
-                let z = self.read_sys_reg(sys_regs::SR_NCTAID_Z);
-                self.push_instr(Instr::new(OpCopy {
-                    dst: v[0].into(),
-                    src: x.into(),
-                }));
-                self.push_instr(Instr::new(OpCopy {
-                    dst: v[1].into(),
-                    src: y.into(),
-                }));
-                self.push_instr(Instr::new(OpCopy {
-                    dst: v[2].into(),
-                    src: z.into(),
-                }));
+                if self.sm.sm() >= 100 {
+                    // Blackwell+: S2R NCTAID may not be populated from QMD.
+                    // Read grid dimensions from CBUF 7 (driver constants),
+                    // where the driver stores grid_x/y/z as u32 at offsets 0/4/8.
+                    for (i, off) in [0u16, 4, 8].iter().enumerate() {
+                        self.push_instr(Instr::new(OpLdc {
+                            dst: v[i].into(),
+                            srcs: [
+                                CBufRef {
+                                    buf: CBuf::Binding(DRIVER_CBUF_INDEX),
+                                    offset: *off,
+                                }
+                                .into(),
+                                Src::ZERO,
+                            ],
+                            mode: LdcMode::Indexed,
+                            mem_type: MemType::B32,
+                        }));
+                    }
+                } else {
+                    let x = self.read_sys_reg(sys_regs::SR_NCTAID_X);
+                    let y = self.read_sys_reg(sys_regs::SR_NCTAID_Y);
+                    let z = self.read_sys_reg(sys_regs::SR_NCTAID_Z);
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: v[0].into(),
+                        src: x.into(),
+                    }));
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: v[1].into(),
+                        src: y.into(),
+                    }));
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: v[2].into(),
+                        src: z.into(),
+                    }));
+                }
                 Ok(v)
             }
             naga::BuiltIn::LocalInvocationIndex => {

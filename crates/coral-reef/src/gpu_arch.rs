@@ -253,9 +253,15 @@ impl NvArch {
     }
 
     /// Hardware f64 transcendental seed availability (rcp64h / rsq64h).
+    ///
+    /// SM50-SM89: RCP64H and RSQ64H produce correct hardware seeds.
+    /// SM35 (Kepler): no 64-bit MUFU — uses f32 MUFU seed path.
+    /// SM120 (Blackwell): RCP64H/RSQ64H emit but produce incorrect results
+    /// (Exp 177 finding). The lowering in `newton.rs` must use the f32 MUFU
+    /// seed path for Blackwell, matching `GenerationProfile::has_hardware_f64_rcp`.
     #[must_use]
     pub const fn has_transcendental_64h(self) -> bool {
-        !matches!(self, Self::Sm35) // SM50+ have RCP64H and RSQ64H; Kepler uses MUFU
+        !matches!(self, Self::Sm35 | Self::Sm120)
     }
 
     /// Maximum registers per thread.
@@ -729,8 +735,21 @@ mod tests {
 
     #[test]
     fn test_nv_arch_has_transcendental_64h() {
-        assert!(!NvArch::Sm35.has_transcendental_64h());
-        for &arch in &NvArch::ALL[1..] {
+        assert!(
+            !NvArch::Sm35.has_transcendental_64h(),
+            "Kepler: no 64-bit MUFU"
+        );
+        assert!(
+            !NvArch::Sm120.has_transcendental_64h(),
+            "Blackwell: RCP64H/RSQ64H broken"
+        );
+        for &arch in &[
+            NvArch::Sm70,
+            NvArch::Sm75,
+            NvArch::Sm80,
+            NvArch::Sm86,
+            NvArch::Sm89,
+        ] {
             assert!(
                 arch.has_transcendental_64h(),
                 "{arch} should have 64h seeds"

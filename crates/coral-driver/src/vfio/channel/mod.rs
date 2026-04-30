@@ -264,6 +264,42 @@ impl VfioChannel {
         }
         pfifo_trace(bar0, "after-clear-pccsr");
 
+        // Clear stale PBDMA interrupts from prior driver without wiping
+        // PBDMA config registers. nouveau leaves interrupt state that
+        // blocks new GPFIFO processing after warm handoff.
+        {
+            let pbdma_map = bar0.read_u32(registers::pfifo::PBDMA_MAP).unwrap_or(0);
+            for pid in 0..32u32 {
+                if pbdma_map & (1 << pid) == 0 {
+                    continue;
+                }
+                let intr_reg = 0x0004_0000 + (pid as usize) * 0x2000 + 0x108;
+                let intr_val = bar0.read_u32(intr_reg).unwrap_or(0);
+                if intr_val != 0 {
+                    let _ = bar0.write_u32(intr_reg, 0xFFFF_FFFF);
+                    tracing::debug!(
+                        pbdma = pid,
+                        intr = format_args!("{intr_val:#010x}"),
+                        "cleared stale PBDMA interrupt"
+                    );
+                }
+            }
+        }
+        pfifo_trace(bar0, "after-clear-pbdma-intr");
+
+        // Clear stale PFIFO-level interrupts as well.
+        {
+            let pfifo_intr = bar0.read_u32(registers::pfifo::INTR).unwrap_or(0);
+            if pfifo_intr != 0 {
+                let _ = bar0.write_u32(registers::pfifo::INTR, pfifo_intr);
+                tracing::debug!(
+                    intr = format_args!("{pfifo_intr:#010x}"),
+                    "cleared stale PFIFO interrupt"
+                );
+            }
+        }
+        pfifo_trace(bar0, "after-clear-pfifo-intr");
+
         chan.bind_channel(bar0)?;
         pfifo_trace(bar0, "after-bind-channel");
 
@@ -320,6 +356,165 @@ impl VfioChannel {
         );
 
         Ok(chan)
+    }
+
+    /// Create a VFIO channel for Kepler (GK110/GK210) GPUs.
+    ///
+    /// Kepler uses fundamentally different channel structures than Volta+:
+    /// - 2-level page tables (PD → PT) instead of 5-level (PD3..PD0 → PT0)
+    /// - Simple instance block (no subcontexts, 40-bit VA limit)
+    /// - 8-byte global runlist entries (GK104 style) instead of TSG + 16-byte entries
+    /// - GK104 global runlist registers instead of GV100 per-runlist registers
+    /// - No MMU fault buffer setup (Kepler uses a different fault mechanism)
+    ///
+    /// Kepler FECS can be loaded directly without ACR, so cold VFIO boot works.
+    pub fn create_kepler(
+        container: DmaBackend,
+        guard: &crate::nv::vfio_compute::hardware_guard::GuardedBar<'_>,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        channel_id: u32,
+    ) -> DriverResult<Self> {
+        let bar0 = guard.inner();
+        let instance = DmaBuffer::new(container.clone(), 4096, INSTANCE_IOVA)?;
+        let runlist = DmaBuffer::new(container.clone(), 4096, RUNLIST_IOVA)?;
+        let pd3 = DmaBuffer::new(container.clone(), 4096, PD3_IOVA)?;
+        let pd2 = DmaBuffer::new(container.clone(), 4096, PD2_IOVA)?;
+        let pd1 = DmaBuffer::new(container.clone(), 4096, PD1_IOVA)?;
+        let pd0 = DmaBuffer::new(container.clone(), 4096, PD0_IOVA)?;
+        let pt0 = DmaBuffer::new(container.clone(), 4096, PT0_IOVA)?;
+        let fault_buf = DmaBuffer::new(container.clone(), 4096, FAULT_BUF_IOVA)?;
+
+        let mut chan = Self {
+            instance,
+            runlist,
+            pd3,
+            pd2,
+            pd1,
+            pd0,
+            pt0,
+            fault_buf,
+            channel_id,
+            runlist_id: 0,
+        };
+
+        let (runq, _) = pfifo::init_pfifo_engine_kepler(guard)?;
+        let _ = runq;
+
+        // BAR2 physical mode (same principle as Volta — no VRAM page tables)
+        {
+            let bar2_val: u32 = 2 << 28;
+            guard
+                .write_u32(registers::misc::PBUS_BAR2_BLOCK as u32, bar2_val)
+                .map_err(|refusal| {
+                    DriverError::SubmitFailed(Cow::Owned(format!("BAR2_BLOCK: {refusal}")))
+                })?;
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            tracing::info!(
+                bar2_block = format_args!("{bar2_val:#010x}"),
+                "Kepler BAR2 set to PHYSICAL mode"
+            );
+        }
+
+        // Kepler 2-level page tables: PD at PD3_IOVA, PT at PT0_IOVA
+        page_tables::populate_kepler_page_tables(
+            chan.pd3.as_mut_slice(),
+            chan.pt0.as_mut_slice(),
+            PT0_IOVA,
+        );
+        page_tables::populate_kepler_instance_block(
+            chan.instance.as_mut_slice(),
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            PD3_IOVA,
+        );
+        page_tables::populate_kepler_runlist(
+            chan.runlist.as_mut_slice(),
+            INSTANCE_IOVA,
+            channel_id,
+        );
+
+        // TLB invalidation for GF100-style MMU
+        Self::invalidate_tlb_kepler(bar0, PD3_IOVA)?;
+
+        let stale = bar0.read_u32(pccsr::channel(channel_id)).unwrap_or(0);
+        if stale != 0 {
+            Self::clear_stale_pccsr(bar0, channel_id, stale)?;
+        }
+
+        chan.bind_channel(bar0)?;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        chan.clear_channel_faults(bar0)?;
+        chan.enable_channel(bar0)?;
+        chan.submit_runlist_kepler(bar0)?;
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        tracing::info!(
+            channel_id,
+            gpfifo_iova = format_args!("{gpfifo_iova:#x}"),
+            userd_iova = format_args!("{userd_iova:#x}"),
+            "Kepler VFIO PFIFO channel created"
+        );
+
+        Ok(chan)
+    }
+
+    /// TLB invalidation for Kepler (GF100-style MMU).
+    fn invalidate_tlb_kepler(bar0: &MappedBar, pd_iova: u64) -> DriverResult<()> {
+        use registers::pfb;
+
+        for _ in 0..200 {
+            let ctrl = bar0.read_u32(pfb::MMU_CTRL).unwrap_or(0);
+            if ctrl & 0x00FF_0000 != 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+
+        let pdb_inv = ((pd_iova >> 12) << 4) | 2;
+        bar0.write_u32(pfb::MMU_INVALIDATE_PDB, pdb_inv as u32)
+            .map_err(|e| {
+                DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE_PDB: {e}")))
+            })?;
+
+        bar0.write_u32(pfb::MMU_INVALIDATE, 0x8000_0005)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("MMU_INVALIDATE: {e}"))))?;
+
+        for _ in 0..200 {
+            let ctrl = bar0.read_u32(pfb::MMU_CTRL).unwrap_or(0);
+            if ctrl & 0x0000_8000 != 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+
+        tracing::info!(
+            pd_iova = format_args!("{pd_iova:#x}"),
+            "Kepler MMU TLB invalidated"
+        );
+        Ok(())
+    }
+
+    /// Submit runlist using GK104 global registers.
+    fn submit_runlist_kepler(&self, bar0: &MappedBar) -> DriverResult<()> {
+        let rl_base = registers::pfifo::gk104_runlist_base_value(RUNLIST_IOVA)
+            | (TARGET_SYS_MEM_COHERENT << 28);
+        let rl_submit = registers::pfifo::gk104_runlist_submit_value(RUNLIST_IOVA, 1);
+
+        tracing::debug!(
+            rl_base = format_args!("{rl_base:#010x}"),
+            rl_submit = format_args!("{rl_submit:#010x}"),
+            "submitting Kepler runlist (GK104 global)"
+        );
+
+        bar0.write_u32(registers::pfifo::GK104_RUNLIST_BASE, rl_base)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist base: {e}"))))?;
+        bar0.write_u32(registers::pfifo::GK104_RUNLIST_SUBMIT, rl_submit)
+            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("runlist submit: {e}"))))
     }
 
     /// Create a channel on a specific runlist (for PBDMA isolation tests).

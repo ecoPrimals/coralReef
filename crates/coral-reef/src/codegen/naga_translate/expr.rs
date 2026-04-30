@@ -107,7 +107,8 @@ impl FuncTranslator<'_, '_> {
                     let is_uniform = global.space == naga::AddressSpace::Uniform;
                     let addr = self.alloc_ssa_vec(RegFile::GPR, 2);
                     let buf_idx = binding.group as u8;
-                    let base_offset = (binding.binding * 8) as u16;
+                    let stride = if self.sm.is_amd() { 8u32 } else { 16u32 };
+                    let base_offset = (binding.binding * stride) as u16;
                     let cbuf = CBufRef {
                         buf: CBuf::Binding(buf_idx),
                         offset: base_offset,

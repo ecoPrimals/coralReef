@@ -2,11 +2,12 @@
 //! Compute dispatch — QMD build and GPFIFO submission.
 
 use crate::error::{DriverError, DriverResult};
+use crate::nv::generation;
 use crate::{BufferHandle, ComputeDevice, DispatchDims, ShaderInfo};
 
 use super::super::pushbuf::PushBuf;
 use super::super::qmd;
-use super::{LOCAL_MEM_WINDOW_LEGACY, LOCAL_MEM_WINDOW_VOLTA, NvVfioComputeDevice};
+use super::NvVfioComputeDevice;
 
 impl NvVfioComputeDevice {
     /// Inner dispatch — builds QMD + pushbuf, submits via GPFIFO.
@@ -22,9 +23,10 @@ impl NvVfioComputeDevice {
         temps.push(shader_handle);
         self.upload(shader_handle, 0, shader)?;
 
-        // Build CBUF descriptor for group 0 (same layout as NvDevice).
+        // Build CBUF descriptor table (same layout as UVM: slots 0-6 mirror
+        // the descriptor table, slot 7 = driver constants with grid dims).
         let desc_entry_size = 16_usize;
-        let desc_buf_size = desc_entry_size * buffers.len().max(1);
+        let desc_buf_size = (desc_entry_size * buffers.len().max(1)).max(64);
         let (desc_handle, desc_iova) = self.alloc_dma(desc_buf_size)?;
         temps.push(desc_handle);
 
@@ -33,7 +35,7 @@ impl NvVfioComputeDevice {
             if let Some(buf) = self.buffers.get(&bh.0) {
                 let va = buf.dma.iova();
                 let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
-                let off = i * 8;
+                let off = i * 16;
                 #[expect(
                     clippy::cast_possible_truncation,
                     reason = "deliberate split into 32-bit halves"
@@ -42,19 +44,12 @@ impl NvVfioComputeDevice {
                     desc_data[off..off + 4].copy_from_slice(&(va as u32).to_le_bytes());
                     desc_data[off + 4..off + 8].copy_from_slice(&((va >> 32) as u32).to_le_bytes());
                 }
-                let sz_off = off + 8;
-                if sz_off + 4 <= desc_data.len() {
-                    desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
-                }
+                desc_data[off + 8..off + 12].copy_from_slice(&sz.to_le_bytes());
             }
         }
         self.upload(desc_handle, 0, &desc_data)?;
 
-        let cbufs = vec![qmd::CbufBinding {
-            index: 0,
-            addr: desc_iova,
-            size: u32::try_from(desc_buf_size).unwrap_or(u32::MAX),
-        }];
+        let (cbufs, dc_handle) = self.build_vfio_cbufs(desc_iova, desc_buf_size, &dims, temps)?;
 
         let qmd_params = qmd::QmdParams {
             shader_va: shader_iova,
@@ -73,16 +68,9 @@ impl NvVfioComputeDevice {
         temps.push(qmd_handle);
         self.upload(qmd_handle, 0, qmd_bytes)?;
 
-        let local_mem_window = if self.sm_version >= 70 {
-            LOCAL_MEM_WINDOW_VOLTA
-        } else {
-            LOCAL_MEM_WINDOW_LEGACY
-        };
-        // VFIO submissions are independent GPFIFO entries — include
-        // init (SET_OBJECT + windows) alongside each dispatch.
-        // VFIO path: no persistent SLM buffer — pass 0 (no local memory).
-        let mut pb = PushBuf::compute_init(self.compute_class, local_mem_window, 0, 0);
-        let dispatch = PushBuf::compute_dispatch(self.compute_class, qmd_iova);
+        let profile = generation::profile_for_sm(self.sm_version);
+        let mut pb = PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
+        let dispatch = PushBuf::compute_dispatch_with_launch(profile.launch_method, qmd_iova);
         pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
 
@@ -94,6 +82,11 @@ impl NvVfioComputeDevice {
             .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u32"))?;
         self.submit_pushbuf(pb_iova, pb_size)?;
 
+        if self.uses_semaphore_fence {
+            self.submit_fence_release()?;
+        }
+
+        let _ = dc_handle; // kept alive via temps
         Ok(())
     }
 
@@ -111,7 +104,7 @@ impl NvVfioComputeDevice {
         self.upload(shader_handle, 0, shader)?;
 
         let desc_entry_size = 16_usize;
-        let desc_buf_size = desc_entry_size * buffers.len().max(1);
+        let desc_buf_size = (desc_entry_size * buffers.len().max(1)).max(64);
         let (desc_handle, desc_iova) = self.alloc_dma(desc_buf_size)?;
         temps.push(desc_handle);
 
@@ -120,7 +113,7 @@ impl NvVfioComputeDevice {
             if let Some(buf) = self.buffers.get(&bh.0) {
                 let va = buf.dma.iova();
                 let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
-                let off = i * 8;
+                let off = i * 16;
                 #[expect(
                     clippy::cast_possible_truncation,
                     reason = "deliberate split into 32-bit halves"
@@ -129,19 +122,12 @@ impl NvVfioComputeDevice {
                     desc_data[off..off + 4].copy_from_slice(&(va as u32).to_le_bytes());
                     desc_data[off + 4..off + 8].copy_from_slice(&((va >> 32) as u32).to_le_bytes());
                 }
-                let sz_off = off + 8;
-                if sz_off + 4 <= desc_data.len() {
-                    desc_data[sz_off..sz_off + 4].copy_from_slice(&sz.to_le_bytes());
-                }
+                desc_data[off + 8..off + 12].copy_from_slice(&sz.to_le_bytes());
             }
         }
         self.upload(desc_handle, 0, &desc_data)?;
 
-        let cbufs = vec![qmd::CbufBinding {
-            index: 0,
-            addr: desc_iova,
-            size: u32::try_from(desc_buf_size).unwrap_or(u32::MAX),
-        }];
+        let (cbufs, dc_handle) = self.build_vfio_cbufs(desc_iova, desc_buf_size, &dims, temps)?;
 
         let qmd_params = qmd::QmdParams {
             shader_va: shader_iova,
@@ -160,13 +146,9 @@ impl NvVfioComputeDevice {
         temps.push(qmd_handle);
         self.upload(qmd_handle, 0, qmd_bytes)?;
 
-        let local_mem_window = if self.sm_version >= 70 {
-            LOCAL_MEM_WINDOW_VOLTA
-        } else {
-            LOCAL_MEM_WINDOW_LEGACY
-        };
-        let mut pb = PushBuf::compute_init(self.compute_class, local_mem_window, 0, 0);
-        let dispatch = PushBuf::compute_dispatch(self.compute_class, qmd_iova);
+        let profile = generation::profile_for_sm(self.sm_version);
+        let mut pb = PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
+        let dispatch = PushBuf::compute_dispatch_with_launch(profile.launch_method, qmd_iova);
         pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
 
@@ -176,6 +158,32 @@ impl NvVfioComputeDevice {
 
         let pb_size = u32::try_from(pb_bytes.len())
             .map_err(|_| DriverError::platform_overflow("pushbuf size fits in u32"))?;
-        self.submit_pushbuf_traced(pb_iova, pb_size)
+        let captures = self.submit_pushbuf_traced(pb_iova, pb_size)?;
+
+        if self.uses_semaphore_fence {
+            self.submit_fence_release()?;
+        }
+
+        let _ = dc_handle;
+        Ok(captures)
+    }
+
+    /// Build the unified CBUF layout for VFIO dispatch (slots 0-6 + 7).
+    fn build_vfio_cbufs(
+        &mut self,
+        desc_iova: u64,
+        desc_buf_size: usize,
+        dims: &DispatchDims,
+        temps: &mut Vec<BufferHandle>,
+    ) -> DriverResult<(Vec<qmd::CbufBinding>, BufferHandle)> {
+        let desc_cbuf_size = u32::try_from(desc_buf_size).unwrap_or(u32::MAX);
+        let (dc_handle, dc_iova) = self.alloc_dma(qmd::DRIVER_CONST_SIZE as usize)?;
+        temps.push(dc_handle);
+        let driver_consts = qmd::encode_driver_constants(dims);
+        self.upload(dc_handle, 0, &driver_consts)?;
+
+        let cbufs =
+            qmd::build_standard_cbufs(desc_iova, desc_cbuf_size, dc_iova, qmd::DRIVER_CONST_SIZE);
+        Ok((cbufs, dc_handle))
     }
 }

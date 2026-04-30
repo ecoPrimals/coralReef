@@ -51,6 +51,9 @@ pub struct KmodChannelInfo {
     pub gpfifo_size: u64,
     pub gpu_uuid: [u8; 16],
     pub ctx_bufs: Vec<KmodCtxBuf>,
+    /// Blackwell+ two-phase init: userspace must call UVM_REGISTER_GPU_VASPACE
+    /// then CORAL_IOCTL_COMPLETE_INIT before the channel is usable.
+    pub needs_phase2: bool,
 }
 
 /// A promoted GR context buffer returned by the kernel module.
@@ -136,7 +139,40 @@ struct CoralInitComputeParams {
     _pad2: u32,
     ctx_bufs: [CoralCtxBufInfo; CORAL_MAX_CTX_BUFFERS],
     status: u32,
-    _pad3: u32,
+    flags_out: u32,
+}
+
+const CORAL_INIT_FLAG_NEEDS_PHASE2: u32 = 0x1;
+
+#[repr(C)]
+#[derive(Default)]
+struct CoralCompleteInitParams {
+    h_client: u32,
+    _pad0: u32,
+    h_channel: u32,
+    h_changrp: u32,
+    h_ctxshare: u32,
+    h_compute: u32,
+    hw_channel_id: u32,
+    work_submit_token: u32,
+    channel_class: u32,
+    compute_class: u32,
+    gpfifo_entries: u32,
+    _pad1: u32,
+    gpfifo_gpu_va: u64,
+    h_userd_mem: u32,
+    h_gpfifo_mem: u32,
+    h_errnotif_mem: u32,
+    h_fence_mem: u32,
+    userd_is_vram: u32,
+    h_virt_mem: u32,
+    userd_size: u64,
+    gpfifo_size: u64,
+    ctx_buf_count: u32,
+    h_usermode: u32,
+    ctx_bufs: [CoralCtxBufInfo; CORAL_MAX_CTX_BUFFERS],
+    status: u32,
+    _pad4: u32,
 }
 
 #[repr(C)]
@@ -315,6 +351,68 @@ impl CoralKmod {
             gpfifo_size: params.gpfifo_size,
             gpu_uuid: params.gpu_uuid,
             ctx_bufs,
+            needs_phase2: (params.flags_out & CORAL_INIT_FLAG_NEEDS_PHASE2) != 0,
+        })
+    }
+
+    /// Complete the second phase of Blackwell+ two-phase initialization.
+    ///
+    /// Must be called after `UVM_REGISTER_GPU_VASPACE` has been issued from
+    /// userspace. The kernel module retrieves the phase-1 state and creates
+    /// channel group, context share, channel, compute engine, etc.
+    pub fn complete_init(&self, h_client: u32) -> DriverResult<KmodChannelInfo> {
+        let mut params = CoralCompleteInitParams {
+            h_client,
+            ..Default::default()
+        };
+
+        let cmd = coral_iowr(8, std::mem::size_of::<CoralCompleteInitParams>());
+        coral_ioctl(self.fd.as_raw_fd(), cmd, &mut params, "CORAL_COMPLETE_INIT")?;
+        if params.status != 0 {
+            return Err(DriverError::SubmitFailed(
+                format!("CORAL_COMPLETE_INIT: RM status=0x{:08X}", params.status).into(),
+            ));
+        }
+
+        let mut ctx_bufs = Vec::new();
+        let count = (params.ctx_buf_count as usize).min(CORAL_MAX_CTX_BUFFERS);
+        for cb in &params.ctx_bufs[..count] {
+            ctx_bufs.push(KmodCtxBuf {
+                buffer_id: cb.buffer_id,
+                h_memory: cb.h_memory,
+                size: cb.size,
+                gpu_va: cb.gpu_va,
+            });
+        }
+
+        Ok(KmodChannelInfo {
+            h_client,
+            h_device: 0,
+            h_subdevice: 0,
+            h_vaspace: 0,
+            h_channel: params.h_channel,
+            h_changrp: params.h_changrp,
+            h_ctxshare: params.h_ctxshare,
+            h_compute: params.h_compute,
+            h_virt_mem: params.h_virt_mem,
+            h_usermode: params.h_usermode,
+            hw_channel_id: params.hw_channel_id,
+            work_submit_token: params.work_submit_token,
+            channel_class: params.channel_class,
+            compute_class: params.compute_class,
+            gpfifo_entries: params.gpfifo_entries,
+            gpfifo_gpu_va: params.gpfifo_gpu_va,
+            h_userd_mem: params.h_userd_mem,
+            h_gpfifo_mem: params.h_gpfifo_mem,
+            h_errnotif_mem: params.h_errnotif_mem,
+            h_fence_mem: params.h_fence_mem,
+            userd_is_vram: params.userd_is_vram != 0,
+            ctl_fd: 0,
+            userd_size: params.userd_size,
+            gpfifo_size: params.gpfifo_size,
+            gpu_uuid: [0; 16],
+            ctx_bufs,
+            needs_phase2: false,
         })
     }
 

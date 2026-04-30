@@ -59,13 +59,14 @@ pub fn build_hint_for(kb: &GpuKnowledge, chip: &str) -> Option<DispatchHints> {
         .as_ref()
         .and_then(|t| kb.transfer_map(t, chip).map(|m| m.coverage_pct()));
 
-    let fp64_full = has_full_rate_fp64(sm) || chip_has_full_fp64(chip);
+    let profile = crate::nv::generation::profile_for_sm(sm);
+    let fp64_full = profile.has_full_rate_fp64 || chip_has_full_fp64(chip);
 
     Some(DispatchHints {
         chip: chip.to_string(),
         sm,
-        recommended_workgroup_size: workgroup_size_for_sm(sm),
-        max_workgroups_per_sm: max_workgroups_for_sm(sm),
+        recommended_workgroup_size: profile.recommended_workgroup_size,
+        max_workgroups_per_sm: profile.max_cta_per_sm,
         native_fp64_full_rate: fp64_full,
         needs_sovereign_init: !arch.has_firmware,
         init_address_space: arch.address_space,
@@ -75,43 +76,13 @@ pub fn build_hint_for(kb: &GpuKnowledge, chip: &str) -> Option<DispatchHints> {
     })
 }
 
-/// Recommended workgroup size based on SM architecture.
+/// Chip-specific full-rate FP64 override.
 ///
-/// Based on warp size (32) and observed optimal occupancy patterns.
-const fn workgroup_size_for_sm(sm: u32) -> u32 {
-    match sm {
-        // Maxwell/Volta: 128 (independent thread scheduling benefits smaller groups)
-        50..=53 | 70..=72 => 128,
-        // Pascal/Turing/Ampere/Ada+: 256
-        _ => 256,
-    }
-}
-
-/// Maximum concurrent workgroups per SM.
-const fn max_workgroups_for_sm(sm: u32) -> u32 {
-    match sm {
-        // Maxwell/Pascal/Volta: 32 CTA per SM
-        50..=72 => 32,
-        // Turing/Ampere/Ada+: 16 CTA per SM (larger warps)
-        _ => 16,
-    }
-}
-
-/// Whether this SM has full-rate FP64 (1:2 ratio with FP32).
-///
-/// Only GV100 (SM 7.0, Titan V / Tesla V100) has confirmed full-rate FP64.
-/// GP100 (SM 6.0, Tesla P100) also has 1:2 FP64 but shares SM version with
-/// consumer Pascal which is 1:32. We use chip-level detection here, so SM 6.0
-/// gets "maybe" — the caller should refine with actual chip ID.
-const fn has_full_rate_fp64(sm: u32) -> bool {
-    sm == 70
-}
-
-/// Chip-specific full-rate FP64 detection.
-///
-/// GP100 (Tesla P100) has 1:2 FP64 despite sharing SM 6.0 with consumer Pascal.
+/// Catches cases where the chip's profile `has_full_rate_fp64` might be
+/// conservative (e.g. the Pascal profile is keyed to GP100 but consumer
+/// GP10x shares the same SM range).
 fn chip_has_full_fp64(chip: &str) -> bool {
-    matches!(chip, "gp100" | "gv100")
+    matches!(chip, "gp100" | "gv100" | "ga100" | "gh100" | "gb100")
 }
 
 #[cfg(test)]

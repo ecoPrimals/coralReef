@@ -17,6 +17,7 @@ const DRM_AMDGPU_CTX: u32 = DRM_COMMAND_BASE + 0x02;
 const DRM_AMDGPU_GEM_VA: u32 = DRM_COMMAND_BASE + 0x08;
 const DRM_AMDGPU_BO_LIST: u32 = DRM_COMMAND_BASE + 0x03;
 const DRM_AMDGPU_CS: u32 = DRM_COMMAND_BASE + 0x04;
+const DRM_AMDGPU_INFO: u32 = DRM_COMMAND_BASE + 0x05;
 const DRM_AMDGPU_WAIT_CS: u32 = DRM_COMMAND_BASE + 0x09;
 
 // Domain flags
@@ -549,6 +550,72 @@ pub fn sync_fence_ip(
     Ok(())
 }
 
+// --- Device info (DRM_AMDGPU_INFO) ---
+
+const AMDGPU_INFO_HW_IP_INFO: u32 = 0x01;
+
+/// HW IP info response — matches `drm_amdgpu_info_hw_ip`.
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct AmdgpuInfoHwIp {
+    hw_ip_version_major: u32,
+    hw_ip_version_minor: u32,
+    capabilities_flags: u64,
+    ib_start_alignment: u32,
+    ib_size_alignment: u32,
+    available_rings: u32,
+    pad: u32,
+}
+
+/// Query the GFX hardware IP version (major, minor).
+///
+/// Uses `DRM_AMDGPU_INFO` + `AMDGPU_INFO_HW_IP_INFO` for the GFX IP block.
+/// Returns `(major, minor)` — e.g. `(9, 0)` for Vega, `(10, 3)` for RDNA2.
+///
+/// # Errors
+///
+/// Returns [`DriverError`] if the info ioctl fails.
+pub fn query_gfx_version(fd: RawFd) -> DriverResult<(u32, u32)> {
+    let mut response = AmdgpuInfoHwIp::default();
+    let resp_ptr = std::ptr::from_mut(&mut response) as u64;
+    let mut req = AmdgpuInfoRequestRaw {
+        return_pointer: resp_ptr,
+        return_size: size_of_u32::<AmdgpuInfoHwIp>(),
+        query: AMDGPU_INFO_HW_IP_INFO,
+        hw_ip_type: AMDGPU_HW_IP_GFX,
+        hw_ip_instance: 0,
+        pad: [0; 2],
+    };
+    amd_ioctl(
+        fd,
+        crate::drm::drm_iowr_pub(DRM_AMDGPU_INFO, size_of_u32::<AmdgpuInfoRequestRaw>()),
+        &mut req,
+        "AMDGPU_INFO_HW_IP_INFO",
+    )?;
+    Ok((response.hw_ip_version_major, response.hw_ip_version_minor))
+}
+
+/// Raw layout for `DRM_AMDGPU_INFO` — matches the kernel ABI exactly.
+///
+/// ```text
+/// struct drm_amdgpu_info {
+///     __u64 return_pointer;
+///     __u32 return_size;
+///     __u32 query;
+///     union { struct { __u32 type; __u32 ip_instance; } hw_ip; ... };
+/// };
+/// ```
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct AmdgpuInfoRequestRaw {
+    return_pointer: u64,
+    return_size: u32,
+    query: u32,
+    hw_ip_type: u32,
+    hw_ip_instance: u32,
+    pad: [u32; 2],
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,5 +755,26 @@ mod tests {
         let wait = AmdgpuWaitCsIn::default();
         assert_eq!(wait.handle, 0);
         assert_eq!(wait.timeout, 0);
+    }
+
+    #[test]
+    fn info_request_raw_layout() {
+        assert_eq!(size_of::<AmdgpuInfoRequestRaw>(), 32);
+        assert_eq!(offset_of!(AmdgpuInfoRequestRaw, return_pointer), 0);
+        assert_eq!(offset_of!(AmdgpuInfoRequestRaw, return_size), 8);
+        assert_eq!(offset_of!(AmdgpuInfoRequestRaw, query), 12);
+        assert_eq!(offset_of!(AmdgpuInfoRequestRaw, hw_ip_type), 16);
+        assert_eq!(offset_of!(AmdgpuInfoRequestRaw, hw_ip_instance), 20);
+    }
+
+    #[test]
+    fn info_hw_ip_layout() {
+        assert_eq!(size_of::<AmdgpuInfoHwIp>(), 32);
+        assert_eq!(offset_of!(AmdgpuInfoHwIp, hw_ip_version_major), 0);
+        assert_eq!(offset_of!(AmdgpuInfoHwIp, hw_ip_version_minor), 4);
+        assert_eq!(offset_of!(AmdgpuInfoHwIp, capabilities_flags), 8);
+        assert_eq!(offset_of!(AmdgpuInfoHwIp, ib_start_alignment), 16);
+        assert_eq!(offset_of!(AmdgpuInfoHwIp, ib_size_alignment), 20);
+        assert_eq!(offset_of!(AmdgpuInfoHwIp, available_rings), 24);
     }
 }

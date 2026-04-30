@@ -35,8 +35,13 @@ pub mod gpfifo {
     }
 }
 
-/// IOVA base for user DMA allocations — above GPFIFO/USERD.
+/// IOVA base for user DMA allocations — above all fixed allocations.
 pub(super) const USER_IOVA_BASE: u64 = 0x10_0000;
+
+/// Guard page IOVA — absorbs spurious firmware DMA (e.g. FECS/PMU accessing
+/// IOVA 0x200 during boot on K80). Without this mapping, such DMA causes
+/// IO_PAGE_FAULT which triggers an IOMMU device reset mid-operation.
+pub(super) const GUARD_PAGE_IOVA: u64 = 0x0;
 
 /// GPFIFO ring IOVA.
 pub(super) const GPFIFO_IOVA: u64 = 0x1000;
@@ -44,10 +49,24 @@ pub(super) const GPFIFO_IOVA: u64 = 0x1000;
 /// USERD page IOVA.
 pub(super) const USERD_IOVA: u64 = 0x2000;
 
+/// Semaphore fence value buffer IOVA (Blackwell+).
+pub(super) const FENCE_BUF_IOVA: u64 = 0x8_0000;
+
+/// Semaphore fence push buffer IOVA (Blackwell+).
+pub(super) const FENCE_PB_IOVA: u64 = 0x9_0000;
+
 /// Local memory window address for Volta+ (SM >= 70).
+#[expect(
+    dead_code,
+    reason = "WIP: VFIO QMD codegen — local-memory window bases (exported for tests/host tools)"
+)]
 pub const LOCAL_MEM_WINDOW_VOLTA: u64 = 0xFF00_0000_0000_0000;
 
 /// Local memory window address for pre-Volta (SM < 70).
+#[expect(
+    dead_code,
+    reason = "WIP: VFIO QMD codegen — local-memory window bases (exported for tests/host tools)"
+)]
 pub const LOCAL_MEM_WINDOW_LEGACY: u64 = 0xFF00_0000;
 
 /// Map SM version to chip codename for firmware lookup.
@@ -60,8 +79,8 @@ pub const fn sm_to_chip(sm: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        GPFIFO_IOVA, LOCAL_MEM_WINDOW_LEGACY, LOCAL_MEM_WINDOW_VOLTA, USER_IOVA_BASE, USERD_IOVA,
-        gpfifo,
+        FENCE_BUF_IOVA, FENCE_PB_IOVA, GPFIFO_IOVA, LOCAL_MEM_WINDOW_LEGACY,
+        LOCAL_MEM_WINDOW_VOLTA, USER_IOVA_BASE, USERD_IOVA, gpfifo,
     };
 
     #[test]
@@ -104,7 +123,30 @@ mod tests {
     #[test]
     fn iova_constants_non_overlapping() {
         const { assert!(GPFIFO_IOVA < USERD_IOVA) };
-        const { assert!(USERD_IOVA + 4096 <= USER_IOVA_BASE) };
+        const { assert!(USERD_IOVA + 4096 <= FENCE_BUF_IOVA) };
+        const { assert!(FENCE_BUF_IOVA + 4096 <= FENCE_PB_IOVA) };
+        const { assert!(FENCE_PB_IOVA + 4096 <= USER_IOVA_BASE) };
+    }
+
+    #[test]
+    fn fence_iovas_page_aligned() {
+        assert_eq!(
+            FENCE_BUF_IOVA % 4096,
+            0,
+            "fence buf IOVA must be page-aligned"
+        );
+        assert_eq!(
+            FENCE_PB_IOVA % 4096,
+            0,
+            "fence pb IOVA must be page-aligned"
+        );
+    }
+
+    #[test]
+    fn fence_iovas_distinct() {
+        assert_ne!(FENCE_BUF_IOVA, FENCE_PB_IOVA);
+        assert_ne!(FENCE_BUF_IOVA, GPFIFO_IOVA);
+        assert_ne!(FENCE_PB_IOVA, USERD_IOVA);
     }
 
     #[test]

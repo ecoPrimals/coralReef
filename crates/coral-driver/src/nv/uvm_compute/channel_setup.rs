@@ -21,6 +21,7 @@ fn open_nvidiactl_mmap_fd() -> DriverResult<std::fs::File> {
 }
 
 /// RM objects and CPU mappings for the GPFIFO channel through compute engine bind.
+#[expect(dead_code, reason = "WIP: Kepler userspace GPFIFO submission path")]
 pub(super) struct UserspaceGpfifoChannelState {
     pub h_changrp: u32,
     pub h_channel: u32,
@@ -35,6 +36,7 @@ pub(super) struct UserspaceGpfifoChannelState {
 }
 
 /// Allocate channel group, GPFIFO channel, CPU-map rings, and bind the compute engine.
+#[expect(dead_code, reason = "WIP: Kepler userspace GPFIFO submission path")]
 #[expect(
     clippy::too_many_arguments,
     reason = "RM userspace GPFIFO setup takes many correlated object handles"
@@ -44,7 +46,7 @@ pub(super) fn userspace_setup_gpfifo_channel(
     gpu_index: u32,
     gpu_gen: GpuGen,
     h_device: u32,
-    h_subdevice: u32,
+    _h_subdevice: u32,
     h_vaspace: u32,
     h_userd_mem: u32,
     h_gpfifo_mem: u32,
@@ -54,7 +56,7 @@ pub(super) fn userspace_setup_gpfifo_channel(
 ) -> DriverResult<UserspaceGpfifoChannelState> {
     let h_changrp = client.alloc_channel_group(h_device, h_vaspace)?;
 
-    let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, h_subdevice)?;
+    let h_ctxshare = client.alloc_context_share(h_changrp, h_vaspace, false)?;
 
     client.alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)?;
 
@@ -136,6 +138,7 @@ pub(super) fn userspace_setup_gpfifo_channel(
 }
 
 /// TSG schedule, work submit token, USERMODE doorbell, and Blackwell semaphore fence buffers.
+#[expect(dead_code, reason = "WIP: Kepler userspace GPFIFO submission path")]
 pub(super) struct UserspaceDoorbellFenceState {
     pub work_submit_token: u32,
     pub usermode_mmap_fd: std::fs::File,
@@ -149,6 +152,7 @@ pub(super) struct UserspaceDoorbellFenceState {
     pub fence_pb_mmap_fd: Option<std::fs::File>,
 }
 
+#[expect(dead_code, reason = "WIP: Kepler userspace GPFIFO submission path")]
 #[expect(
     clippy::too_many_arguments,
     reason = "TSG schedule, doorbell, and fence setup share RM client state"
@@ -264,6 +268,7 @@ pub(super) fn userspace_schedule_tsg_doorbell_and_fence(
 }
 
 /// NOP GPFIFO smoke test, SLM allocation, and one-time compute init push buffer.
+#[expect(dead_code, reason = "WIP: Kepler userspace GPFIFO submission path")]
 pub(super) fn userspace_nop_smoke_slq_compute_init(
     dev: &mut NvUvmComputeDevice,
     h_device: u32,
