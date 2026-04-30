@@ -587,7 +587,11 @@ impl NvVfioComputeDevice {
         let channel = match profile.page_table_format {
             crate::nv::generation::PageTableFormat::V1TwoLevel => {
                 tracing::info!(sm_version, "warm Kepler: using 2-level page table channel");
-                let guard = kepler_guard.as_ref().expect("guard constructed for Kepler");
+                let guard = kepler_guard.as_ref().ok_or_else(|| {
+                    DriverError::SubmitFailed(std::borrow::Cow::Borrowed(
+                        "Kepler guard not constructed — V1TwoLevel profile requires GuardedBar",
+                    ))
+                })?;
                 VfioChannel::create_kepler(
                     container.clone(),
                     guard,

@@ -581,6 +581,116 @@ mod tests {
     }
 
     #[test]
+    fn gk104_runlist_base_value_encoding() {
+        let val = pfifo::gk104_runlist_base_value(RUNLIST_IOVA, TARGET_SYS_MEM_COHERENT);
+        assert_eq!(val, (0x4000 >> 12) | 2, "RUNLIST_IOVA >> 12 | target=COH");
+        assert_eq!(val & 3, 2, "target bits[1:0] = SYS_MEM_COH");
+        assert_eq!((val >> 2) << 14, RUNLIST_IOVA as u32, "addr roundtrip");
+    }
+
+    #[test]
+    fn gk104_runlist_submit_value_encoding() {
+        let val = pfifo::gk104_runlist_submit_value(1, 1);
+        assert_eq!(val, (1 << 20) | 1, "runlist_id=1, count=1");
+        assert_eq!((val >> 20) & 0xFFF, 1, "runlist_id field");
+        assert_eq!(val & 0xFFFFF, 1, "entry_count field");
+    }
+
+    #[test]
+    fn kepler_doorbell_offsets() {
+        assert_eq!(
+            usermode::gk104_doorbell(0),
+            0x3000,
+            "ch0 doorbell at 0x3000"
+        );
+        assert_eq!(
+            usermode::gk104_doorbell(1),
+            0x3008,
+            "ch1 doorbell at 0x3008"
+        );
+        assert_eq!(
+            usermode::gk104_doorbell(127),
+            0x3000 + 127 * 8,
+            "ch127 doorbell"
+        );
+    }
+
+    #[test]
+    fn kepler_instance_block_ramfc_golden() {
+        let mut inst = [0u8; 4096];
+        let gpfifo_iova: u64 = 0xC000;
+        let gpfifo_entries: u32 = 512;
+        let userd_iova: u64 = 0x2000;
+        let channel_id: u32 = 0;
+        let pd_iova: u64 = PD3_IOVA;
+
+        populate_kepler_instance_block(
+            &mut inst,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            channel_id,
+            pd_iova,
+        );
+
+        let rd = |off: usize| u32::from_le_bytes(inst[off..off + 4].try_into().unwrap());
+
+        // USERD_LO: addr masked | target=COH(2)
+        assert_eq!(rd(0x008) & 3, 2, "USERD target = SYS_MEM_COH");
+        assert_eq!(rd(0x008) & 0xFFFF_FE00, 0x2000, "USERD addr");
+        assert_eq!(rd(0x00C), 0, "USERD_HI = 0 (32-bit IOVA)");
+
+        // SIGNATURE
+        assert_eq!(rd(0x010), 0x0000_FACE, "RAMFC signature");
+
+        // ACQUIRE
+        assert_eq!(rd(0x030), 0x7FFF_F902, "semaphore acquire config");
+
+        // DMA_LIMIT_REF (0x3C) — the nv50 field that was missing
+        assert_eq!(rd(0x03C), 0x003F_6078, "DMA limit/ref from nv50");
+
+        // PB_DMA_SUBROUTINE (0x44) — the nv50 field that was missing
+        assert_eq!(rd(0x044), 0x0100_3FFF, "PB DMA subroutine from nv50");
+
+        // GP_BASE
+        assert_eq!(rd(0x048), gpfifo_iova as u32, "GP_BASE_LO");
+        let limit2 = gpfifo_entries.ilog2();
+        assert_eq!(rd(0x04C), limit2 << 16, "GP_BASE_HI has limit");
+
+        // GP_PUT/GET/FETCH all zero
+        assert_eq!(rd(0x054), 0, "GP_PUT = 0");
+        assert_eq!(rd(0x058), 0, "GP_GET = 0");
+        assert_eq!(rd(0x050), 0, "GP_FETCH = 0");
+
+        // PB_HEADER
+        assert_eq!(rd(0x084), 0x2040_0000, "PB_HEADER");
+
+        // SUBDEVICE
+        assert_eq!(rd(0x094), 0x3000_0FFF, "SUBDEVICE mask");
+
+        // CONFIG (Kepler-specific)
+        assert_eq!(rd(0x0A8), 0x0000_0400, "CONFIG = 0x400 (Kepler)");
+
+        // CHANNEL_INFO
+        assert_eq!(
+            rd(0x0AC),
+            0x0300_0000 | channel_id,
+            "CHANNEL_INFO"
+        );
+
+        // RAMIN PDB — V1 format
+        let pdb_lo = rd(0x200);
+        assert_eq!(pdb_lo & 3, 2, "PDB target = SYS_MEM_COH");
+        assert_eq!((pdb_lo >> 2) & 1, 1, "PDB VOL = 1");
+        let pdb_addr = (pdb_lo & 0xFFFF_F000) as u64;
+        assert_eq!(pdb_addr, pd_iova, "PDB address = PD3_IOVA");
+
+        // VA limit — 40-bit (1 TB)
+        assert_eq!(rd(0x208), 0xFFFF_FFFF, "ADDR_LIMIT_LO");
+        assert_eq!(rd(0x20C), 0x0000_00FF, "ADDR_LIMIT_HI (40-bit)");
+    }
+
+    #[test]
     fn iova_layout_non_overlapping() {
         let iovas = [
             ("INSTANCE", INSTANCE_IOVA),
