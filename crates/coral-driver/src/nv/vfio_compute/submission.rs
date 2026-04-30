@@ -4,7 +4,7 @@
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::cache_ops::{clflush_range, memory_fence};
 use crate::vfio::channel::mmu_fault;
-use crate::vfio::channel::registers::{misc, pccsr, pfifo};
+use crate::vfio::channel::registers::{misc, pccsr, pfifo, pmc};
 use crate::vfio::channel::{VfioChannel, ramuserd};
 
 use std::borrow::Cow;
@@ -51,10 +51,19 @@ impl NvVfioComputeDevice {
         clflush_range(self.userd.as_slice());
         memory_fence();
 
-        // Notify the GPU via NV_USERMODE_NOTIFY_CHANNEL_PENDING.
-        self.bar0
-            .write_u32(VfioChannel::doorbell_offset(), self.channel.id())
-            .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("doorbell: {e}"))))?;
+        // Notify the GPU that the channel has new GPFIFO work.
+        if self.sm_version <= 37 {
+            // Kepler (GK104/GK110/GK210): doorbell at 0x003000+ch_id*8.
+            use crate::vfio::channel::registers::usermode;
+            self.bar0
+                .write_u32(usermode::gk104_doorbell(self.channel.id()), 0)
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("doorbell: {e}"))))?;
+        } else {
+            // Volta+ (sm>=70): NV_USERMODE_NOTIFY_CHANNEL_PENDING (0x810090).
+            self.bar0
+                .write_u32(VfioChannel::doorbell_offset(), self.channel.id())
+                .map_err(|e| DriverError::SubmitFailed(Cow::Owned(format!("doorbell: {e}"))))?;
+        }
 
         Ok(())
     }
@@ -192,25 +201,45 @@ impl NvVfioComputeDevice {
                 mmu_fault::log_mmu_faults(&mmu_info);
 
                 let pfifo_intr = r(pfifo::INTR);
+                let pfifo_en = r(pfifo::ENABLE);
+                let pmc_en = r(pmc::ENABLE);
+                let pccsr_inst = r(pccsr::inst(self.channel.id()));
                 let pccsr_chan = r(pccsr::channel(self.channel.id()));
                 let priv_ring_intr = r(misc::PRIV_RING);
-                let pbdma_intr: [u32; 2] = [r(0x40108), r(0x40108 + 0x2000)];
-                let pbdma_state: [u32; 2] = [r(0x400B0), r(0x400B0 + 0x2000)];
+                let rl_pending = r(pfifo::RUNLIST_PENDING);
+                let pbdma_map = r(pfifo::PBDMA_MAP);
 
                 tracing::error!(
                     gp_get,
                     gp_put = gp_put_val,
                     expected = self.gpfifo_put,
                     channel_id = self.channel.id(),
+                    pfifo_en = format!("{pfifo_en:#010x}"),
+                    pmc_en = format!("{pmc_en:#010x}"),
                     pfifo_intr = format!("{pfifo_intr:#010x}"),
+                    pccsr_inst = format!("{pccsr_inst:#010x}"),
                     pccsr_chan = format!("{pccsr_chan:#010x}"),
+                    pccsr_status = pccsr::status_name(pccsr_chan),
+                    rl_pending = format!("{rl_pending:#010x}"),
                     priv_ring_intr = format!("{priv_ring_intr:#010x}"),
-                    pbdma_0_intr = format!("{:#010x}", pbdma_intr[0]),
-                    pbdma_0_state = format!("{:#010x}", pbdma_state[0]),
-                    pbdma_1_intr = format!("{:#010x}", pbdma_intr[1]),
-                    pbdma_1_state = format!("{:#010x}", pbdma_state[1]),
-                    "Fence timeout: GPFIFO completion stalled — see MMU fault above"
+                    pbdma_map = format!("{pbdma_map:#010x}"),
+                    "Fence timeout: GPFIFO completion stalled"
                 );
+                for pid in 0..3_usize {
+                    let b = 0x0004_0000 + pid * 0x2000;
+                    tracing::error!(
+                        pbdma = pid,
+                        intr = format!("{:#010x}", r(b + 0x108)),
+                        state = format!("{:#010x}", r(b + 0x0B0)),
+                        gp_base = format!("{:#010x}", r(b + 0x040)),
+                        gp_put = format!("{:#010x}", r(b + 0x054)),
+                        gp_get = format!("{:#010x}", r(b + 0x058)),
+                        userd_lo = format!("{:#010x}", r(b + 0x0D0)),
+                        signature = format!("{:#010x}", r(b + 0x0C0)),
+                        method0 = format!("{:#010x}", r(b + 0x1C0)),
+                        "Fence timeout: PBDMA state"
+                    );
+                }
                 return Err(DriverError::FenceTimeout {
                     ms: SYNC_TIMEOUT.as_millis() as u64,
                 });

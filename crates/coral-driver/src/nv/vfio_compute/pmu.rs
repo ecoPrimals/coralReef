@@ -38,26 +38,28 @@ pub(super) fn gk110_pmu_boot(guard: &super::hardware_guard::GuardedBar<'_>) -> b
         "PMU firmware boot: starting"
     );
 
-    // Step 1: Reset PMU via PTOP register 0x022210 (gf100_pmu_reset).
-    // NOT via PMC bit 13 — the kernel uses 0x022210 bit 0 exclusively.
+    // Step 1: Reset PMU via PMC bit 13 (PDAEMON), matching the kernel's
+    // nvkm_falcon_reset path in gt215_pmu_init. Previously used PTOP 0x022210
+    // which left the falcon in HRESET where STARTCPU was silently ignored.
     {
-        let cur = rd(0x02_2210);
-        wr(0x02_2210, cur & !0x01); // clear bit 0 = PMU disable
-        rd(0x02_2210);
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        wr(0x02_2210, cur | 0x01); // set bit 0 = PMU enable
-        rd(0x02_2210);
+        let pmc = rd(0x200);
+        wr(0x200, pmc & !0x0000_2000); // clear bit 13 = PDAEMON off
+        rd(0x200);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        wr(0x200, pmc | 0x0000_2000); // set bit 13 = PDAEMON on
+        rd(0x200);
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 
-    // Inhibit interrupts if PMU was previously running
+    // Inhibit interrupts during upload
     wr(PMU_IRQMASK, 0x0000_FFFF);
 
-    // Wait for IMEM/DMEM scrubbing to complete (kernel: 0x10a10c & 0x06 == 0)
+    // Wait for DMA idle (kernel: nvkm_rd32(device, 0x10a10c) & 0x06 == 0)
     let mut scrub_ok = false;
     for _ in 0..200 {
         std::thread::sleep(std::time::Duration::from_millis(10));
-        let hwcfg = rd(PMU_DMACTL); // 0x10a10c
-        if hwcfg & 0x06 == 0 {
+        let dmactl = rd(PMU_DMACTL);
+        if dmactl & 0x06 == 0 {
             scrub_ok = true;
             break;
         }
@@ -67,11 +69,13 @@ pub(super) fn gk110_pmu_boot(guard: &super::hardware_guard::GuardedBar<'_>) -> b
     tracing::info!(
         cpuctl = format_args!("{cpuctl:#010x}"),
         scrub_ok,
-        "PMU after PTOP reset + scrub"
+        halted = cpuctl & 0x10 != 0,
+        hreset = cpuctl & 0x20 != 0,
+        "PMU after PMC reset + DMA idle"
     );
 
     if !scrub_ok {
-        tracing::warn!("PMU IMEM/DMEM scrub timed out");
+        tracing::warn!("PMU DMA idle wait timed out");
         return false;
     }
 
@@ -113,12 +117,23 @@ pub(super) fn gk110_pmu_boot(guard: &super::hardware_guard::GuardedBar<'_>) -> b
 
     tracing::info!(words = code_words, "PMU IMEM uploaded");
 
-    // Step 4: Start CPU (matching kernel gt215_pmu_init exactly)
+    // Step 4: Clear stale ring config (may be left from previous PMU run)
+    wr(PMU_BASE + 0x4D0, 0x0000_0000);
+    wr(PMU_BASE + 0x4DC, 0x0000_0000);
+
+    // Step 5: Start CPU (matching kernel gt215_pmu_init exactly)
     wr(PMU_DMACTL, 0x0000_0000); // DMACTL = DMA disabled
     wr(PMU_BOOTVEC, 0x0000_0000); // BOOTVEC = 0
     wr(PMU_CPUCTL, 0x0000_0002); // STARTCPU
 
-    // Step 5: Wait for firmware ring configuration at 0x10a4d0 (host→pmu queue)
+    let cpuctl_post = rd(PMU_CPUCTL);
+    tracing::info!(
+        cpuctl = format_args!("{cpuctl_post:#010x}"),
+        running = cpuctl_post & 0x30 == 0,
+        "PMU after STARTCPU"
+    );
+
+    // Step 6: Wait for firmware ring configuration at 0x10a4d0 (host→pmu queue)
     let mut booted = false;
     for i in 0..200 {
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -141,7 +156,7 @@ pub(super) fn gk110_pmu_boot(guard: &super::hardware_guard::GuardedBar<'_>) -> b
         if cpuctl & 0x20 != 0 {
             tracing::warn!(
                 cpuctl = format_args!("{cpuctl:#010x}"),
-                "PMU firmware stopped"
+                "PMU firmware stopped (HRESET — STARTCPU failed)"
             );
             break;
         }
@@ -157,20 +172,43 @@ pub(super) fn gk110_pmu_boot(guard: &super::hardware_guard::GuardedBar<'_>) -> b
     if booted {
         let send_cfg = rd(PMU_BASE + 0x4D0);
         let recv_cfg = rd(PMU_BASE + 0x4DC);
+        let cpuctl_final = rd(PMU_CPUCTL);
+        let pc = rd(PMU_BASE + 0x110);
+        let trap = rd(PMU_BASE + 0x028);
+        let exci = rd(PMU_BASE + 0x04C);
         tracing::info!(
             send_cfg = format_args!("{send_cfg:#010x}"),
             recv_cfg = format_args!("{recv_cfg:#010x}"),
+            cpuctl = format_args!("{cpuctl_final:#010x}"),
+            pc = format_args!("{pc:#010x}"),
+            trap = format_args!("{trap:#010x}"),
+            exci = format_args!("{exci:#010x}"),
+            still_running = cpuctl_final & 0x30 == 0,
             "PMU firmware initialized — ring queues configured"
         );
         // Enable interrupts (kernel: nvkm_wr32(device, 0x10a010, 0x000000e0))
         wr(PMU_BASE + 0x010, 0x0000_00E0);
     } else {
         let cpuctl_final = rd(PMU_CPUCTL);
-        let pc = rd(PMU_BASE + 0x030);
+        let pc = rd(PMU_BASE + 0x110);     // UC_PC (microcode PC)
+        let epc = rd(PMU_BASE + 0x030);    // TRACEPC[0]
+        let epc1 = rd(PMU_BASE + 0x034);   // TRACEPC[1]
+        let exci = rd(PMU_BASE + 0x04C);   // EXC_INTR (exception info)
+        let trap = rd(PMU_BASE + 0x028);    // EXCP_CAUSE
+        let sctl = rd(PMU_BASE + 0x240);    // SCTL (engine specific)
+        let fbif_ctrl = rd(PMU_BASE + 0x600); // FBIF control
+        let fbif_stat = rd(PMU_BASE + 0x604); // FBIF status
         tracing::warn!(
             cpuctl = format_args!("{cpuctl_final:#010x}"),
             pc = format_args!("{pc:#010x}"),
-            "PMU firmware boot failed"
+            epc0 = format_args!("{epc:#010x}"),
+            epc1 = format_args!("{epc1:#010x}"),
+            exci = format_args!("{exci:#010x}"),
+            trap = format_args!("{trap:#010x}"),
+            sctl = format_args!("{sctl:#010x}"),
+            fbif_ctrl = format_args!("{fbif_ctrl:#010x}"),
+            fbif_stat = format_args!("{fbif_stat:#010x}"),
+            "PMU firmware boot failed — crash diagnostics"
         );
     }
 

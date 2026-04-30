@@ -399,8 +399,8 @@ impl VfioChannel {
             runlist_id: 0,
         };
 
-        let (runq, _) = pfifo::init_pfifo_engine_kepler(guard)?;
-        let _ = runq;
+        let (_runq, target_runlist) = pfifo::init_pfifo_engine_kepler(guard)?;
+        chan.runlist_id = target_runlist;
 
         // BAR2 physical mode (same principle as Volta — no VRAM page tables)
         {
@@ -448,10 +448,124 @@ impl VfioChannel {
         chan.bind_channel(bar0)?;
         std::thread::sleep(std::time::Duration::from_millis(5));
         chan.clear_channel_faults(bar0)?;
+
+        let r = |reg: usize| bar0.read_u32(reg).unwrap_or(0xDEAD_DEAD);
+
+        {
+            let pccsr_inst = r(registers::pccsr::inst(channel_id));
+            let pccsr_chan = r(registers::pccsr::channel(channel_id));
+            let pfifo_en = r(registers::pfifo::ENABLE);
+            let pmc_en = r(registers::pmc::ENABLE);
+            tracing::info!(
+                pccsr_inst = format_args!("{pccsr_inst:#010x}"),
+                pccsr_chan = format_args!("{pccsr_chan:#010x}"),
+                pfifo_en = format_args!("{pfifo_en:#010x}"),
+                pmc_en = format_args!("{pmc_en:#010x}"),
+                "Kepler: pre-enable state"
+            );
+        }
+
         chan.enable_channel(bar0)?;
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        {
+            let pccsr_chan = r(registers::pccsr::channel(channel_id));
+            tracing::info!(
+                pccsr_chan = format_args!("{pccsr_chan:#010x}"),
+                status = registers::pccsr::status_name(pccsr_chan),
+                "Kepler: post-enable, pre-runlist"
+            );
+        }
+
+        // Clear ALL pending PFIFO interrupts before submit so we can
+        // distinguish fresh errors from stale ones.
+        let _ = bar0.write_u32(registers::pfifo::INTR, 0xFFFF_FFFF);
+        // Also clear the BIND_ERROR detail register.
+        let _ = bar0.write_u32(0x0000_252C_usize, 0);
+        let pfifo_intr_pre = r(registers::pfifo::INTR);
+        tracing::info!(
+            pfifo_intr_pre = format_args!("{pfifo_intr_pre:#010x}"),
+            "Kepler: PFIFO INTR cleared before runlist submit"
+        );
+
         chan.submit_runlist_kepler(bar0)?;
 
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Poll for runlist completion (rl_pending bit 0 clears when done).
+        let mut rl_done = false;
+        for tick in 0..20 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            let rl_pend = r(registers::pfifo::RUNLIST_PENDING);
+            let intr = r(registers::pfifo::INTR);
+            if rl_pend & 1 == 0 {
+                tracing::info!(tick, "runlist completed");
+                rl_done = true;
+                break;
+            }
+            if intr != 0 && tick % 4 == 0 {
+                let bind_err = r(0x0000_252C);
+                tracing::info!(
+                    tick,
+                    intr = format_args!("{intr:#010x}"),
+                    rl_pend = format_args!("{rl_pend:#010x}"),
+                    bind_err = format_args!("{bind_err:#010x}"),
+                    "runlist poll: scheduler stalled"
+                );
+            }
+        }
+        if !rl_done {
+            tracing::warn!("runlist did not complete within 100ms");
+        }
+
+        {
+            let pccsr_chan = r(registers::pccsr::channel(channel_id));
+            let pccsr_inst = r(registers::pccsr::inst(channel_id));
+            let pfifo_intr = r(registers::pfifo::INTR);
+            let rl_pending = r(registers::pfifo::RUNLIST_PENDING);
+            let pmc_en = r(registers::pmc::ENABLE);
+            let bind_err = r(0x0000_252C);
+            let sched_err = r(0x0000_254C);
+            let engn0_status = r(0x0000_2640);
+            tracing::info!(
+                pccsr_chan = format_args!("{pccsr_chan:#010x}"),
+                pccsr_inst = format_args!("{pccsr_inst:#010x}"),
+                pccsr_status = registers::pccsr::status_name(pccsr_chan),
+                pfifo_intr = format_args!("{pfifo_intr:#010x}"),
+                rl_pending = format_args!("{rl_pending:#010x}"),
+                pmc_en = format_args!("{pmc_en:#010x}"),
+                bind_err = format_args!("{bind_err:#010x}"),
+                sched_err = format_args!("{sched_err:#010x}"),
+                engn0 = format_args!("{engn0_status:#010x}"),
+                "Kepler: post-runlist scheduler state"
+            );
+            if pfifo_intr & 0x0000_0001 != 0 {
+                tracing::warn!(
+                    bind_err = format_args!("{bind_err:#010x}"),
+                    channel = (bind_err >> 8) & 0xFF,
+                    "PFIFO BIND_ERROR detected"
+                );
+            }
+            if pfifo_intr & 0x4000_0000 != 0 {
+                tracing::warn!(
+                    sched_err = format_args!("{sched_err:#010x}"),
+                    code = sched_err & 0x7F,
+                    "PFIFO SCHED_ERROR detected"
+                );
+            }
+            for pid in 0..3_usize {
+                let b = 0x0004_0000 + pid * 0x2000;
+                tracing::info!(
+                    pbdma = pid,
+                    state = format_args!("{:#010x}", r(b + 0x0B0)),
+                    gp_base = format_args!("{:#010x}", r(b + 0x040)),
+                    gp_put = format_args!("{:#010x}", r(b + 0x054)),
+                    gp_get = format_args!("{:#010x}", r(b + 0x058)),
+                    userd_lo = format_args!("{:#010x}", r(b + 0x0D0)),
+                    intr = format_args!("{:#010x}", r(b + 0x108)),
+                    signature = format_args!("{:#010x}", r(b + 0x0C0)),
+                    "Kepler: PBDMA post-runlist state"
+                );
+            }
+        }
 
         tracing::info!(
             channel_id,
@@ -500,14 +614,19 @@ impl VfioChannel {
     }
 
     /// Submit runlist using GK104 global registers.
+    ///
+    /// GK104 base (0x2270): `(addr >> 12) | target` — target in bits [1:0].
+    /// GK104 submit (0x2274): `(runlist_id << 20) | entry_count`.
     fn submit_runlist_kepler(&self, bar0: &MappedBar) -> DriverResult<()> {
-        let rl_base = registers::pfifo::gk104_runlist_base_value(RUNLIST_IOVA)
-            | (TARGET_SYS_MEM_COHERENT << 28);
-        let rl_submit = registers::pfifo::gk104_runlist_submit_value(RUNLIST_IOVA, 1);
+        let rl_base =
+            registers::pfifo::gk104_runlist_base_value(RUNLIST_IOVA, TARGET_SYS_MEM_COHERENT);
+        let rl_submit =
+            registers::pfifo::gk104_runlist_submit_value(self.runlist_id, 1);
 
-        tracing::debug!(
+        tracing::info!(
             rl_base = format_args!("{rl_base:#010x}"),
             rl_submit = format_args!("{rl_submit:#010x}"),
+            runlist_id = self.runlist_id,
             "submitting Kepler runlist (GK104 global)"
         );
 
@@ -674,6 +793,30 @@ impl VfioChannel {
             );
         }
         Ok(())
+    }
+
+    /// Write the GR context buffer virtual address into the instance block
+    /// at offsets 0x210/0x214 (Nouveau: RAMFC_GR_CTX_PTR_LO/HI).
+    ///
+    /// The address should include the CB_RESERVED offset if using Nouveau's
+    /// context generation layout. `flags` is OR'd into the low word (e.g. 4).
+    pub fn write_gr_context_ptr(&mut self, ctx_vaddr: u64, flags: u32) {
+        let lo = (ctx_vaddr as u32) | flags;
+        let hi = (ctx_vaddr >> 32) as u32;
+        let inst = self.instance.as_mut_slice();
+        inst[0x210..0x214].copy_from_slice(&lo.to_le_bytes());
+        inst[0x214..0x218].copy_from_slice(&hi.to_le_bytes());
+        tracing::info!(
+            ctx_vaddr = format_args!("{ctx_vaddr:#x}"),
+            lo = format_args!("{lo:#010x}"),
+            hi = format_args!("{hi:#010x}"),
+            "wrote GR context pointer into instance block (0x210/0x214)"
+        );
+    }
+
+    /// Return the DMA IOVA of this channel's instance block.
+    pub fn instance_iova(&self) -> u64 {
+        INSTANCE_IOVA
     }
 
     /// Enable the channel via PCCSR `ENABLE_SET` trigger.

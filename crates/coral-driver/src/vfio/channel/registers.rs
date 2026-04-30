@@ -46,18 +46,26 @@ pub(crate) mod pfifo {
     /// GK104 runlist submit trigger (global — GK104/GK110, NOT Volta).
     pub const GK104_RUNLIST_SUBMIT: usize = 0x0000_2274;
 
-    /// Encode GK104 runlist BASE register value.
-    /// Format: `lower_32(phys >> 12)` — same bit layout as GV100 base.
+    /// Encode GK104 runlist BASE register value (0x2270).
+    ///
+    /// Format from Nouveau `gk104_fifo_runlist_commit`:
+    ///   `(addr >> 12) | target`
+    /// where target is in bits [1:0] (0=VRAM, 2=SYS_MEM_COH, 3=SYS_MEM_NCOH)
+    /// and address >> 12 occupies the remaining bits. Address must be 16KB-aligned
+    /// so bits [1:0] of addr>>12 are zero and don't conflict with the target.
     #[must_use]
-    pub const fn gk104_runlist_base_value(iova: u64) -> u32 {
-        (iova >> 12) as u32
+    pub const fn gk104_runlist_base_value(iova: u64, target: u32) -> u32 {
+        (iova >> 12) as u32 | target
     }
 
-    /// Encode GK104 runlist SUBMIT register value.
-    /// Format: `upper_32(phys >> 12) | (entry_count << 16)`.
+    /// Encode GK104 runlist SUBMIT register value (0x2274).
+    ///
+    /// Format from Nouveau `gk104_fifo_runlist_commit`:
+    ///   `(runlist_id << 20) | entry_count`
+    /// Writing this register triggers the PFIFO scheduler.
     #[must_use]
-    pub const fn gk104_runlist_submit_value(iova: u64, entry_count: u32) -> u32 {
-        ((iova >> 44) as u32) | (entry_count << 16)
+    pub const fn gk104_runlist_submit_value(runlist_id: u32, entry_count: u32) -> u32 {
+        (runlist_id << 20) | entry_count
     }
 
     /// GV100 per-runlist base register (stride 0x10).
@@ -587,7 +595,15 @@ pub(crate) mod pccsr {
 /// `NV_USERMODE` doorbell (BAR0 + 0x81_0000..0x81_FFFF).
 pub(crate) mod usermode {
     /// Write channel ID here to notify Host that a channel has new work.
+    /// Volta+ (GV100) only — does NOT exist on Kepler/Maxwell/Pascal.
     pub const NOTIFY_CHANNEL_PENDING: usize = 0x0081_0090;
+
+    /// GK104 (Kepler 2nd gen) per-channel doorbell at 0x003000 + ch_id * 8.
+    /// Writing 0 here triggers PFIFO to re-read the channel's USERD GP_PUT.
+    /// Source: Nouveau `gk104_chan_doorbell()`.
+    pub const fn gk104_doorbell(channel_id: u32) -> usize {
+        0x0000_3000 + (channel_id as usize) * 8
+    }
 }
 
 /// Volta RAMUSERD (User-Driver State Descriptor) offsets within a 512-byte

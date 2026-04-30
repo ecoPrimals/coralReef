@@ -262,16 +262,225 @@ static GK110_GR_EXCEPTIONS: &[(u32, u32)] = &[
 ///
 /// Returns `(applied, faulted)` counts.
 pub(crate) fn apply_gk110_gr_init(guard: &super::hardware_guard::GuardedBar<'_>) -> (u32, u32) {
+    let gpcs = detect_live_gpcs(guard);
     let mut applied = 0u32;
     let mut faulted = 0u32;
 
     for &(reg, val) in GK110_GR_MMIO.iter().chain(GK110_GR_EXCEPTIONS.iter()) {
-        match guard.write_u32(reg, val) {
-            Ok(()) => applied += 1,
-            Err(_) => faulted += 1,
-        }
+        let (a, f) = write_with_gpc_fanout(guard, &gpcs, reg, val);
+        applied += a;
+        faulted += f;
     }
 
-    tracing::info!(applied, faulted, "GK110 PGRAPH MMIO init applied");
+    tracing::info!(applied, faulted, gpcs = gpcs.len(), "GK110 PGRAPH MMIO init applied (per-GPC fanout)");
     (applied, faulted)
+}
+
+/// GK110 clock gating initialization table (BLCG + SLCG).
+///
+/// Derived from nouveau's `gk110_clkgate_pack[]` which references both
+/// `gk104_clkgate_blcg_*` base tables and `gk110_clkgate_*` overrides.
+/// Applied by nouveau via `nvkm_therm_clkgate_init()` after MMIO init
+/// and before firmware upload. Without these, GPC Falcon CPU clocks may
+/// remain gated after PMC GR reset, causing STARTCPU to be silently ignored.
+///
+/// Multi-count entries (count > 1) are expanded to flat (addr, value) pairs
+/// with stride 4.
+#[rustfmt::skip]
+const GK110_CLKGATE_INIT: &[(u32, u32)] = &[
+    // --- BLCG tables ---
+    // gk104_clkgate_blcg_init_main_0
+    (0x40_41f0, 0x0000_4046),
+    (0x40_9890, 0x0000_0045),
+    (0x40_98b0, 0x0000_007f),
+    // gk104_clkgate_blcg_init_rstr2d_0
+    (0x40_78c0, 0x0000_0042),
+    // gk104_clkgate_blcg_init_unk_0
+    (0x40_6000, 0x0000_4044),
+    (0x40_5860, 0x0000_4042),
+    (0x40_590c, 0x0000_4042),
+    // gk104_clkgate_blcg_init_gcc_0
+    (0x40_8040, 0x0000_4044),
+    // gk110_clkgate_blcg_init_sked_0 (GK110 override)
+    (0x40_7000, 0x0000_4041),
+    // gk104_clkgate_blcg_init_unk_1
+    (0x40_5bf0, 0x0000_4044),
+    // gk104_clkgate_blcg_init_gpc_ctxctl_0 — GPCCS Falcon clock gating
+    (0x41_a890, 0x0000_0042),
+    (0x41_a8b0, 0x0000_007f),
+    // gk104_clkgate_blcg_init_gpc_unk_0
+    (0x41_8500, 0x0000_4042),
+    (0x41_8608, 0x0000_4042),
+    (0x41_8688, 0x0000_4042),
+    (0x41_8718, 0x0000_0042),
+    // gk104_clkgate_blcg_init_gpc_esetup_0
+    (0x41_8828, 0x0000_0044),
+    // gk104_clkgate_blcg_init_gpc_tpbus_0
+    (0x41_8bbc, 0x0000_4042),
+    // gk104_clkgate_blcg_init_gpc_zcull_0
+    (0x41_8970, 0x0000_4042),
+    // gk104_clkgate_blcg_init_gpc_tpconf_0
+    (0x41_8c70, 0x0000_4042),
+    // gk104_clkgate_blcg_init_gpc_unk_1
+    (0x41_8cf0, 0x0000_4042),
+    (0x41_8d70, 0x0000_4042),
+    (0x41_8f0c, 0x0000_4042),
+    (0x41_8e0c, 0x0000_4042),
+    // gk110_clkgate_blcg_init_gpc_gcc_0 (GK110 override)
+    (0x41_9020, 0x0000_0042),
+    (0x41_9038, 0x0000_0042),
+    // gk104_clkgate_blcg_init_gpc_ffb_0
+    (0x41_8898, 0x0000_0042),
+    // gk104_clkgate_blcg_init_gpc_tex_0 (9 regs @ stride 4)
+    (0x41_9a40, 0x0000_4042),
+    (0x41_9a44, 0x0000_4042),
+    (0x41_9a48, 0x0000_4042),
+    (0x41_9a4c, 0x0000_4042),
+    (0x41_9a50, 0x0000_4042),
+    (0x41_9a54, 0x0000_4042),
+    (0x41_9a58, 0x0000_4042),
+    (0x41_9a5c, 0x0000_4042),
+    (0x41_9a60, 0x0000_4042),
+    (0x41_9acc, 0x0000_4047),
+    // gk104_clkgate_blcg_init_gpc_poly_0
+    (0x41_9868, 0x0000_0042),
+    // gk110_clkgate_blcg_init_gpc_l1c_0 (GK110 override, 2 regs)
+    (0x41_9cd4, 0x0000_4042),
+    (0x41_9cd8, 0x0000_4042),
+    // gk104_clkgate_blcg_init_gpc_unk_2
+    (0x41_9c70, 0x0000_4045),
+    // gk110_clkgate_blcg_init_gpc_mp_0 (GK110 override)
+    (0x41_9fd0, 0x0000_4043),
+    (0x41_9fd8, 0x0000_4049),
+    (0x41_9fe0, 0x0000_4042),
+    (0x41_9fe4, 0x0000_4042),
+    (0x41_9ff0, 0x0000_0046),
+    (0x41_9ff8, 0x0000_4042),
+    (0x41_9f90, 0x0000_4042),
+    // gk104_clkgate_blcg_init_gpc_ppc_0
+    (0x41_be28, 0x0000_0042),
+    (0x41_bfe8, 0x0000_4042),
+    (0x41_bed0, 0x0000_4042),
+    // gk104_clkgate_blcg_init_rop_zrop_0 (2 regs)
+    (0x40_8810, 0x0000_4042),
+    (0x40_8814, 0x0000_4042),
+    // gk104_clkgate_blcg_init_rop_0 (6 regs)
+    (0x40_8a80, 0x0000_4042),
+    (0x40_8a84, 0x0000_4042),
+    (0x40_8a88, 0x0000_4042),
+    (0x40_8a8c, 0x0000_4042),
+    (0x40_8a90, 0x0000_4042),
+    (0x40_8a94, 0x0000_4042),
+    // gk104_clkgate_blcg_init_rop_crop_0
+    (0x40_89a8, 0x0000_4042),
+    (0x40_89b0, 0x0000_0042),
+    (0x40_89b8, 0x0000_4042),
+    // gk104_clkgate_blcg_init_pxbar_0
+    (0x13_c820, 0x0001_007f),
+    (0x13_cbe0, 0x0000_0042),
+
+    // --- SLCG tables (from gk110.c) ---
+    // gk110_clkgate_slcg_init_main_0
+    (0x40_41f4, 0x0000_0000),
+    (0x40_9894, 0x0000_0000),
+    // gk110_clkgate_slcg_init_unk_0
+    (0x40_6004, 0x0000_0000),
+    // gk110_clkgate_slcg_init_sked_0
+    (0x40_7004, 0x0000_0000),
+    // gk110_clkgate_slcg_init_gpc_ctxctl_0 — GPCCS SLCG
+    (0x41_a894, 0x0000_0000),
+    // gk110_clkgate_slcg_init_gpc_unk_0
+    (0x41_8504, 0x0000_0000),
+    (0x41_860c, 0x0000_0000),
+    (0x41_868c, 0x0000_0000),
+    // gk110_clkgate_slcg_init_gpc_esetup_0
+    (0x41_882c, 0x0000_0000),
+    // gk110_clkgate_slcg_init_gpc_zcull_0
+    (0x41_8974, 0x0000_0000),
+    // gk110_clkgate_slcg_init_gpc_l1c_0 (2 regs)
+    (0x41_9cd8, 0x0000_0000),
+    (0x41_9cdc, 0x0000_0000),
+    // gk110_clkgate_slcg_init_gpc_unk_1
+    (0x41_9c74, 0x0000_0000),
+    // gk110_clkgate_slcg_init_gpc_mp_0
+    (0x41_9fd4, 0x0000_4a4a),
+    (0x41_9fdc, 0x0000_0014),
+    (0x41_9fe4, 0x0000_0000),
+    (0x41_9ff4, 0x0000_1724),
+    // gk110_clkgate_slcg_init_gpc_ppc_0
+    (0x41_be2c, 0x0000_0000),
+    // gk110_clkgate_slcg_init_pcounter_0
+    (0x1b_e018, 0x0000_01ff),
+    (0x1b_c018, 0x0000_01ff),
+    (0x1b_8018, 0x0000_01ff),
+    (0x1b_4124, 0x0000_0000),
+];
+
+/// Apply the GK110 clock gating initialization (BLCG + SLCG).
+///
+/// Returns `(applied, faulted)` counts.
+pub(crate) fn apply_gk110_clkgate(guard: &super::hardware_guard::GuardedBar<'_>) -> (u32, u32) {
+    let gpcs = detect_live_gpcs(guard);
+    let mut applied = 0u32;
+    let mut faulted = 0u32;
+
+    for &(reg, val) in GK110_CLKGATE_INIT {
+        let (a, f) = write_with_gpc_fanout(guard, &gpcs, reg, val);
+        applied += a;
+        faulted += f;
+    }
+
+    tracing::info!(applied, faulted, gpcs = gpcs.len(), "GK110 clock gating init applied (per-GPC fanout)");
+    (applied, faulted)
+}
+
+/// Detect which GPCs are alive by probing GPCCS CPUCTL at each per-GPC base.
+/// Returns a Vec of live GPC indices.
+fn detect_live_gpcs(guard: &super::hardware_guard::GuardedBar<'_>) -> Vec<u32> {
+    let mut live = Vec::new();
+    for gpc in 0..8u32 {
+        let gpccs_cpuctl = 0x50_0000 + gpc * 0x8000 + 0x2100;
+        match guard.read_u32(gpccs_cpuctl) {
+            Ok(v) if v != 0xDEAD_DEAD && v & 0xBAD0_0000 != 0xBAD0_0000 => {
+                live.push(gpc);
+            }
+            _ => {}
+        }
+    }
+    live
+}
+
+const GPC_BROADCAST_BASE: u32 = 0x41_8000;
+const GPC_BROADCAST_END: u32 = 0x41_C000;
+const GPC_UNICAST_BASE: u32 = 0x50_0000;
+const GPC_STRIDE: u32 = 0x8000;
+
+/// Write a register value. If the address falls in the GPC broadcast range
+/// (0x418000..0x41C000), fan out the write to each live GPC using unicast
+/// addresses. On GK210B, broadcast writes to GPC control registers are
+/// silently dropped; only unicast per-GPC writes take effect.
+fn write_with_gpc_fanout(
+    guard: &super::hardware_guard::GuardedBar<'_>,
+    gpcs: &[u32],
+    reg: u32,
+    val: u32,
+) -> (u32, u32) {
+    if reg >= GPC_BROADCAST_BASE && reg < GPC_BROADCAST_END {
+        let offset = reg - GPC_BROADCAST_BASE;
+        let mut applied = 0u32;
+        let mut faulted = 0u32;
+        for &gpc in gpcs {
+            let unicast = GPC_UNICAST_BASE + gpc * GPC_STRIDE + offset;
+            match guard.write_u32(unicast, val) {
+                Ok(()) => applied += 1,
+                Err(_) => faulted += 1,
+            }
+        }
+        (applied, faulted)
+    } else {
+        match guard.write_u32(reg, val) {
+            Ok(()) => (1, 0),
+            Err(_) => (0, 1),
+        }
+    }
 }

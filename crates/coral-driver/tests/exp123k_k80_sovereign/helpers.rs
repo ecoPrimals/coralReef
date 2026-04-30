@@ -149,3 +149,222 @@ pub fn load_firmware(fw_dir: &str) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
         read("gpccs_data.bin"),
     )
 }
+
+/// Rebind a GPU from vfio-pci → nouveau → (trigger GR init) → nouveau → vfio-pci.
+///
+/// Nouveau performs full DEVINIT, PMU boot, PGOB disable, and GR initialization
+/// during probe on GK110/GK210. After rebinding back to vfio-pci, the GPU state
+/// is preserved: GPCs are ungated, clocks are running, PRI ring is alive.
+///
+/// Returns Ok(()) on success, Err(message) on failure.
+pub fn nouveau_gr_warmup(bdf: &str) -> Result<(), String> {
+    use std::path::Path;
+
+    let sysfs_dev = format!("/sys/bus/pci/devices/{bdf}");
+    if !Path::new(&sysfs_dev).exists() {
+        return Err(format!("sysfs device not found: {sysfs_dev}"));
+    }
+
+    let current_driver = std::fs::read_link(format!("{sysfs_dev}/driver"))
+        .ok()
+        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+    eprintln!("[nouveau_warmup] BDF={bdf} current_driver={current_driver:?}");
+
+    // Step 1: Unbind from current driver (vfio-pci)
+    if let Some(ref drv) = current_driver {
+        let unbind_path = format!("/sys/bus/pci/drivers/{drv}/unbind");
+        eprintln!("[nouveau_warmup] Unbinding from {drv}...");
+        std::fs::write(&unbind_path, bdf).map_err(|e| {
+            format!("unbind from {drv} failed: {e} (are you root?)")
+        })?;
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
+    // Step 2: Remove vfio-pci id override if present, so nouveau can probe
+    let driver_override = format!("{sysfs_dev}/driver_override");
+    if Path::new(&driver_override).exists() {
+        eprintln!("[nouveau_warmup] Clearing driver_override...");
+        let _ = std::fs::write(&driver_override, "\n");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // Step 3: Ensure nouveau module is loaded (it's blacklisted at boot
+    // but available for explicit modprobe).
+    let nouveau_bind = "/sys/bus/pci/drivers/nouveau/bind";
+    if !Path::new("/sys/bus/pci/drivers/nouveau").exists() {
+        eprintln!("[nouveau_warmup] Loading nouveau module...");
+        let status = std::process::Command::new("modprobe")
+            .arg("nouveau")
+            .status()
+            .map_err(|e| format!("modprobe nouveau failed: {e}"))?;
+        if !status.success() {
+            return Err(format!(
+                "modprobe nouveau exited with {status}. Is nouveau available?"
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        if !Path::new("/sys/bus/pci/drivers/nouveau").exists() {
+            return Err("nouveau driver dir missing after modprobe".to_string());
+        }
+        eprintln!("[nouveau_warmup] nouveau module loaded");
+    }
+
+    // Step 4: Bind to nouveau
+    eprintln!("[nouveau_warmup] Binding to nouveau...");
+    match std::fs::write(nouveau_bind, bdf) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!(
+                "[nouveau_warmup] Direct bind failed ({e}), trying driver_override reprobe..."
+            );
+            let _ = std::fs::write(&driver_override, "nouveau");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::fs::write("/sys/bus/pci/drivers_probe", bdf).map_err(|e2| {
+                format!("nouveau bind failed: direct={e}, reprobe={e2}")
+            })?;
+        }
+    }
+
+    // Step 5: Wait for nouveau to finish probe and GR init
+    eprintln!("[nouveau_warmup] Waiting for nouveau probe + GR init...");
+    let mut render_node = None;
+    for attempt in 0..40 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+
+        let bound_driver = std::fs::read_link(format!("{sysfs_dev}/driver"))
+            .ok()
+            .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+        if bound_driver.as_deref() != Some("nouveau") {
+            if attempt < 5 || attempt % 10 == 0 {
+                eprintln!(
+                    "[nouveau_warmup] [{attempt}] driver={bound_driver:?} (waiting for nouveau)"
+                );
+            }
+            continue;
+        }
+
+        // Nouveau bound. Look for a render node in the DRM subsystem.
+        if let Ok(drm_dir) = std::fs::read_dir(format!("{sysfs_dev}/drm")) {
+            for entry in drm_dir.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("renderD") {
+                    render_node = Some(format!("/dev/dri/{name}"));
+                    break;
+                }
+            }
+        }
+
+        if render_node.is_some() || attempt >= 15 {
+            break;
+        }
+    }
+
+    let bound = std::fs::read_link(format!("{sysfs_dev}/driver"))
+        .ok()
+        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+    if bound.as_deref() != Some("nouveau") {
+        // Restore vfio-pci binding before returning error
+        let _ = std::fs::write(&driver_override, "vfio-pci");
+        let _ = std::fs::write("/sys/bus/pci/drivers_probe", bdf);
+        return Err(format!(
+            "nouveau did not bind after 10s (driver={bound:?}). Is nouveau loaded?"
+        ));
+    }
+
+    eprintln!(
+        "[nouveau_warmup] nouveau bound. render_node={render_node:?}"
+    );
+
+    // Step 6: Open the render node to trigger lazy GR init (if applicable).
+    // On some kernels, GR is initialized lazily on first channel creation.
+    // Opening the render node and issuing a GEM_NEW ioctl triggers this.
+    if let Some(ref rn) = render_node {
+        match std::fs::OpenOptions::new().read(true).write(true).open(rn) {
+            Ok(fd) => {
+                eprintln!("[nouveau_warmup] Opened {rn} — triggering GR init");
+                // Give nouveau time to run GR init with the device open
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                drop(fd);
+                eprintln!("[nouveau_warmup] Render node closed after GR init window");
+            }
+            Err(e) => {
+                eprintln!("[nouveau_warmup] Could not open {rn}: {e} (non-fatal)");
+            }
+        }
+    } else {
+        // No render node — nouveau may have failed GR init, but let's still
+        // give it time; PGOB might have run during probe anyway.
+        eprintln!("[nouveau_warmup] No render node found — sleeping for nouveau init");
+        std::thread::sleep(std::time::Duration::from_secs(3));
+    }
+
+    // Step 7: Unbind from nouveau
+    eprintln!("[nouveau_warmup] Unbinding from nouveau...");
+    std::fs::write("/sys/bus/pci/drivers/nouveau/unbind", bdf).map_err(|e| {
+        format!("unbind from nouveau failed: {e}")
+    })?;
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // Step 8: Rebind to vfio-pci
+    eprintln!("[nouveau_warmup] Rebinding to vfio-pci...");
+    let _ = std::fs::write(&driver_override, "vfio-pci");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    match std::fs::write("/sys/bus/pci/drivers/vfio-pci/bind", bdf) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!(
+                "[nouveau_warmup] Direct vfio-pci bind failed ({e}), trying reprobe..."
+            );
+            std::fs::write("/sys/bus/pci/drivers_probe", bdf).map_err(|e2| {
+                format!("vfio-pci rebind failed: direct={e}, reprobe={e2}")
+            })?;
+        }
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let final_driver = std::fs::read_link(format!("{sysfs_dev}/driver"))
+        .ok()
+        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+    if final_driver.as_deref() != Some("vfio-pci") {
+        return Err(format!(
+            "vfio-pci rebind failed (driver={final_driver:?})"
+        ));
+    }
+
+    eprintln!("[nouveau_warmup] Success: nouveau GR warmup complete, back on vfio-pci");
+    Ok(())
+}
+
+/// Find the BDF for the first K80 device (regardless of current driver).
+pub fn find_k80_bdf() -> Option<String> {
+    let pci_dir = "/sys/bus/pci/devices";
+    if let Ok(entries) = std::fs::read_dir(pci_dir) {
+        let mut bdfs: Vec<String> = entries
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let dev_path = format!("{pci_dir}/{name}");
+                let vendor =
+                    std::fs::read_to_string(format!("{dev_path}/vendor")).unwrap_or_default();
+                let device =
+                    std::fs::read_to_string(format!("{dev_path}/device")).unwrap_or_default();
+                if vendor.trim() == "0x10de" && device.trim() == "0x102d" {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        bdfs.sort();
+        bdfs.into_iter().next()
+    } else {
+        None
+    }
+}

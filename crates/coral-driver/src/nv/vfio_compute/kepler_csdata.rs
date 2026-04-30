@@ -343,7 +343,7 @@ pub(crate) fn load_csdata(
     if temp > star {
         star = temp;
     }
-    wr(falcon + 0x01c0, AINCW + starstar);
+    wr(falcon + 0x01c0, AINCW + star);
 
     let mut addr = !0u32;
     let mut prev = !0u32;
