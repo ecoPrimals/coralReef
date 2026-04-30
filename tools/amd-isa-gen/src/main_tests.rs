@@ -5,8 +5,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn write_xml_temp(xml: &str) -> Result<PathBuf> {
-    let mut f = tempfile::NamedTempFile::new()
-        .context("create temp file for AMD ISA XML test fixture")?;
+    let mut f =
+        tempfile::NamedTempFile::new().context("create temp file for AMD ISA XML test fixture")?;
     f.write_all(xml.as_bytes())
         .context("write AMD ISA XML test fixture bytes")?;
     f.flush().context("flush AMD ISA XML test fixture")?;
@@ -446,8 +446,7 @@ fn file_header_contains_spdx() -> Result<()> {
 
 #[test]
 fn generate_types_has_bitfield_and_instrentry() -> Result<()> {
-    let types =
-        generate::generate_types_file().context("generate_types_file for shape test")?;
+    let types = generate::generate_types_file().context("generate_types_file for shape test")?;
     assert!(types.contains("pub struct BitField"));
     assert!(types.contains("pub struct InstrEntry"));
     assert!(types.contains("pub offset: u32"));
@@ -664,8 +663,8 @@ fn vop3_category_math_ops() {
 
 #[test]
 fn generate_types_file_contains_required_fields() -> Result<()> {
-    let types = generate::generate_types_file()
-        .context("generate_types_file for required fields test")?;
+    let types =
+        generate::generate_types_file().context("generate_types_file for required fields test")?;
     assert!(types.contains("is_branch"));
     assert!(types.contains("is_terminator"));
     assert!(types.contains("BitField"));

@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: April 28, 2026  
-**Phase**: 10 — Iteration 86 (Deep Debt: smart file refactoring, safety audit, code hygiene)
+**Last updated**: April 30, 2026  
+**Phase**: 10 — Iteration 87 (P1: UDS JSON-RPC protocol fix — composition compatibility)
 
 ---
 
@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | All 3 binaries: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef`: `--rpc-bind` (NDJSON primary); `coral-ember`/`coral-glowplug`: `--port` |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 complete (mode detection, `guard_connection()`, BearDog delegation, `BtspOutcome`), NUCLEUS composition env wired (`BEARDOG_SOCKET`, `BTSP_PROVIDER_SOCKET`, `DISCOVERY_SOCKET`, `FAMILY_SEED`, `BIOMEOS_SOCKET_DIR`, `CORALREEF_FAMILY_ID`) |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 complete (mode detection, `guard_connection()`, BearDog delegation, `BtspOutcome`), NUCLEUS composition env wired (`BEARDOG_SOCKET`, `BTSP_PROVIDER_SOCKET`, `DISCOVERY_SOCKET`, `FAMILY_SEED`, `BIOMEOS_SOCKET_DIR`, `CORALREEF_FAMILY_ID`), **UDS JSON-RPC on composition socket** (Iter 87: `resolve_uds_binds` separates tarpc to `-tarpc.sock`, main socket speaks JSON-RPC for primalSpring health/caps) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4701 passing, 0 failed, ~155 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
+| Tests | A+ | 4550 passing, 0 failed, ~155 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`); `String` → `thiserror` evolution across 3 waves (PCI discovery, channel oracle, devinit pipeline); zero production `.unwrap()` |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |

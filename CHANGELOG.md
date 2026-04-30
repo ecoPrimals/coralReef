@@ -4,11 +4,22 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 86
+**Current status**: Phase 10 — Iteration 87
 
 ---
 
 ## [Unreleased]
+
+### Iteration 87 — P1: UDS JSON-RPC Protocol Fix (2026-04-30)
+
+#### Protocol Fix
+- **`resolve_uds_binds`**: When composition passes `--tarpc-bind unix://...sock`, the main socket path is now used for JSON-RPC 2.0 (health, capability, shader methods) and tarpc is redirected to a `-tarpc.sock` suffix
+- JSON-RPC UDS server now starts BEFORE tarpc to claim the ecosystem-expected socket
+- `jsonrpc+unix` transport advertised in discovery file alongside `jsonrpc` (TCP) and `tarpc`
+- Fixes primalSpring v0.9.24 P1: 4 composition experiment failures (exp004 health/caps, exp094 shader_supported_archs, exp004 composition_all_healthy)
+
+#### Tests
+- 4 new `resolve_uds_binds` unit tests: TCP passthrough, composition socket redirect, tarpc suffix skip, no-extension handling
 
 ### Iteration 86 — Deep Debt: Smart File Refactoring + Safety Audit (2026-04-28)
 

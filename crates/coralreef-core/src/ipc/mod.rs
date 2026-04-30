@@ -181,6 +181,6 @@ mod tests_unix;
 #[cfg(test)]
 mod tests_unix_advanced;
 #[cfg(test)]
-mod tests_unix_edge;
-#[cfg(test)]
 mod tests_unix_dispatch;
+#[cfg(test)]
+mod tests_unix_edge;

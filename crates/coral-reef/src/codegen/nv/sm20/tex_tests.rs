@@ -7,9 +7,9 @@ use bitview::BitViewable;
 use coral_reef_stubs::fxhash::FxHashMap;
 
 use crate::codegen::ir::{
-    ChannelMask, Dst, MemEvictionPriority, OutType, PixVal, RegFile, RegRef, Src, SrcMod,
-    SrcRef, SrcSwizzle, TexCBufRef, TexDerivMode, TexDim, TexLodMode, TexOffsetMode, TexQuery,
-    TexRef, VoteOp,
+    ChannelMask, Dst, MemEvictionPriority, OutType, PixVal, RegFile, RegRef, Src, SrcMod, SrcRef,
+    SrcSwizzle, TexCBufRef, TexDerivMode, TexDim, TexLodMode, TexOffsetMode, TexQuery, TexRef,
+    VoteOp,
 };
 
 fn gpr_src(idx: u32) -> Src {

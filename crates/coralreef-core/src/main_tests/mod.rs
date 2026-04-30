@@ -7,6 +7,7 @@ mod cmd_doctor;
 mod cmd_server;
 mod discovery;
 mod exit_unibin;
+mod resolve_uds_binds;
 mod shutdown;
 
 #[cfg(unix)]

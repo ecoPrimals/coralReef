@@ -221,11 +221,26 @@ fn shutdown_join_timeout_elapsed_message(join_timeout: std::time::Duration) -> S
 /// Log NUCLEUS composition environment variables at startup for diagnostics.
 fn log_composition_env() {
     let vars = [
-        ("BEARDOG_SOCKET", config::beardog_socket().map(|p| p.display().to_string())),
-        ("BTSP_PROVIDER_SOCKET", config::btsp_provider_socket().map(|p| p.display().to_string())),
-        ("DISCOVERY_SOCKET", config::discovery_socket().map(|p| p.display().to_string())),
-        ("FAMILY_SEED", config::family_seed().map(|_| "<set>".to_owned())),
-        ("BIOMEOS_SOCKET_DIR", std::env::var("BIOMEOS_SOCKET_DIR").ok()),
+        (
+            "BEARDOG_SOCKET",
+            config::beardog_socket().map(|p| p.display().to_string()),
+        ),
+        (
+            "BTSP_PROVIDER_SOCKET",
+            config::btsp_provider_socket().map(|p| p.display().to_string()),
+        ),
+        (
+            "DISCOVERY_SOCKET",
+            config::discovery_socket().map(|p| p.display().to_string()),
+        ),
+        (
+            "FAMILY_SEED",
+            config::family_seed().map(|_| "<set>".to_owned()),
+        ),
+        (
+            "BIOMEOS_SOCKET_DIR",
+            std::env::var("BIOMEOS_SOCKET_DIR").ok(),
+        ),
     ];
     for (name, val) in vars {
         if let Some(v) = val {
@@ -234,6 +249,41 @@ fn log_composition_env() {
             tracing::debug!(env = name, "composition env not set");
         }
     }
+}
+
+/// When composition passes `--tarpc-bind unix:///path/coralreef-{family}.sock`,
+/// the ecosystem expects that socket to speak JSON-RPC 2.0 — not tarpc binary.
+/// This function separates the two:
+/// - JSON-RPC takes the composition-expected path (returned as the override)
+/// - tarpc moves to a `-tarpc` suffixed socket
+///
+/// For TCP binds (or absent Unix prefix), both return the original bind string
+/// and no Unix override.
+fn resolve_uds_binds(tarpc_bind: &str) -> (String, Option<std::path::PathBuf>) {
+    const UNIX_PREFIX: &str = "unix://";
+    let Some(path_str) = tarpc_bind.strip_prefix(UNIX_PREFIX) else {
+        return (tarpc_bind.to_owned(), None);
+    };
+    let path = std::path::PathBuf::from(path_str);
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    // When the path already ends with `-tarpc` it was produced by
+    // `default_tarpc_bind()` — no redirection needed.
+    if stem.ends_with("-tarpc") {
+        return (tarpc_bind.to_owned(), None);
+    }
+    // Composition-provided main socket path: the ecosystem expects JSON-RPC
+    // on that path, so redirect tarpc to a `-tarpc` suffixed socket.
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let tarpc_path = path.extension().and_then(|e| e.to_str()).map_or_else(
+        || parent.join(format!("{stem}-tarpc")),
+        |ext| parent.join(format!("{stem}-tarpc.{ext}")),
+    );
+    tracing::info!(
+        jsonrpc_uds = %path.display(),
+        tarpc_uds = %tarpc_path.display(),
+        "separated UDS binds: JSON-RPC on main socket, tarpc on dedicated socket"
+    );
+    (format!("{UNIX_PREFIX}{}", tarpc_path.display()), Some(path))
 }
 
 async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
@@ -246,6 +296,14 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     tracing::info!(rpc_bind, tarpc_bind, "binding addresses");
     log_composition_env();
 
+    // When tarpc_bind is a Unix socket, the composition launcher passes the
+    // *main* socket path (e.g. `coralreef-{family}.sock`). Per ecosystem
+    // standard, that path must speak JSON-RPC 2.0 — not tarpc binary. We
+    // redirect tarpc to a `-tarpc` suffixed socket and bind JSON-RPC on the
+    // main path so health/capability checks from primalSpring and other
+    // composition tooling work through the standard `capability.call` path.
+    let (tarpc_actual_bind, unix_jsonrpc_override) = resolve_uds_binds(tarpc_bind);
+
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
 
     let (rpc_addr, rpc_handle) =
@@ -257,22 +315,14 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
             }
         };
 
-    let (tarpc_bound, tarpc_handle) =
-        match ipc::start_tarpc_server(tarpc_bind, shutdown_rx.clone()).await {
-            Ok(x) => x,
-            Err(e) => {
-                tracing::error!(error = %e, "failed to start tarpc server");
-                rpc_handle.abort();
-                return UniBinExit::GeneralError;
-            }
-        };
-
+    // Start Unix JSON-RPC BEFORE tarpc so the main ecosystem socket speaks JSON-RPC.
+    #[cfg(unix)]
+    let unix_jsonrpc_path = unix_jsonrpc_override.unwrap_or_else(ipc::default_unix_socket_path);
     #[cfg(unix)]
     let unix_jsonrpc_handle = {
-        let sock_path = ipc::default_unix_socket_path();
-        match ipc::start_unix_jsonrpc_server(&sock_path, shutdown_rx).await {
+        match ipc::start_unix_jsonrpc_server(&unix_jsonrpc_path, shutdown_rx.clone()).await {
             Ok((_path, handle)) => {
-                tracing::info!(path = %sock_path.display(), "Unix JSON-RPC server started");
+                tracing::info!(path = %unix_jsonrpc_path.display(), "Unix JSON-RPC server started");
                 Some(handle)
             }
             Err(e) => {
@@ -282,8 +332,17 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         }
     };
 
-    let desc = coralreef_core::capability::self_description();
-    let transports = vec![
+    let (tarpc_bound, tarpc_handle) =
+        match ipc::start_tarpc_server(&tarpc_actual_bind, shutdown_rx.clone()).await {
+            Ok(x) => x,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to start tarpc server");
+                rpc_handle.abort();
+                return UniBinExit::GeneralError;
+            }
+        };
+
+    let mut transports = vec![
         coralreef_core::capability::Transport {
             protocol: "jsonrpc".into(),
             address: rpc_addr.to_string().into(),
@@ -293,6 +352,14 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
             address: tarpc_bound.to_string().into(),
         },
     ];
+    #[cfg(unix)]
+    if unix_jsonrpc_handle.is_some() {
+        transports.push(coralreef_core::capability::Transport {
+            protocol: "jsonrpc+unix".into(),
+            address: format!("unix://{}", unix_jsonrpc_path.display()).into(),
+        });
+    }
+    let desc = coralreef_core::capability::self_description();
     let desc = coralreef_core::capability::with_transports(desc, transports);
     tracing::info!(
         rpc_addr = %rpc_addr,

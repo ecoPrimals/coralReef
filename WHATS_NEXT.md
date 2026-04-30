@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 86.
+**Current position**: Phase 10 — Iteration 87.
 
-**Last completed**: Deep debt pass — smart file refactoring (tex.rs, amd-isa-gen main.rs, tests_unix_edge.rs), safety audit (all SAFETY comments verified, missing one added), unused import cleanup, comprehensive codebase hygiene audit (no mocks in production, no hardcoded primal names, all paths have env overrides, zero TODO/FIXME/HACK, zero `.unwrap()` in library code).
+**Last completed**: P1 UDS JSON-RPC protocol fix — `resolve_uds_binds` separates composition socket (JSON-RPC) from tarpc (dedicated `-tarpc.sock`). Fixes primalSpring v0.9.24 composition experiment failures. JSON-RPC UDS starts before tarpc, `jsonrpc+unix` transport advertised in discovery.
 
-**Tests**: 4701 passing, 0 failed, 155 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4550 passing, 0 failed, 155 ignored (hardware-gated). Zero clippy warnings.
 
 **Next focus**: Shader artifact signing via `BearDog` `crypto.sign` (low priority, deferred per primalSpring v0.9.20); coverage push toward 90%; Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin.
 
-**Last updated**: April 28, 2026 (Phase 10 — Iteration 86 — deep debt, smart refactoring, safety audit)
+**Last updated**: April 30, 2026 (Phase 10 — Iteration 87 — UDS JSON-RPC protocol fix)
 
 ---
 
