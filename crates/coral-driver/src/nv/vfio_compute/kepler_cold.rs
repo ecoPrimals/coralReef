@@ -63,6 +63,9 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
     // These must be set BEFORE the ring INIT command.
     super::pri::write_kepler_hub_station_params(&w);
 
+    // Apply Nouveau's privring timing (gk104_privring_init)
+    super::pri::gk104_privring_timing(&r, &w);
+
     // VBIOS uses command 0x03 (bits 0+1), NOT 0x04 as in nouveau.
     // 0x04 never completes on cold K80 — 0x03 is the correct INIT command.
     let phase1_ok = super::pri::vbios_pri_ring_init(&r, &w);
@@ -71,9 +74,10 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
     let rop = r(0x12_0074);
     let gpc = r(0x12_0078);
     tracing::info!(
-        ok = phase1_ok, hub, rop, gpc,
+        ok = phase1_ok,
+        hub_stations = hub, rop_stations = rop, gpc_stations = gpc,
         pclock = format_args!("{:#010x}", r(0x13_0000)),
-        "Phase 1: PRI ring init (minimal PMC)"
+        "Phase 1: PRI ring init (0x70=hub, 0x74=rop, 0x78=gpc)"
     );
 
     if !phase1_ok {

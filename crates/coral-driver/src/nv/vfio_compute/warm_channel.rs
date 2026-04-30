@@ -202,34 +202,105 @@ impl NvVfioComputeDevice {
     pub(super) fn setup_gr_context_warm(&mut self) -> DriverResult<()> {
         use super::acr_boot::fecs_method;
 
-        let image_size = match fecs_method::fecs_discover_image_size(&self.bar0) {
-            Ok(sz) => sz,
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "GR context setup failed after warm restart — FECS method interface \
-                     may not be responding (firmware still initializing or TRAP'd)"
-                );
-                return Ok(());
+        // Internal firmware writes ctx_size to 0x409804 during boot;
+        // external firmware requires a method call (0x10) to discover it.
+        // Try the register first, fall back to the method interface.
+        let reg_ctx_size = self.bar0.read_u32(0x0040_9804).unwrap_or(0);
+        let image_size = if reg_ctx_size > 0
+            && reg_ctx_size != 0xDEAD_DEAD
+            && reg_ctx_size & 0xBAD0_0000 != 0xBAD0_0000
+        {
+            tracing::info!(
+                ctx_size = reg_ctx_size,
+                ctx_hex = format_args!("{reg_ctx_size:#010x}"),
+                "GR context size from 0x409804 (internal firmware path)"
+            );
+            reg_ctx_size as usize
+        } else {
+            match fecs_method::fecs_discover_image_size(&self.bar0) {
+                Ok(sz) if sz > 0 => sz as usize,
+                Ok(_) => {
+                    tracing::warn!("FECS returned image_size=0 — method interface not responsive");
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "GR context setup failed — FECS method interface not responding"
+                    );
+                    return Ok(());
+                }
             }
         };
 
         if image_size == 0 {
-            tracing::warn!("FECS returned image_size=0 — method interface not responsive yet");
             return Ok(());
         }
 
-        let alloc_size = (image_size as usize).max(4096);
-        let (_handle, iova) = self.alloc_dma(alloc_size)?;
+        // Nouveau reserves CB_RESERVED (0x80000 = 512 KiB) before the context image
+        // for global context buffers (bundle CB, pagepool, attrib CB).
+        const CB_RESERVED: usize = 0x0008_0000;
+        let alloc_size = (CB_RESERVED + image_size).max(4096);
+        let (_handle, ctx_iova) = self.alloc_dma(alloc_size)?;
 
-        fecs_method::fecs_init_exceptions(&self.bar0);
-        fecs_method::fecs_set_watchdog_timeout(&self.bar0, 0x7FFF_FFFF)?;
-        fecs_method::fecs_bind_pointer(&self.bar0, iova)?;
-        fecs_method::fecs_wfi_golden_save(&self.bar0, iova)?;
+        // Write the GR context buffer address into the channel instance block.
+        // Nouveau: inst[0x210] = lower_32(ctx_vaddr + CB_RESERVED) | 4
+        //          inst[0x214] = upper_32(ctx_vaddr + CB_RESERVED)
+        let ctx_vaddr = ctx_iova + CB_RESERVED as u64;
+        self.channel.write_gr_context_ptr(ctx_vaddr, 4);
+
+        let is_internal = reg_ctx_size > 0
+            && reg_ctx_size != 0xDEAD_DEAD
+            && reg_ctx_size & 0xBAD0_0000 != 0xBAD0_0000;
+
+        if is_internal {
+            // Internal firmware: the context pointer is already in the instance
+            // block. Nouveau's bind (method 0x01) relies on a timing race with
+            // the boot flag in 0x409800 that doesn't work over VFIO. Instead,
+            // write the channel binding data to FECS scratch registers (the
+            // firmware reads them asynchronously) and wake it via 0x409840.
+            let inst_iova = self.channel.instance_iova();
+            let bind_data = 0x8000_0000 | (inst_iova >> 12) as u32;
+
+            let _ = self.bar0.write_u32(0x0040_9840, 0x8000_0000);
+            let _ = self.bar0.write_u32(0x0040_9500, bind_data);
+            let _ = self.bar0.write_u32(0x0040_9504, 0x0000_0001);
+
+            tracing::info!(
+                inst_iova = format_args!("{inst_iova:#x}"),
+                bind_data = format_args!("{bind_data:#010x}"),
+                "FECS internal: wrote bind channel regs (fire-and-forget)"
+            );
+
+            // Give FECS time to process the bind before proceeding
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Try context save via fake ctxsw interrupt
+            match fecs_method::fecs_internal_save_context(&self.bar0) {
+                Ok(()) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "FECS internal context save failed (non-fatal — \
+                         context will be initialized on first channel load)"
+                    );
+                }
+            }
+        } else {
+            // External firmware: methods 0x03/0x09, poll 0x409800 bit 4
+            fecs_method::fecs_init_exceptions(&self.bar0);
+            if let Err(e) = fecs_method::fecs_set_watchdog_timeout(&self.bar0, 0x7FFF_FFFF) {
+                tracing::debug!(error = %e, "watchdog timeout method failed (non-fatal)");
+            }
+            fecs_method::fecs_bind_pointer(&self.bar0, ctx_iova)?;
+            fecs_method::fecs_wfi_golden_save(&self.bar0, ctx_iova)?;
+        }
 
         tracing::info!(
             image_size,
-            iova = format_args!("{iova:#x}"),
+            ctx_iova = format_args!("{ctx_iova:#x}"),
+            ctx_vaddr = format_args!("{ctx_vaddr:#x}"),
+            is_internal,
             "GR context ready after warm falcon restart"
         );
         Ok(())

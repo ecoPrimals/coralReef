@@ -14,7 +14,7 @@
 use coral_driver::nv::vfio_compute::NvVfioComputeDevice;
 use coral_driver::{ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
-use super::helpers::find_k80_devices;
+use super::helpers::{find_k80_bdf, find_k80_devices, nouveau_gr_warmup};
 
 fn open_k80_vfio() -> NvVfioComputeDevice {
     open_k80_vfio_warm()
@@ -147,6 +147,124 @@ fn k80_vfio_cold_boot_device_opens() {
     let sm = dev.sm_version();
     eprintln!("K80 VFIO cold boot device: SM{sm}");
     assert!(sm <= 37, "K80 should be SM35/37");
+}
+
+#[test]
+#[ignore = "requires K80 + nouveau module — nouveau warmup then VFIO warm-catch"]
+fn k80_nouveau_warmup_then_warm_catch() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .try_init();
+
+    eprintln!("\n=== K80 Nouveau Warmup → VFIO Warm-Catch ===\n");
+
+    let bdf = find_k80_bdf().expect("No K80 devices found in system");
+    eprintln!("Target K80: {bdf}");
+
+    // Phase 1: Rebind through nouveau to trigger full GR init (PGOB + clocks)
+    eprintln!("\n--- Phase 1: Nouveau GR Warmup ---");
+    nouveau_gr_warmup(&bdf).expect("nouveau_gr_warmup failed");
+
+    // Phase 2: Open via warm-catch (device should now be on vfio-pci with
+    // GPCs ungated, clocks running, PRI ring alive from nouveau's init).
+    eprintln!("\n--- Phase 2: VFIO Warm-Catch Open ---");
+    let dev = NvVfioComputeDevice::open_warm_legacy(&bdf, 0, 0)
+        .expect("open_warm_legacy after nouveau warmup");
+
+    let sm = dev.sm_version();
+    eprintln!("K80 SM version after nouveau warmup: SM{sm}");
+    assert!(sm <= 37, "Expected SM35/37 for K80, got SM{sm}");
+
+    // Phase 3: Verify GR engine status
+    eprintln!("\n--- Phase 3: GR Engine Status ---");
+    let gr = dev.gr_engine_status();
+    eprintln!("GR status: {gr}");
+
+    if gr.fecs_halted() {
+        eprintln!("FECS HALTED — warm-catch may need firmware upload");
+    } else {
+        eprintln!("FECS RUNNING — nouveau warmup succeeded!");
+    }
+
+    eprintln!("\n=== End Nouveau Warmup Test ===");
+}
+
+#[test]
+#[ignore = "requires K80 + nouveau module — full dispatch after nouveau warmup"]
+fn k80_nouveau_warmup_dispatch() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .try_init();
+
+    eprintln!("\n=== K80 Nouveau Warmup → Dispatch Write-42 ===\n");
+
+    let bdf = find_k80_bdf().expect("No K80 devices found in system");
+    eprintln!("Target K80: {bdf}");
+
+    nouveau_gr_warmup(&bdf).expect("nouveau_gr_warmup failed");
+
+    let mut dev = NvVfioComputeDevice::open_warm_legacy(&bdf, 0, 0)
+        .expect("open_warm_legacy after nouveau warmup");
+
+    let sm = dev.sm_version();
+    eprintln!("SM version: SM{sm}");
+
+    let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = 42u;
+}
+";
+    let opts = coral_reef::CompileOptions {
+        target: coral_reef::GpuTarget::Nvidia(coral_reef::NvArch::Sm35),
+        ..coral_reef::CompileOptions::default()
+    };
+    let compiled =
+        coral_reef::compile_wgsl_full(wgsl, &opts).expect("compile write_42 for SM35");
+    eprintln!(
+        "Compiled: {} bytes, {} GPRs",
+        compiled.binary.len(),
+        compiled.info.gpr_count
+    );
+
+    let info = ShaderInfo {
+        gpr_count: compiled.info.gpr_count,
+        shared_mem_bytes: compiled.info.shared_mem_bytes,
+        barrier_count: compiled.info.barrier_count,
+        workgroup: compiled.info.local_size,
+        wave_size: 32,
+        local_mem_bytes: None,
+    };
+
+    let n = 64u64;
+    let byte_size = n * 4;
+    let buf = dev.alloc(byte_size, MemoryDomain::Vram).expect("alloc");
+    dev.upload(buf, 0, &vec![0u8; byte_size as usize])
+        .expect("zero buffer");
+
+    eprintln!("Dispatching write_42 (64 elements)...");
+    dev.dispatch(&compiled.binary, &[buf], DispatchDims::linear(1), &info)
+        .expect("dispatch");
+    dev.sync().expect("sync");
+
+    let data = dev.readback(buf, 0, byte_size as usize).expect("readback");
+    let mut pass_count = 0u64;
+    for i in 0..n as usize {
+        let val = u32::from_le_bytes(data[i * 4..(i + 1) * 4].try_into().unwrap());
+        assert_eq!(val, 42, "element {i}: expected 42, got {val}");
+        pass_count += 1;
+    }
+    dev.free(buf).expect("free");
+
+    eprintln!("****************************************************");
+    eprintln!("*  ALL {pass_count} ELEMENTS = 42 — READBACK VERIFIED!     *");
+    eprintln!("*  Nouveau warmup → VFIO sovereign dispatch PROVEN! *");
+    eprintln!("****************************************************");
 }
 
 #[test]

@@ -4,29 +4,46 @@
 /// GR engine diagnostic status from BAR0 registers.
 #[derive(Debug)]
 pub struct GrEngineStatus {
-    /// BAR0 register value for PGRAPH status (offset 0x0040_0700).
+    /// PGRAPH idle status (BAR0 0x0040_0700).
     pub pgraph_status: u32,
-    /// BAR0 register value for FECS CPU control (offset 0x0040_9100).
+    /// FECS falcon CPUCTL (BAR0 0x0040_9100).
     pub fecs_cpuctl: u32,
-    /// BAR0 register value for FECS mailbox 0 (offset 0x0040_9130).
+    /// FECS falcon MAILBOX0 (BAR0 0x0040_9040).
     pub fecs_mailbox0: u32,
-    /// BAR0 register value for FECS mailbox 1 (offset 0x0040_9134).
+    /// FECS falcon MAILBOX1 (BAR0 0x0040_9044).
     pub fecs_mailbox1: u32,
-    /// BAR0 register value for FECS hardware config (offset 0x0040_9800).
+    /// FECS falcon HWCFG — IMEM/DMEM sizes, security (BAR0 0x0040_9108).
     pub fecs_hwcfg: u32,
-    /// BAR0 register value for GPCCS CPU control (offset 0x0041_a100).
+    /// FECS context-switch mailbox 0 (BAR0 0x0040_9800).
+    /// Bit 31 set = internal firmware booted; bit 0 set = external firmware booted.
+    pub ctxsw_mailbox0: u32,
+    /// GPCCS falcon CPUCTL (BAR0 0x0041_a100).
     pub gpccs_cpuctl: u32,
-    /// BAR0 register value for PMC enable (offset 0x0000_0200).
+    /// PMC engine enable mask (BAR0 0x0000_0200).
     pub pmc_enable: u32,
-    /// BAR0 register value for PFIFO enable (offset 0x0000_2504).
+    /// PFIFO scheduler enable (BAR0 0x0000_2504).
     pub pfifo_enable: u32,
 }
 
 impl GrEngineStatus {
-    /// Returns `true` if the FECS (Firmware Engine Control Subsystem) is halted.
+    /// Returns `true` if the FECS falcon is non-functional.
+    ///
+    /// After firmware boots and processes methods, it halts (CPUCTL_HALTED=0x20)
+    /// to wait for the next host method. This is the normal ready state.
+    /// CTXSW_MAILBOX0 may be cleared by method processing, so we cannot
+    /// rely on it for post-boot status.
+    ///
+    /// Non-functional states: read failed (0xDEAD_DEAD), PRI fault (0xBADFxxxx),
+    /// or hardware reset (HRESET=0x10, falcon never started).
+    /// HALTED (0x20) without HRESET means firmware ran and is idle — healthy.
     #[must_use]
     pub fn fecs_halted(&self) -> bool {
-        self.fecs_cpuctl & 0x20 != 0 || self.fecs_cpuctl == 0xDEAD_DEAD
+        if self.fecs_cpuctl == 0xDEAD_DEAD || self.fecs_cpuctl & 0xBAD0_0000 == 0xBAD0_0000 {
+            return true;
+        }
+        // HRESET (0x10) set means falcon is in hardware reset — never started.
+        // HALTED (0x20) WITHOUT HRESET means firmware ran and is idle-waiting.
+        self.fecs_cpuctl & 0x10 != 0
     }
 
     /// Returns `true` if the GR (Graphics) engine is enabled in PMC.
@@ -40,14 +57,12 @@ impl std::fmt::Display for GrEngineStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "GR: pmc={:#010x} pfifo={:#010x} pgraph={:#010x} fecs_cpu={:#010x} fecs_mb0={:#010x} fecs_mb1={:#010x} fecs_hw={:#010x} gpccs={:#010x} [fecs_halted={} gr_en={}]",
+            "GR: pmc={:#010x} pfifo={:#010x} pgraph={:#010x} fecs_cpu={:#010x} ctxsw_mb0={:#010x} gpccs={:#010x} [fecs_halted={} gr_en={}]",
             self.pmc_enable,
             self.pfifo_enable,
             self.pgraph_status,
             self.fecs_cpuctl,
-            self.fecs_mailbox0,
-            self.fecs_mailbox1,
-            self.fecs_hwcfg,
+            self.ctxsw_mailbox0,
             self.gpccs_cpuctl,
             self.fecs_halted(),
             self.gr_enabled()
@@ -59,63 +74,53 @@ impl std::fmt::Display for GrEngineStatus {
 mod tests {
     use super::GrEngineStatus;
 
-    #[test]
-    fn gr_engine_status_fecs_halted_bit5() {
-        let s = GrEngineStatus {
+    fn status(cpuctl: u32, ctxsw_mb0: u32) -> GrEngineStatus {
+        GrEngineStatus {
             pgraph_status: 0,
-            fecs_cpuctl: 0x20,
+            fecs_cpuctl: cpuctl,
             fecs_mailbox0: 0,
             fecs_mailbox1: 0,
             fecs_hwcfg: 0,
+            ctxsw_mailbox0: ctxsw_mb0,
             gpccs_cpuctl: 0,
             pmc_enable: 0,
             pfifo_enable: 0,
-        };
-        assert!(s.fecs_halted());
+        }
     }
 
     #[test]
-    fn gr_engine_status_fecs_halted_dead_pattern() {
-        let s = GrEngineStatus {
-            pgraph_status: 0,
-            fecs_cpuctl: 0xDEAD_DEAD,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
-            pmc_enable: 0,
-            pfifo_enable: 0,
-        };
-        assert!(s.fecs_halted());
+    fn halted_idle_without_hreset_is_healthy() {
+        assert!(!status(0x20, 0x0000_0000).fecs_halted());
     }
 
     #[test]
-    fn gr_engine_status_fecs_not_halted() {
-        let s = GrEngineStatus {
-            pgraph_status: 0,
-            fecs_cpuctl: 0x10,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
-            pmc_enable: 0,
-            pfifo_enable: 0,
-        };
-        assert!(!s.fecs_halted());
+    fn halted_idle_with_mailbox_is_healthy() {
+        assert!(!status(0x20, 0x8000_0000).fecs_halted());
     }
 
     #[test]
-    fn gr_engine_status_gr_enabled_pmc_bit12() {
-        let off = GrEngineStatus {
-            pgraph_status: 0,
-            fecs_cpuctl: 0,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
-            pmc_enable: 0,
-            pfifo_enable: 0,
-        };
+    fn pri_fault_is_halted() {
+        assert!(status(0xBADF_1002, 0).fecs_halted());
+    }
+
+    #[test]
+    fn hreset_is_halted() {
+        assert!(status(0x10, 0x0000_0000).fecs_halted());
+    }
+
+    #[test]
+    fn dead_read_is_halted() {
+        assert!(status(0xDEAD_DEAD, 0).fecs_halted());
+    }
+
+    #[test]
+    fn running_cpuctl_zero_is_not_halted() {
+        assert!(!status(0x00, 0).fecs_halted());
+    }
+
+    #[test]
+    fn gr_enabled_pmc_bit12() {
+        let off = status(0, 0);
         let on = GrEngineStatus {
             pmc_enable: 1 << 12,
             ..off
@@ -125,49 +130,40 @@ mod tests {
     }
 
     #[test]
-    fn gr_engine_status_display_substrings() {
+    fn display_booted_shows_not_halted() {
         let s = GrEngineStatus {
-            pgraph_status: 0xA,
+            pgraph_status: 0,
             fecs_cpuctl: 0x20,
-            fecs_mailbox0: 0xB,
-            fecs_mailbox1: 0xC,
-            fecs_hwcfg: 0xD,
-            gpccs_cpuctl: 0xE,
+            fecs_mailbox0: 0,
+            fecs_mailbox1: 0,
+            fecs_hwcfg: 0,
+            ctxsw_mailbox0: 0x8000_0000,
+            gpccs_cpuctl: 0x20,
             pmc_enable: 0x1000,
-            pfifo_enable: 0xF,
+            pfifo_enable: 0,
         };
         let text = s.to_string();
-        assert!(text.contains("pmc=0x00001000"));
-        assert!(text.contains("fecs_halted=true"));
+        assert!(text.contains("fecs_halted=false"));
         assert!(text.contains("gr_en=true"));
     }
 
     #[test]
-    fn gr_engine_status_cold_silicon_badf_bad0() {
+    fn cold_silicon_badf_bad0() {
         let badf = GrEngineStatus {
             pgraph_status: 0xBADF_CAFE,
             fecs_cpuctl: 0x10,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
-            pmc_enable: 1 << 12,
-            pfifo_enable: 0,
+            ctxsw_mailbox0: 0,
+            ..status(0, 0)
         };
         let bad0 = GrEngineStatus {
             pgraph_status: 0xBAD0_1234,
             fecs_cpuctl: 0x10,
-            fecs_mailbox0: 0,
-            fecs_mailbox1: 0,
-            fecs_hwcfg: 0,
-            gpccs_cpuctl: 0,
+            ctxsw_mailbox0: 0,
             pmc_enable: 1 << 12,
-            pfifo_enable: 0,
+            ..status(0, 0)
         };
-        let t_badf = badf.to_string();
-        let t_bad0 = bad0.to_string();
-        assert!(t_badf.contains("pgraph=0xbadfcafe"));
-        assert!(t_bad0.contains("pgraph=0xbad01234"));
-        assert!(t_badf.contains("gr_en=true"));
+        assert!(badf.to_string().contains("pgraph=0xbadfcafe"));
+        assert!(bad0.to_string().contains("pgraph=0xbad01234"));
+        assert!(bad0.to_string().contains("gr_en=true"));
     }
 }

@@ -27,7 +27,8 @@ const FECS_MTHD_STATUS2: usize = falcon::FECS_BASE + falcon::MTHD_STATUS2;
 ///   5. Poll `0x409804` until firmware clears it to `0x00`
 ///   6. Read `0x409800`: `0x01` = success, `0x02` = error
 fn fecs_ctrl_ctxsw(bar0: &MappedBar, method: u32, data: u32, timeout_ms: u64) -> DriverResult<u32> {
-    let _ = bar0.write_u32(FECS_MTHD_STATUS2, 0x0000_0001);
+    let _ = bar0.write_u32(falcon::FECS_BASE + 0x840, 0x8000_0000);
+    let _ = bar0.write_u32(FECS_MTHD_STATUS2, 0xFFFF_FFFF);
     let _ = bar0.write_u32(FECS_MTHD_STATUS, 0);
     let _ = bar0.write_u32(FECS_MTHD_DATA, data);
     let _ = bar0.write_u32(FECS_MTHD_CMD, method);
@@ -36,30 +37,21 @@ fn fecs_ctrl_ctxsw(bar0: &MappedBar, method: u32, data: u32, timeout_ms: u64) ->
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1));
         let status2 = bar0.read_u32(FECS_MTHD_STATUS2).unwrap_or(0xDEAD);
-        if status2 == 0x00 {
-            let status = bar0.read_u32(FECS_MTHD_STATUS).unwrap_or(0xDEAD);
-            match status {
-                0x01 => {
-                    let result = bar0.read_u32(FECS_MTHD_DATA).unwrap_or(0);
-                    return Ok(result);
-                }
-                0x02 => {
-                    return Err(DriverError::SubmitFailed(
-                        format!("FECS method {method:#06x} error: status={status:#010x}").into(),
-                    ));
-                }
-                other => {
-                    return Err(DriverError::SubmitFailed(
-                        format!("FECS method {method:#06x} unexpected status={other:#010x}").into(),
-                    ));
-                }
-            }
+        // Nouveau: status2 == 0x01 = success, 0x02 = error
+        if status2 == 0x0000_0001 {
+            let result = bar0.read_u32(FECS_MTHD_DATA).unwrap_or(0);
+            return Ok(result);
+        }
+        if status2 == 0x0000_0002 {
+            return Err(DriverError::SubmitFailed(
+                format!("FECS method {method:#06x} error: status2={status2:#010x}").into(),
+            ));
         }
         if std::time::Instant::now() > deadline {
+            let status = bar0.read_u32(FECS_MTHD_STATUS).unwrap_or(0xDEAD);
             return Err(DriverError::OracleError(
                 format!(
-                    "FECS method {method:#06x} timeout ({timeout_ms}ms): status2={status2:#010x} status={:#010x}",
-                    bar0.read_u32(FECS_MTHD_STATUS).unwrap_or(0xDEAD)
+                    "FECS method {method:#06x} timeout ({timeout_ms}ms): status2={status2:#010x} status={status:#010x}"
                 )
                 .into(),
             ));
@@ -67,10 +59,10 @@ fn fecs_ctrl_ctxsw(bar0: &MappedBar, method: u32, data: u32, timeout_ms: u64) ->
     }
 }
 
-/// Simpler FECS method path for commands that use `0x409800` bit polling.
+/// FECS method path using `0x409800` bit polling (Nouveau's grctx protocol).
 ///
-/// Used by discover_image_size, bind_pointer, wfi_golden_save.
-/// Nouveau's pattern: clear `0x409800`, write `0x409500`/`0x409504`, poll bits.
+/// Used by bind_pointer, wfi_golden_save. Matches Nouveau's
+/// `gf100_grctx_generate_main` which triggers the falcon via 0x409840.
 fn fecs_method_poll(
     bar0: &MappedBar,
     method: u32,
@@ -79,6 +71,9 @@ fn fecs_method_poll(
     error_mask: u32,
     timeout_ms: u64,
 ) -> DriverResult<u32> {
+    // Wake trigger: Nouveau writes 0x80000000 to CTXSW_MAILBOX(2) at 0x409840
+    // before each method. Without this, a halted falcon won't process the method.
+    let _ = bar0.write_u32(falcon::FECS_BASE + 0x840, 0x8000_0000);
     let _ = bar0.write_u32(FECS_MTHD_STATUS, 0);
     let _ = bar0.write_u32(FECS_MTHD_DATA, data);
     let _ = bar0.write_u32(FECS_MTHD_CMD, method);
@@ -227,6 +222,116 @@ pub fn fecs_probe_methods(bar0: &MappedBar) -> FecsMethodProbe {
         watchdog,
         post_cpuctl,
         post_status,
+    }
+}
+
+// ---- Internal firmware method interface ----
+//
+// When using Nouveau's internal (open-source) FECS firmware, the method protocol
+// differs from the external (NVIDIA-signed) firmware:
+//
+// Internal: trigger=0x409840, data=0x409500, cmd=0x409504, completion=0x409800 bit 31
+// External: trigger=0x409804, data=0x409500, cmd=0x409504, completion=0x409804→0x01
+//
+// Matches `gf100_grctx_generate()` in ctxgf100.c.
+
+/// Submit a method to internal FECS firmware.
+///
+/// Protocol (from Nouveau's `gf100_grctx_generate`):
+///   1. Write `0x409840 = 0x80000000` (wake trigger / context switch mailbox)
+///   2. Write data to `0x409500`
+///   3. Write method to `0x409504`
+///   4. Poll `0x409800` for bit 31 set
+///
+/// IMPORTANT: Nouveau does NOT clear 0x409800 before method 0x01. The boot
+/// flag (bit 31) is still set from FECS init, so the poll succeeds immediately.
+/// The "method" is really just writing scratch registers that FECS reads
+/// asynchronously after waking from halt.
+fn fecs_internal_method(bar0: &MappedBar, method: u32, data: u32, timeout_ms: u64) -> DriverResult<()> {
+    let _ = bar0.write_u32(falcon::FECS_BASE + 0x840, 0x8000_0000);
+    let _ = bar0.write_u32(FECS_MTHD_DATA, data);
+    let _ = bar0.write_u32(FECS_MTHD_CMD, method);
+
+    // Nouveau polls IMMEDIATELY after the writes — the first read catches the
+    // stale boot flag in 0x409800 before FECS has time to wake and clear it.
+    // This is by design: the "bind" method just writes scratch registers that
+    // FECS reads asynchronously after waking.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    loop {
+        let status = bar0.read_u32(FECS_MTHD_STATUS).unwrap_or(0);
+        if status & 0x8000_0000 != 0 {
+            return Ok(());
+        }
+        if std::time::Instant::now() > deadline {
+            let cpuctl = bar0.read_u32(falcon::FECS_BASE + falcon::CPUCTL).unwrap_or(0xDEAD);
+            return Err(DriverError::OracleError(
+                format!(
+                    "FECS internal method {method:#06x} timeout ({timeout_ms}ms): \
+                     status={status:#010x} cpuctl={cpuctl:#010x}"
+                )
+                .into(),
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// Bind a channel to internal FECS firmware (method 0x01).
+///
+/// Nouveau's `gf100_grctx_generate` internal path:
+///   - data = `0x80000000 | (inst_addr >> 12)`
+///   - method = 0x01
+///
+/// `inst_addr` is the physical/IOVA of the channel instance block.
+pub fn fecs_internal_bind_channel(bar0: &MappedBar, inst_iova: u64) -> DriverResult<()> {
+    let data = 0x8000_0000 | (inst_iova >> 12) as u32;
+    let pre_status = bar0.read_u32(FECS_MTHD_STATUS).unwrap_or(0xDEAD);
+    tracing::info!(
+        inst_iova = format_args!("{inst_iova:#x}"),
+        data = format_args!("{data:#010x}"),
+        pre_status = format_args!("{pre_status:#010x}"),
+        "FECS internal: bind channel (method 0x01)"
+    );
+    // DO NOT clear 0x409800 — Nouveau relies on the boot flag (bit 31) being
+    // already set. The poll succeeds immediately from the boot-completion flag.
+    fecs_internal_method(bar0, 0x0000_0001, data, 2000)
+}
+
+/// Trigger context save/unload for internal FECS firmware.
+///
+/// Nouveau's `gf100_grctx_generate` internal unload path:
+///   1. Clear "next channel valid" bit in 0x409b04
+///   2. Write 0x100 to 0x409000 (fake context switch interrupt)
+///   3. Poll 0x409b00 bit 31 cleared
+pub fn fecs_internal_save_context(bar0: &MappedBar) -> DriverResult<()> {
+    tracing::info!("FECS internal: triggering context save (fake ctxsw interrupt)");
+
+    // Clear "next channel valid"
+    let cur = bar0.read_u32(0x0040_9b04).unwrap_or(0);
+    let _ = bar0.write_u32(0x0040_9b04, cur & !0x8000_0000);
+
+    // Trigger context switch interrupt
+    let _ = bar0.write_u32(0x0040_9000, 0x0000_0100);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let val = bar0.read_u32(0x0040_9b00).unwrap_or(0xDEAD);
+        if val & 0x8000_0000 == 0 {
+            tracing::info!(
+                val = format_args!("{val:#010x}"),
+                "FECS internal: context saved"
+            );
+            return Ok(());
+        }
+        if std::time::Instant::now() > deadline {
+            return Err(DriverError::OracleError(
+                format!(
+                    "FECS internal context save timeout: 0x409b00={val:#010x}"
+                )
+                .into(),
+            ));
+        }
     }
 }
 

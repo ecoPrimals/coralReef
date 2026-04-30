@@ -412,13 +412,13 @@ pub(super) fn populate_kepler_instance_block(
     clippy::cast_possible_truncation,
     reason = "IOVA values always fit u32 for our allocation range"
 )]
-pub(super) fn populate_kepler_runlist(rl: &mut [u8], instance_iova: u64, _channel_id: u32) {
-    let dw0: u32 = (instance_iova as u32 & 0xFFFF_F000)
-        | (TARGET_SYS_MEM_COHERENT << 8) // INST_TARGET in bits [9:8]
-        | 1; // CHANNEL_ENABLE
-    let dw1: u32 = (instance_iova >> 32) as u32;
-    write_u32_le(rl, 0x00, dw0);
-    write_u32_le(rl, 0x04, dw1);
+pub(super) fn populate_kepler_runlist(rl: &mut [u8], _instance_iova: u64, channel_id: u32) {
+    // GK104 runlist entry format (from Nouveau gk104_fifo_runlist_commit):
+    //   DW0 = channel_id
+    //   DW1 = 0x00000004 (entry type = channel)
+    // PFIFO reads the instance block address from PCCSR, not the runlist.
+    write_u32_le(rl, 0x00, channel_id);
+    write_u32_le(rl, 0x04, 0x0000_0004);
 }
 
 /// Populate runlist in a pre-allocated buffer (static version for matrix).
@@ -564,9 +564,14 @@ mod tests {
         let mut rl = [0u8; 8];
         populate_kepler_runlist(&mut rl, 0x3000, 0);
         let dw0 = u32::from_le_bytes([rl[0], rl[1], rl[2], rl[3]]);
-        assert_eq!(dw0 & 1, 1, "CHANNEL_ENABLE");
-        assert_eq!((dw0 >> 8) & 3, 2, "INST_TARGET = SYS_MEM_COH");
-        assert_eq!(dw0 & 0xFFFFF000, 0x3000, "INST_PTR");
+        let dw1 = u32::from_le_bytes([rl[4], rl[5], rl[6], rl[7]]);
+        assert_eq!(dw0, 0, "channel_id = 0");
+        assert_eq!(dw1, 4, "entry_type = channel (0x04)");
+
+        let mut rl2 = [0u8; 8];
+        populate_kepler_runlist(&mut rl2, 0x3000, 7);
+        let dw0_2 = u32::from_le_bytes([rl2[0], rl2[1], rl2[2], rl2[3]]);
+        assert_eq!(dw0_2, 7, "channel_id = 7");
     }
 
     #[test]

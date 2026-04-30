@@ -14,13 +14,26 @@ pub(super) fn write_kepler_hub_station_params(w: &dyn Fn(u32, u32)) {
     w(0x12_0060, 0x0000_0000);
 }
 
-/// PRI ring INIT using VBIOS command 0x03.
+/// Configure PRI ring hub station timing parameters.
 ///
-/// GK210 VBIOS uses command 0x03 (not 0x04 as nouveau). After a cold FLR,
-/// command 0x04 never completes because the INIT token requires the bus
-/// interface that only 0x03 activates. Returns true if topology was
-/// discovered (hub station count > 0).
-/// PRI ring init matching nouveau's `gf100_bus_init()`.
+/// Matches nouveau's `gk104_privring_init()` — must run before any PRI
+/// ring enumerate commands. Without these, station timeouts may be too
+/// aggressive for GK210B's dual-die topology.
+pub(super) fn gk104_privring_timing(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) {
+    let mask = |reg: u32, clr: u32, set: u32| {
+        let cur = r(reg);
+        w(reg, (cur & !clr) | set);
+    };
+    mask(0x12_2318, 0x0003_FFFF, 0x0000_1000);
+    mask(0x12_231C, 0x0003_FFFF, 0x0000_0200);
+    mask(0x12_2310, 0x0003_FFFF, 0x0000_0800);
+    mask(0x12_2348, 0x0003_FFFF, 0x0000_0100);
+    mask(0x12_23B0, 0x0003_FFFF, 0x0000_0FFF);
+    mask(0x12_2348, 0x0003_FFFF, 0x0000_0200);
+    mask(0x12_2358, 0x0003_FFFF, 0x0000_2880);
+}
+
+/// PRI ring INIT matching nouveau's sequence.
 ///
 /// Sends command `0x04` (ENUMERATE_STATIONS_BC) and waits for bit 31 of
 /// `PRI_RINGMASTER_INTSTAT0` to clear, indicating all stations have been
@@ -67,12 +80,14 @@ pub(super) fn nouveau_pri_ring_init(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)
     }
 
     let hub = r(0x12_0070);
-    let gpc = r(0x12_0074);
+    let rop = r(0x12_0074);
+    let gpc = r(0x12_0078);
     tracing::info!(
-        hub_count = format_args!("{hub:#010x}"),
-        gpc_count = format_args!("{gpc:#010x}"),
+        hub_stations = format_args!("{hub:#010x}"),
+        rop_stations = format_args!("{rop:#010x}"),
+        gpc_stations = format_args!("{gpc:#010x}"),
         ok,
-        "nouveau PRI ring init complete"
+        "nouveau PRI ring init complete (0x70=hub, 0x74=rop, 0x78=gpc)"
     );
 
     ok && hub > 0 && hub < 0xBAD0_0000
@@ -107,19 +122,23 @@ pub(super) fn vbios_pri_ring_init(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) 
 }
 
 /// Diagnostic dump: probe PRI ring master, GPC topology, PLL lock, and PBUS state.
-pub(super) fn kepler_pri_ring_diag(_bar0: &MappedBar, r: &dyn Fn(u32) -> u32) {
-    // PRI ring master registers
+pub(super) fn kepler_pri_ring_diag(bar0: &MappedBar, r: &dyn Fn(u32) -> u32) {
+    // PRI ring master topology (nouveau gk104_privring_intr):
+    //   0x120070 = hub station count
+    //   0x120074 = ROP/FBP station count
+    //   0x120078 = GPC station count
     let rm_cmd = r(0x12004C);
     let rm_intr = r(0x120058);
-    let rm_intr0 = r(0x120060);
-    let rm_gpc_err = r(0x120078);
-    let rm_fbp_err = r(0x120070);
+    let rm_intr1 = r(0x12005C);
+    let hub_count = r(0x120070);
+    let rop_count = r(0x120074);
+    let gpc_count = r(0x120078);
 
     // GPC topology fuses
     let fuse_gpc = r(0x022430);
     let fuse_tpc_gpc0 = r(0x022438);
 
-    // PGRAPH GPC counts
+    // PGRAPH GPC counts (GR HUB — only valid after PGOB disable)
     let gr_gpc_count = r(0x409604);
     let gr_tpc_in_gpc = r(0x409614);
 
@@ -127,7 +146,7 @@ pub(super) fn kepler_pri_ring_diag(_bar0: &MappedBar, r: &dyn Fn(u32) -> u32) {
     let pbus_intr = r(0x001100);
     let pbus_bar0_window = r(0x001700);
 
-    // Additional PLL status readback
+    // PLL status
     let pll0_ctrl = r(0x130000);
     let pll0_stat = r(0x130014);
     let clk_master_0 = r(0x137300);
@@ -135,18 +154,19 @@ pub(super) fn kepler_pri_ring_diag(_bar0: &MappedBar, r: &dyn Fn(u32) -> u32) {
 
     tracing::warn!(
         rm_cmd = format_args!("{rm_cmd:#010x}"),
-        rm_intr = format_args!("{rm_intr:#010x}"),
-        rm_intr0 = format_args!("{rm_intr0:#010x}"),
-        rm_gpc_err = format_args!("{rm_gpc_err:#010x}"),
-        rm_fbp_err = format_args!("{rm_fbp_err:#010x}"),
-        "PRI ring master state"
+        rm_intr0 = format_args!("{rm_intr:#010x}"),
+        rm_intr1 = format_args!("{rm_intr1:#010x}"),
+        hub_stations = format_args!("{hub_count:#010x}"),
+        rop_stations = format_args!("{rop_count:#010x}"),
+        gpc_stations = format_args!("{gpc_count:#010x}"),
+        "PRI ring master state (hub=0x70, rop=0x74, gpc=0x78)"
     );
     tracing::warn!(
         fuse_gpc = format_args!("{fuse_gpc:#010x}"),
         fuse_tpc0 = format_args!("{fuse_tpc_gpc0:#010x}"),
         gr_gpc_count = format_args!("{gr_gpc_count:#010x}"),
         gr_tpc = format_args!("{gr_tpc_in_gpc:#010x}"),
-        "GPC topology"
+        "GPC topology (fuse + GR HUB)"
     );
     tracing::warn!(
         pbus_intr = format_args!("{pbus_intr:#010x}"),
@@ -281,7 +301,12 @@ pub(super) fn clear_pri_ring_faults(
     }
 
     // Match nouveau gk104_privring_intr: clear per-station errors for ALL
-    // station types (hub, GPC, FBP) BEFORE the master ACK.
+    // station types (hub, ROP, GPC) BEFORE the master ACK.
+    //
+    // PRI ring master topology registers (from nouveau gk104_privring_intr):
+    //   0x120070 = hub station count
+    //   0x120074 = ROP/FBP station count
+    //   0x120078 = GPC station count
     let hub_count = r(0x12_0070) & 0xFF;
     for i in 0..hub_count {
         let stat_reg = 0x12_2120 + i * 0x800;
@@ -291,18 +316,18 @@ pub(super) fn clear_pri_ring_faults(
         }
     }
 
-    let gpc_count = r(0x12_0074) & 0xFF;
-    for i in 0..gpc_count {
-        let stat_reg = 0x12_8120 + i * 0x800;
+    let rop_count = r(0x12_0074) & 0xFF;
+    for i in 0..rop_count {
+        let stat_reg = 0x12_4120 + i * 0x800;
         let stat = r(stat_reg);
         if stat != 0 && stat != 0xDEAD_DEAD {
             w(stat_reg + 4, 0x2);
         }
     }
 
-    let fbp_count = r(0x12_0078) & 0xFF;
-    for i in 0..fbp_count {
-        let stat_reg = 0x13_0120 + i * 0x800;
+    let gpc_count = r(0x12_0078) & 0xFF;
+    for i in 0..gpc_count {
+        let stat_reg = 0x12_8120 + i * 0x800;
         let stat = r(stat_reg);
         if stat != 0 && stat != 0xDEAD_DEAD {
             w(stat_reg + 4, 0x2);

@@ -78,51 +78,11 @@ pub(super) fn kepler_post_done_boot_fecs(
         "POST-done boot: firmware loaded (gk210-external)"
     );
 
-    // ── Step 2: ENGCTL cycle — resets Falcon CPU + caches, not GPC power ──
-    // Without this, the instruction cache is stale from nouveau's firmware
-    // and STARTCPU executes cached NOPs instead of new IMEM content.
-    {
-        wr(FECS + 0x3C0, 0x01);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-        wr(FECS + 0x3C0, 0x00);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-
-        for gpc in 0..cached_gpc_count.min(8) {
-            let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
-            let probe = rd(gpccs_base + 0x100);
-            if probe == 0xDEAD_DEAD || probe & 0xBAD0_0000 == 0xBAD0_0000 { continue; }
-            wr(gpccs_base + 0x3C0, 0x01);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(2));
-        for gpc in 0..cached_gpc_count.min(8) {
-            let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
-            let probe = rd(gpccs_base + 0x100);
-            if probe == 0xDEAD_DEAD || probe & 0xBAD0_0000 == 0xBAD0_0000 { continue; }
-            wr(gpccs_base + 0x3C0, 0x00);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(2));
-
-        // Wait for IMEM/DMEM scrub to complete (DMACTL bits [2:1]).
-        for _ in 0..200 {
-            let fecs_dmactl = rd(FECS + 0x10C);
-            if fecs_dmactl & 0x06 == 0 { break; }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        let post_engctl = rd(FECS + 0x100);
-        tracing::info!(
-            fecs_cpuctl = format_args!("{post_engctl:#010x}"),
-            gpc0_tpc_post = format_args!("{:#010x}", rd(0x50_2608)),
-            "POST-done boot: ENGCTL cycle complete"
-        );
-    }
-
-    // ── Step 3: Enable ITFEN and upload firmware ──
-    wr(FECS + 0x048, 0x3);
-    wr(GPCCS + 0x048, 0x3);
-    for gpc in 0..cached_gpc_count.min(8) {
-        wr(0x50_0000 + gpc * 0x8000 + 0x2000 + 0x048, 0x3);
-    }
-
+    // ── Step 2: Upload firmware (Nouveau-aligned: no ENGCTL, no ITFEN) ──
+    // PMC GR reset (done by caller) already puts falcons in clean initial-halt
+    // state with invalidated caches. ENGCTL cycle is unnecessary and risks
+    // putting the falcon in HW-reset-halt where STARTCPU is silently ignored.
+    // ITFEN is not set by Nouveau before upload — PIO port works without it.
     {
         let regs: &mut dyn crate::gsp::RegisterAccess = &mut GuardedBarRegAccess(guard);
         regs.write_u32(0x260, 0).ok();
@@ -140,9 +100,26 @@ pub(super) fn kepler_post_done_boot_fecs(
             tracing::warn!(error = %e, "GPCCS IMEM upload failed"); return;
         }
 
-        regs.write_u32(0x260, 0x2000_0000).ok();
+        regs.write_u32(0x260, 1).ok();
     }
     tracing::info!("POST-done boot: FECS + GPCCS firmware uploaded");
+
+    // Nouveau gf100_gr_init_fw() sets ITFEN=3 + WDT=0 at end of each upload.
+    // Broadcast GPCCS writes are dropped on GK210B, so fan out per-GPC.
+    {
+        wr(FECS + 0x048, 0x0000_0003);
+        wr(FECS + 0x054, 0x0000_0000);
+        wr(GPCCS + 0x048, 0x0000_0003);
+        wr(GPCCS + 0x054, 0x0000_0000);
+        for gpc in 0..cached_gpc_count.min(8) {
+            let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
+            let probe = rd(gpccs_base + 0x100);
+            if probe != 0xDEAD_DEAD && probe & 0xBAD0_0000 != 0xBAD0_0000 {
+                wr(gpccs_base + 0x048, 0x0000_0003);
+                wr(gpccs_base + 0x054, 0x0000_0000);
+            }
+        }
+    }
 
     // Verify IMEM content survived upload (readback first 4 words).
     {
@@ -328,7 +305,7 @@ pub(super) fn kepler_post_done_boot_fecs(
                     cpuctl = format_args!("{cpuctl:#010x}"),
                     pc = format_args!("{pc:#010x}"),
                     exci = format_args!("{exci:#010x}"),
-                    "POST-done boot: FECS HALTED — firmware hit exception"
+                    "POST-done boot: FECS stuck in HRESET (0x10) — STARTCPU not consumed"
                 );
                 break;
             }
@@ -385,15 +362,19 @@ pub(super) fn kepler_load_and_boot_fecs(
     const FECS: u32 = kepler_falcon::FECS_BASE;
     const GPCCS: u32 = kepler_falcon::GPCCS_BASE;
 
-    // K80 is GK210B (GK110B die). Nouveau defaults to INTERNAL firmware
-    // (embedded in nouveau.ko, ~3KB FECS code) with a distinct boot protocol.
-    // The external firmware files (/lib/firmware/nvidia/gk210/, ~15KB) use a
-    // different protocol. We must match the firmware to its protocol.
+    // K80 is GK210B (GK110B die). We now prefer EXTERNAL firmware because
+    // empirical testing shows both FECS and GPCCS start successfully via host
+    // MMIO STARTCPU immediately after firmware PIO upload. External firmware
+    // (/lib/firmware/nvidia/gk210/, ~15KB) is self-configuring and doesn't
+    // need csdata in DMEM. Internal firmware (nouveau.ko embedded, ~3KB)
+    // requires csdata and a different boot protocol.
     //
-    // Priority: internal (matches nouveau's default) → external → gk110 fallback
+    // Priority: internal (FECS starts GPCCS via DMA — required on GK210B where
+    // host MMIO STARTCPU is silently ignored for per-GPC GPCCS falcons) →
+    // external → system → gk110 fallback
     let fw_search: &[(&str, &str, &str, &str, &str, bool)] = &[
         (
-            "gk210-internal",
+            "gk110-internal",
             concat!(env!("CARGO_MANIFEST_DIR"), "/firmware/gk210"),
             "gk110_internal_fecs_code.bin",
             "gk110_internal_fecs_data.bin",
@@ -457,7 +438,9 @@ pub(super) fn kepler_load_and_boot_fecs(
             try_read(gc),
             try_read(&gd_name),
         ) {
-            if fc_data.len() < MIN_FECS_CODE_BYTES || gc_data.len() < MIN_GPCCS_CODE_BYTES {
+            if !is_internal
+                && (fc_data.len() < MIN_FECS_CODE_BYTES || gc_data.len() < MIN_GPCCS_CODE_BYTES)
+            {
                 tracing::warn!(
                     label,
                     fecs_code = fc_data.len(),
@@ -515,22 +498,54 @@ pub(super) fn kepler_load_and_boot_fecs(
 
     super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
-    // Step 1: Disable traps — nouveau's FIRST GR HUB write in gf100_gr_init.
-    // nvkm_mask(0x400500, 0x00010001, 0x00000000) → clear bits 0 and 16.
-    w(0x40_0500, 0x0000_0000);
-    let trap_readback = r(0x40_0500);
-    tracing::info!(
-        trap_readback = format_args!("{trap_readback:#010x}"),
-        "Step 1: TRAP_EN disabled (0x400500)"
-    );
+    // Step 0: PMC GR engine reset + PGOB ungate in a single tight sequence.
+    //
+    // On GK210B, the GR HUB auto-clock-gates within nanoseconds of the last
+    // PRI access. The PGOB disable sequence accesses GR registers for ~200ms,
+    // keeping it alive. We chain the PMC reset, PGOB ungate, and CG disable
+    // into a single uninterrupted burst so the domain stays accessible.
+    {
+        let pmc_pre = r(0x200);
+        const GR_BIT: u32 = 1 << 12;
+        w(0x200, pmc_pre & !GR_BIT);
+        let _ = r(0x200);
+        w(0x200, pmc_pre | GR_BIT);
+        // PGOB ungate runs ~200ms of PRI writes, keeping GR HUB alive.
+        // After it returns, immediately slam CG-disable writes — no logging.
+        super::pgob::gk110_pgob_disable(guard);
+        // IMMEDIATE: disable BLCG/SLCG before auto-gating kicks in
+        w(0x40_41f0, 0x0000_0000);  // BLCG off
+        w(0x40_41f4, 0x0000_0000);  // SLCG off
+        w(0x40_9890, 0x0000_0000);  // FECS BLCG off
+        w(0x40_98b0, 0x0000_0000);  // FECS BLCG2 off
+        w(0x40_0500, 0x0000_0000);  // TRAP_EN off (keep GR HUB warm)
+        super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+        let gr_hub = r(0x40_0000);
+        let trap_rb = r(0x40_0500);
+        tracing::info!(
+            pmc_pre = format_args!("{pmc_pre:#010x}"),
+            gr_hub = format_args!("{gr_hub:#010x}"),
+            trap_rb = format_args!("{trap_rb:#010x}"),
+            ok = gr_hub != 0xDEAD_DEAD && gr_hub & 0xBAD0_0000 != 0xBAD0_0000,
+            "Step 0: PMC reset + PGOB + CG-disable burst"
+        );
+    }
 
-    // Step 2: GPC MMU init (gf100_gr_init_gpc_mmu).
-    // Writes to GPC broadcast regs — not behind GR HUB.
+    // Step 2: GPC MMU init (gf100_gr_init_gpc_mmu) — per-GPC.
+    //
+    // Broadcast 0x418xxx writes are silently dropped on GK210B.
     {
         let fb_mmu = r(0x10_0C80) & 0x0000_0001;
-        w(0x41_8880, fb_mmu);
-        w(0x41_8890, 0x0000_0000);
-        w(0x41_8894, 0x0000_0000);
+        for gpc in 0..8u32 {
+            let base = 0x50_0000 + gpc * 0x8000;
+            let probe = r(base + 0x2100);
+            if probe == 0xDEAD_DEAD || probe & 0xBAD0_0000 == 0xBAD0_0000 {
+                continue;
+            }
+            w(base + 0x0880, fb_mmu);
+            w(base + 0x0890, 0x0000_0000);
+            w(base + 0x0894, 0x0000_0000);
+        }
     }
 
     // Step 3a: MMIO init table (gk110_gr_pack_mmio — hardcoded baseline).
@@ -542,11 +557,6 @@ pub(super) fn kepler_load_and_boot_fecs(
     }
 
     // Step 3b: Apply sw_nonctx.bin — GK210B-specific register overrides.
-    //
-    // Nouveau applies gf100_gr_mmio(gr, gr->sw_nonctx) AFTER the hardcoded
-    // pack. These firmware-provided values override the GK110 defaults with
-    // GK210B-specific register configurations that FECS firmware expects
-    // during boot. Without these, FECS traps immediately (EXCI=1 at PC=0).
     {
         let (nonctx_applied, nonctx_skipped) =
             super::pri::apply_sw_nonctx(guard, "gk210");
@@ -557,16 +567,49 @@ pub(super) fn kepler_load_and_boot_fecs(
         );
     }
 
+    // gf100_gr_wait_idle — Nouveau waits for GR idle after MMIO init.
+    {
+        let mut gr_idle = false;
+        for _ in 0..2000 {
+            let status = r(0x40_0700);
+            if status != 0xDEAD_DEAD && status & 0x1 == 0 {
+                gr_idle = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        tracing::info!(gr_idle, "gf100_gr_wait_idle after MMIO init (0x400700 bit 0)");
+    }
+
     // Step 3c: Clock gating init (gk110_clkgate_pack — BLCG + SLCG).
-    //
-    // Nouveau applies these via nvkm_therm_clkgate_init() after MMIO init.
-    // Without them, GPC Falcon CPU clocks remain gated after PMC GR reset,
-    // causing GPCCS STARTCPU to be silently ignored.
     {
         let (cg_applied, cg_faulted) =
             super::kepler_gr_init::apply_gk110_clkgate(guard);
         super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
         tracing::info!(cg_applied, cg_faulted, "Step 3c: GK110 clock gating init");
+    }
+
+    // Step 3d: PGOB disable — ensures GR power domain is ungated.
+    // Deferred to after MMIO + CG init because the PMC GR reset in Step 0
+    // only briefly makes the GR HUB accessible; auto-clock-gating would
+    // re-gate it if we ran PGOB first (which takes 200ms+).
+    {
+        let gr_hub_pre = r(0x40_0000);
+        let gr_hub_ok = gr_hub_pre != 0xDEAD_DEAD && gr_hub_pre & 0xBAD0_0000 != 0xBAD0_0000;
+        if !gr_hub_ok {
+            tracing::info!(
+                gr_hub = format_args!("{gr_hub_pre:#010x}"),
+                "GR HUB still gated after MMIO init — running PGOB disable"
+            );
+            super::pgob::gk110_pgob_disable(guard);
+            super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+        }
+        let gr_hub_post = r(0x40_0000);
+        tracing::info!(
+            gr_hub = format_args!("{gr_hub_post:#010x}"),
+            ok = gr_hub_post != 0xDEAD_DEAD && gr_hub_post & 0xBAD0_0000 != 0xBAD0_0000,
+            "Step 3d: GR HUB state after CG init + PGOB"
+        );
     }
 
     // Step 4: Trap re-enable + interrupt clearing (matches nouveau ordering).
@@ -630,78 +673,75 @@ pub(super) fn kepler_load_and_boot_fecs(
         );
     }
 
-    // Bare-metal Falcon CPU test: attempt STARTCPU on uninitialized IMEM.
-    // If the Falcon CPU is clocked, it should try to execute and trap.
-    // If CPUCTL stays 0x10, the CPU clock is gated/not running.
-    if use_internal_protocol {
-        let bar0 = guard.inner();
-        let rd_diag = |off: u32| -> u32 { bar0.read_u32(off as usize).unwrap_or(0xDEAD_DEAD) };
-
-        let cpuctl_before = rd_diag(FECS + 0x100);
-        let _ = bar0.write_u32((FECS + 0x10C) as usize, 0x0000_0000); // DMACTL = 0
-        let _ = bar0.write_u32((FECS + 0x104) as usize, 0x0000_0000); // BOOTVEC = 0
-        let _ = bar0.write_u32((FECS + 0x100) as usize, 0x0000_0002); // STARTCPU
-        std::thread::sleep(std::time::Duration::from_millis(5));
-
-        let cpuctl_after = rd_diag(FECS + 0x100);
-        let pc_after = rd_diag(FECS + 0x0A8);
-        let exci_after = rd_diag(FECS + 0x04C);
-
-        // Read extra diagnostic registers.
-        let hwcfg1 = rd_diag(FECS + 0x12C);
-        let hwcfg2 = rd_diag(FECS + 0x00C);
-        let debug0 = rd_diag(0x40_9C14);
-        let debug1 = rd_diag(0x40_9C18);
-        let debug2 = rd_diag(0x40_9C1C);
-        let cgctrl = rd_diag(FECS + 0x360);
-
+    // Immediate GR HUB recheck — is it still accessible right here?
+    {
+        let gh = r(0x40_0000);
+        let fecs_r = r(FECS + 0x100);
         tracing::info!(
-            cpuctl_before = format_args!("{cpuctl_before:#010x}"),
-            cpuctl_after = format_args!("{cpuctl_after:#010x}"),
-            pc = format_args!("{pc_after:#010x}"),
-            exci = format_args!("{exci_after:#010x}"),
-            hwcfg1 = format_args!("{hwcfg1:#010x}"),
-            hwcfg2 = format_args!("{hwcfg2:#010x}"),
-            cgctrl = format_args!("{cgctrl:#010x}"),
-            dbg0 = format_args!("{debug0:#010x}"),
-            dbg1 = format_args!("{debug1:#010x}"),
-            dbg2 = format_args!("{debug2:#010x}"),
-            cpu_responded = cpuctl_after != cpuctl_before,
-            "BARE-METAL Falcon CPU test (no firmware, uninitialized IMEM)"
+            gr_hub = format_args!("{gh:#010x}"),
+            fecs_cpuctl = format_args!("{fecs_r:#010x}"),
+            ok = gh != 0xDEAD_DEAD && gh & 0xBAD0_0000 != 0xBAD0_0000,
+            "GR HUB IMMEDIATE recheck (no writes between this and Pre-upload state)"
         );
-
-        // Reset FECS back to HALT for proper firmware upload.
-        let _ = bar0.write_u32((FECS + 0x3C0) as usize, 0x0000_0001);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-        let _ = bar0.write_u32((FECS + 0x3C0) as usize, 0x0000_0000);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-
-        // ENGCTL cycle triggers IMEM/DMEM scrub — wait for it to complete
-        // before uploading firmware, otherwise PIO writes race with the
-        // scrub engine and produce corrupted IMEM.
-        for _ in 0..400 {
-            if rd_diag(FECS + 0x10C) & 0x06 == 0 { break; }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
     }
 
-    // 1. Disable GR method dispatch for firmware load (nouveau nvkm_mc_unk260(0))
-    regs.write_u32(0x260, 0).ok();
+    // MC_UNK260 (0x260) — GR method dispatch control.
+    // Nouveau brackets firmware upload with unk260=0 (disable) / unk260=1 (enable).
+    // Earlier we skipped this because 0x400000 returned 0xbadf1002 with unk260=0,
+    // but that turned out to be "GR not initialized" status, not "GR gated."
+    // FECS registers at 0x409xxx remain accessible with unk260=0, and PIO
+    // uploads work correctly.  Restore the Nouveau bracket.
+    w(0x260, 0);
+    tracing::info!("MC_UNK260=0 (GR method dispatch disabled for firmware upload)");
 
-    // After PMC GR reset, FECS/GPCCS are already in initial HALT state
-    // (CPUCTL=0x10). ENGCTL HRESET is NOT needed and can be harmful:
-    // it scrubs IMEM/DMEM (destroying PIO-uploaded firmware) and on GK210B
-    // it resets ITFEN to 0x00, which may prevent instruction fetch.
-    //
-    // Nouveau's gf100_gr_init_ctxctl_ext does NOT use ENGCTL.
-    // For internal protocol: also skip (rely on PMC GR reset state).
+    // Deep-dive diagnostics: read ENGCTL (0x058), SCTL (0x240), and
+    // other undocumented control registers on GPCCS to understand
+    // why STARTCPU is refused.
     {
-        let fecs_cpuctl_post = r(FECS + 0x100);
-        let gpc0_cpuctl_post = r(0x50_2000 + 0x100);
+        let bar0 = guard.inner();
+        let gpc0 = 0x50_2000u32;
+        let rd = |off: u32| -> u32 { bar0.read_u32(off as usize).unwrap_or(0xDEAD_DEAD) };
+
+        let engctl_058 = rd(gpc0 + 0x058);
+        let sctl_240   = rd(gpc0 + 0x240);
+        let cpuctl      = rd(gpc0 + 0x100);
+        let dmactl      = rd(gpc0 + 0x10C);
+        let itfen       = rd(gpc0 + 0x048);
+        let hwcfg       = rd(gpc0 + 0x108);
+        let hwcfg2      = rd(gpc0 + 0x00C);
+        let irqstat     = rd(gpc0 + 0x008);
+        let falcon_ver  = rd(gpc0 + 0x004);
+        let exci        = rd(gpc0 + 0x04C);
+        let unk_3c0     = rd(gpc0 + 0x3C0);
+        let bootvec     = rd(gpc0 + 0x104);
+        let debugi      = rd(gpc0 + 0x0A8);
+
+        // Also read FECS for comparison
+        let f_engctl  = rd(FECS + 0x058);
+        let f_sctl    = rd(FECS + 0x240);
+        let f_cpuctl  = rd(FECS + 0x100);
+
         tracing::info!(
-            fecs = format_args!("{fecs_cpuctl_post:#010x}"),
-            gpc0_gpccs = format_args!("{gpc0_cpuctl_post:#010x}"),
-            "Pre-upload state (FECS should be 0x10 = HALTED after PMC reset)"
+            engctl_058 = format_args!("{engctl_058:#010x}"),
+            sctl_240 = format_args!("{sctl_240:#010x}"),
+            cpuctl = format_args!("{cpuctl:#010x}"),
+            dmactl = format_args!("{dmactl:#010x}"),
+            itfen = format_args!("{itfen:#010x}"),
+            hwcfg = format_args!("{hwcfg:#010x}"),
+            hwcfg2 = format_args!("{hwcfg2:#010x}"),
+            irqstat = format_args!("{irqstat:#010x}"),
+            falcon_ver = format_args!("{falcon_ver:#010x}"),
+            "GPC0 GPCCS deep-dive (pre-upload)"
+        );
+        tracing::info!(
+            exci = format_args!("{exci:#010x}"),
+            unk_3c0 = format_args!("{unk_3c0:#010x}"),
+            bootvec = format_args!("{bootvec:#010x}"),
+            debugi = format_args!("{debugi:#010x}"),
+            f_engctl = format_args!("{f_engctl:#010x}"),
+            f_sctl = format_args!("{f_sctl:#010x}"),
+            f_cpuctl = format_args!("{f_cpuctl:#010x}"),
+            "GPCCS vs FECS control state (pre-upload)"
         );
     }
 
@@ -720,40 +760,26 @@ pub(super) fn kepler_load_and_boot_fecs(
         "Topology scan (live vs cached fallback)"
     );
 
-    // 2. Diagnose GPCCS Falcon state before upload.
-    //    Check DMACTL scrub bits, CPUCTL, and PIO accessibility.
+    // Diagnose GPCCS Falcon state before upload.
     {
-        let fecs_dmactl = r(FECS + 0x10C);
-        let gpccs_bcast_dmactl = r(GPCCS + 0x10C);
         let gpc0_gpccs_dmactl = r(0x50_2000 + 0x10C);
         let gpc0_gpccs_cpuctl = r(0x50_2000 + 0x100);
-        let gpccs_bcast_cpuctl = r(GPCCS + 0x100);
-        let gr_gpc_bcast = r(0x41_8000);
         tracing::info!(
-            fecs_dmactl = format_args!("{fecs_dmactl:#010x}"),
-            gpccs_bcast_dmactl = format_args!("{gpccs_bcast_dmactl:#010x}"),
             gpc0_dmactl = format_args!("{gpc0_gpccs_dmactl:#010x}"),
             gpc0_cpuctl = format_args!("{gpc0_gpccs_cpuctl:#010x}"),
-            gpccs_bcast_cpuctl = format_args!("{gpccs_bcast_cpuctl:#010x}"),
-            gr_gpc_bcast = format_args!("{gr_gpc_bcast:#010x}"),
-            "Pre-upload Falcon state (DMACTL scrub bits [2:1])"
+            "Pre-upload GPCCS state (post ENGCTL HRESET)"
         );
-
-        // Wait for GPCCS memory scrub if active (bits [2:1] of DMACTL).
-        if gpc0_gpccs_dmactl & 0x06 != 0 {
-            let mut scrub_ok = false;
-            for _ in 0..200 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                if r(0x50_2000 + 0x10C) & 0x06 == 0 { scrub_ok = true; break; }
-            }
-            tracing::info!(scrub_ok, "GPCCS GPC0 memory scrub wait");
-        }
     }
 
-    // NOTE: ITFEN (0x048) is intentionally set AFTER firmware upload,
-    // right before STARTCPU. Setting it earlier can auto-start the Falcon
-    // (consuming a pending STARTCPU) before IMEM has been loaded, causing
-    // the CPU to execute zeroed/scrubbed memory and stall at PC=0.
+    // GR HUB check before firmware upload
+    {
+        let gh = r(0x40_0000);
+        tracing::info!(
+            gr_hub = format_args!("{gh:#010x}"),
+            ok = gh != 0xDEAD_DEAD && gh & 0xBAD0_0000 != 0xBAD0_0000,
+            "GR HUB check BEFORE firmware upload"
+        );
+    }
 
     // 3. Upload FECS (hub) DMEM + IMEM
     if let Err(e) = kepler_falcon::upload_dmem(regs, FECS, 0, &fecs_data) {
@@ -765,16 +791,45 @@ pub(super) fn kepler_load_and_boot_fecs(
         return;
     }
 
-    // 4. Upload GPCCS DMEM + IMEM via broadcast (0x41A000).
-    //    On Kepler, per-GPC GPCCS PIO interfaces (0x502180 etc.) may not
-    //    support IMEM/DMEM upload — only the GR hub broadcast does.
-    if let Err(e) = kepler_falcon::upload_dmem(regs, GPCCS, 0, &gpccs_data) {
-        tracing::warn!(error = %e, "GPCCS DMEM upload failed");
-        return;
-    }
-    if let Err(e) = kepler_falcon::upload_imem(regs, GPCCS, 0, &gpccs_code) {
-        tracing::warn!(error = %e, "GPCCS IMEM upload failed");
-        return;
+    // 4. Upload GPCCS DMEM + IMEM — per-GPC PIO.
+    //
+    // Critical finding: broadcast IMEM PIO writes (0x41a180/184/188) land
+    // the DATA correctly in per-GPC IMEM but may NOT propagate the IMEM TAGS
+    // (0x188). On Falcon v3, each 256-byte IMEM block must have a valid tag
+    // for the CPU to fetch instructions. Missing tags = STARTCPU silently
+    // refused.
+    //
+    // Solution: upload GPCCS firmware via per-GPC PIO addresses so tags
+    // are written directly to each GPC's GPCCS IMEM.
+    {
+        // First, broadcast upload (for any GPCs that DO accept broadcast tags)
+        if let Err(e) = kepler_falcon::upload_dmem(regs, GPCCS, 0, &gpccs_data) {
+            tracing::warn!(error = %e, "GPCCS DMEM broadcast upload failed");
+        }
+        if let Err(e) = kepler_falcon::upload_imem(regs, GPCCS, 0, &gpccs_code) {
+            tracing::warn!(error = %e, "GPCCS IMEM broadcast upload failed");
+        }
+
+        // Then per-GPC upload (ensures tags land correctly on GK210B)
+        let mut gpc_uploaded = 0u32;
+        for gpc in 0..8u32 {
+            let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
+            let probe = r(gpccs_base + 0x100);
+            if probe == 0xDEAD_DEAD || probe & 0xBAD0_0000 == 0xBAD0_0000 {
+                continue;
+            }
+            if let Err(e) = kepler_falcon::upload_dmem(regs, gpccs_base, 0, &gpccs_data) {
+                tracing::warn!(gpc, error = %e, "GPCCS per-GPC DMEM upload failed");
+                continue;
+            }
+            if let Err(e) = kepler_falcon::upload_imem(regs, gpccs_base, 0, &gpccs_code) {
+                tracing::warn!(gpc, error = %e, "GPCCS per-GPC IMEM upload failed");
+                continue;
+            }
+            gpc_uploaded += 1;
+        }
+        tracing::info!(gpc_uploaded, "GPCCS per-GPC firmware upload (tags + data)");
+
     }
 
     // Verify GPCCS upload via broadcast readback AND per-GPC direct readback.
@@ -841,11 +896,40 @@ pub(super) fn kepler_load_and_boot_fecs(
         );
     }
 
-    // 4. Re-enable GR method dispatch (nouveau gk104_mc_unk260: 0x20000000)
-    regs.write_u32(0x260, 0x2000_0000).ok();
+    // Nouveau v6.8 gf100_gr_init_fw() does NOT set ITFEN or WDT.
+    // Leaving ITFEN=0 (default after PMC reset) lets the falcon CPU fetch
+    // directly from IMEM physical addressing without going through the
+    // instruction buffer or tag validation.  Previous attempts with ITFEN=3
+    // caused the CPU to stall at PC=0 (idle exception) — likely because
+    // the instruction buffer requires valid tag state that PMC reset may
+    // not provide.
+
+    // GR HUB check after ITFEN+WDT writes
+    {
+        let gh = r(0x40_0000);
+        tracing::info!(
+            gr_hub = format_args!("{gh:#010x}"),
+            ok = gh != 0xDEAD_DEAD && gh & 0xBAD0_0000 != 0xBAD0_0000,
+            "GR HUB check AFTER upload + ITFEN+WDT"
+        );
+    }
+
+    // Re-enable GR method dispatch (match Nouveau: unk260=1 after upload).
+    w(0x260, 1);
+    tracing::info!("MC_UNK260=1 (GR method dispatch re-enabled after upload)");
 
     // Clear PRI ring faults accumulated during firmware upload.
     super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+
+    // GR HUB check after PRI ring fault clear
+    {
+        let gh = r(0x40_0000);
+        tracing::info!(
+            gr_hub = format_args!("{gh:#010x}"),
+            ok = gh != 0xDEAD_DEAD && gh & 0xBAD0_0000 != 0xBAD0_0000,
+            "GR HUB check AFTER PRI fault clear"
+        );
+    }
 
     const CTXSW_MAILBOX0: u32 = 0x40_9800;
     let nstations_total: u32 = 32;
@@ -931,149 +1015,48 @@ pub(super) fn kepler_load_and_boot_fecs(
             );
 
             if gr_hub_check == 0xDEAD_DEAD || gr_hub_check & 0xBAD0_0000 == 0xBAD0_0000 {
-                tracing::warn!("PGRAPH gated before STARTCPU — re-disabling PGOB");
-                super::pgob::gk110_pgob_disable(guard);
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+                tracing::warn!(
+                    "GR HUB gated before STARTCPU — firmware likely wiped if PGOB runs now; \
+                     the pre-upload PGOB disable should have prevented this"
+                );
             }
         }
 
-        // FECS boot: BOOTVEC=0, DMACTL=0, then STARTCPU via direct bar0.
+        // Exact Nouveau gf100_gr_init_ctxctl_int() STARTCPU sequence:
+        //   nvkm_wr32(device, 0x40910c, 0x00000000)  — FECS DMACTL = 0
+        //   nvkm_wr32(device, 0x409100, 0x00000002)  — FECS STARTCPU
         //
-        // On Falcon v3, STARTCPU only works from "initial halt" (post-PMC-reset)
-        // or "software halt" (post-HALT instruction). If an ENGCTL HRESET cycle
-        // was done, the falcon may be in "hardware reset halt" where STARTCPU
-        // is silently ignored. We detect this (CPUCTL stays 0x10 after START)
-        // and fall back to ENGCTL deassert → IINVAL → STARTCPU.
+        // No BOOTVEC write (default 0 after PMC reset).
+        // No ITFEN write (Nouveau v6.8 doesn't set ITFEN — falcon
+        //   fetches directly from IMEM physical addressing).
+        // No ENGCTL cycle or retry logic.
         {
-            let bar0 = guard.inner();
-            let rd = |off: u32| -> u32 { bar0.read_u32(off as usize).unwrap_or(0xDEAD_DEAD) };
-
-            let _ = bar0.write_u32((FECS + 0x10C) as usize, 0x0000_0000); // DMACTL = 0
-            let _ = bar0.write_u32((FECS + 0x104) as usize, 0x0000_0000); // BOOTVEC = 0
-            let _ = bar0.write_u32((FECS + 0x048) as usize, 0x0000_0003); // ITFEN = 3
-
-            // Diagnostic: Falcon version and write verification.
-            let falcon_ver = rd(FECS + 0x004);
-            let sctl = rd(FECS + 0x240);
-            let dmactl = rd(FECS + 0x10C);
-
-            // Write/readback test on FECS MAILBOX0 (R/W register).
-            let mb0_orig = rd(FECS + 0x040);
-            let _ = bar0.write_u32((FECS + 0x040) as usize, 0xCAFE_1234);
-            let mb0_test = rd(FECS + 0x040);
-            let _ = bar0.write_u32((FECS + 0x040) as usize, mb0_orig); // restore
-            let writes_work = mb0_test == 0xCAFE_1234;
-
-            let cpuctl_pre = rd(FECS + 0x100);
-            let engctl_pre = rd(FECS + 0x3C0);
-            let bootvec_rb = rd(FECS + 0x104);
-            let exci_pre = rd(FECS + 0x04C);
+            let cpuctl_pre = r(FECS + 0x100);
+            let itfen_pre = r(FECS + 0x048);
             tracing::info!(
                 cpuctl = format_args!("{cpuctl_pre:#010x}"),
-                engctl = format_args!("{engctl_pre:#010x}"),
-                bootvec = format_args!("{bootvec_rb:#010x}"),
-                exci = format_args!("{exci_pre:#010x}"),
-                falcon_ver = format_args!("{falcon_ver:#010x}"),
-                sctl = format_args!("{sctl:#010x}"),
-                dmactl = format_args!("{dmactl:#010x}"),
-                mb0_write_test = format_args!("{mb0_test:#010x}"),
-                writes_work,
-                "Pre-STARTCPU: FECS state + write test"
+                itfen = format_args!("{itfen_pre:#010x}"),
+                "Pre-STARTCPU: FECS state (ITFEN should be 0x00000000)"
             );
 
-            // Attempt 1: Direct STARTCPU (works if falcon is in initial/SW halt).
-            let _ = bar0.write_u32((FECS + 0x100) as usize, 0x0000_0002);
-            std::thread::sleep(std::time::Duration::from_micros(500));
+            w(FECS + 0x10C, 0x0000_0000); // DMACTL = 0
+            w(FECS + 0x100, 0x0000_0002); // STARTCPU
+            std::thread::sleep(std::time::Duration::from_millis(1));
 
-            let cpuctl_post1 = rd(FECS + 0x100);
-            let pc_post1 = rd(FECS + 0x0A8);
-            let exci_post1 = rd(FECS + 0x04C);
+            let cpuctl_post = r(FECS + 0x100);
+            let debug_pc = r(FECS + 0xC20);
+            let falcon_pc = r(FECS + 0x0A4);
+            let exci_post = r(FECS + 0x04C);
+            let gpc0_cpuctl = r(0x50_2000 + 0x100);
             tracing::info!(
-                cpuctl = format_args!("{cpuctl_post1:#010x}"),
-                pc = format_args!("{pc_post1:#010x}"),
-                exci = format_args!("{exci_post1:#010x}"),
-                "Attempt 1: STARTCPU direct"
+                cpuctl = format_args!("{cpuctl_post:#010x}"),
+                debug_pc = format_args!("{debug_pc:#010x}"),
+                falcon_pc = format_args!("{falcon_pc:#010x}"),
+                exci = format_args!("{exci_post:#010x}"),
+                gpc0_gpccs = format_args!("{gpc0_cpuctl:#010x}"),
+                hreset = cpuctl_post & 0x10 != 0,
+                "Post-STARTCPU: FECS state (debug_pc=+0xC20, falcon_pc=+0x0A4)"
             );
-
-            if cpuctl_post1 == 0x10 && exci_post1 == 0 {
-                // STARTCPU was ignored — falcon still in HW reset halt.
-                // Attempt 2: ENGCTL deassert, then IINVAL + STARTCPU.
-                tracing::warn!("STARTCPU ignored (HW reset halt) — trying ENGCTL deassert + IINVAL");
-
-                // Ensure ENGCTL is deasserted.
-                let _ = bar0.write_u32((FECS + 0x3C0) as usize, 0x0000_0000);
-                std::thread::sleep(std::time::Duration::from_millis(5));
-
-                let engctl_after = rd(FECS + 0x3C0);
-                let cpuctl_after_deassert = rd(FECS + 0x100);
-                tracing::info!(
-                    engctl = format_args!("{engctl_after:#010x}"),
-                    cpuctl = format_args!("{cpuctl_after_deassert:#010x}"),
-                    "After ENGCTL deassert"
-                );
-
-                // IINVAL (bit 0) — invalidate instruction TLB.
-                let _ = bar0.write_u32((FECS + 0x100) as usize, 0x0000_0001);
-                std::thread::sleep(std::time::Duration::from_millis(1));
-
-                // STARTCPU (bit 1)
-                let _ = bar0.write_u32((FECS + 0x100) as usize, 0x0000_0002);
-                std::thread::sleep(std::time::Duration::from_millis(1));
-
-                let cpuctl_post2 = rd(FECS + 0x100);
-                let pc_post2 = rd(FECS + 0x0A8);
-                let exci_post2 = rd(FECS + 0x04C);
-                tracing::info!(
-                    cpuctl = format_args!("{cpuctl_post2:#010x}"),
-                    pc = format_args!("{pc_post2:#010x}"),
-                    exci = format_args!("{exci_post2:#010x}"),
-                    "Attempt 2: ENGCTL deassert + IINVAL + STARTCPU"
-                );
-
-                if cpuctl_post2 == 0x10 && exci_post2 == 0 {
-                    // Attempt 3: Full ENGCTL cycle (assert then deassert).
-                    tracing::warn!("Still stuck — trying full ENGCTL cycle + STARTCPU");
-
-                    let _ = bar0.write_u32((FECS + 0x3C0) as usize, 0x0000_0001);
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                    let _ = bar0.write_u32((FECS + 0x3C0) as usize, 0x0000_0000);
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-
-                    // Re-upload BOOTVEC (ENGCTL cycle clears it).
-                    let _ = bar0.write_u32((FECS + 0x104) as usize, 0x0000_0000);
-                    let _ = bar0.write_u32((FECS + 0x10C) as usize, 0x0000_0000);
-                    let _ = bar0.write_u32((FECS + 0x100) as usize, 0x0000_0002);
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-
-                    let cpuctl_post3 = rd(FECS + 0x100);
-                    let pc_post3 = rd(FECS + 0x0A8);
-                    let exci_post3 = rd(FECS + 0x04C);
-                    tracing::info!(
-                        cpuctl = format_args!("{cpuctl_post3:#010x}"),
-                        pc = format_args!("{pc_post3:#010x}"),
-                        exci = format_args!("{exci_post3:#010x}"),
-                        "Attempt 3: Full ENGCTL cycle + STARTCPU"
-                    );
-
-                    if cpuctl_post3 == 0x10 && exci_post3 == 0 {
-                        // Attempt 4: CPUCTL alias register (0x130).
-                        tracing::warn!("Still stuck — trying CPUCTL alias (0x130)");
-                        let _ = bar0.write_u32((FECS + 0x130) as usize, 0x0000_0002);
-                        std::thread::sleep(std::time::Duration::from_millis(1));
-
-                        let cpuctl_post4 = rd(FECS + 0x100);
-                        let pc_post4 = rd(FECS + 0x0A8);
-                        let exci_post4 = rd(FECS + 0x04C);
-                        tracing::info!(
-                            cpuctl = format_args!("{cpuctl_post4:#010x}"),
-                            pc = format_args!("{pc_post4:#010x}"),
-                            exci = format_args!("{exci_post4:#010x}"),
-                            "Attempt 4: CPUCTL alias (0x130)"
-                        );
-                    }
-                }
-            }
         }
 
         // Poll 0x409800 bit 31 — internal firmware ready signal.
@@ -1091,7 +1074,8 @@ pub(super) fn kepler_load_and_boot_fecs(
                 let mailbox0 = r(CTXSW_MAILBOX0);
                 let cpuctl = r(FECS + 0x100);
                 let gpc0_cpuctl = r(0x50_2000 + 0x100);
-                let fecs_pc = r(FECS + 0x0A8);
+                let debug_pc = r(FECS + 0xC20);
+                let falcon_pc = r(FECS + 0x0A4);
                 let fecs_exci = r(FECS + 0x04C);
 
                 let mailbox_ok = mailbox0 != 0xDEAD_DEAD && mailbox0 & 0xBAD0_0000 != 0xBAD0_0000;
@@ -1102,7 +1086,8 @@ pub(super) fn kepler_load_and_boot_fecs(
                     mailbox0 = format_args!("{mailbox0:#010x}"),
                     cpuctl = format_args!("{cpuctl:#010x}"),
                     gpc0_gpccs = format_args!("{gpc0_cpuctl:#010x}"),
-                    pc = format_args!("{fecs_pc:#010x}"),
+                    debug_pc = format_args!("{debug_pc:#010x}"),
+                    falcon_pc = format_args!("{falcon_pc:#010x}"),
                     exci = format_args!("{fecs_exci:#010x}"),
                     "FECS boot poll (internal firmware — 0x409800 bit 31)"
                 );
@@ -1119,9 +1104,10 @@ pub(super) fn kepler_load_and_boot_fecs(
                 if cpuctl_ok && cpuctl & 0x10 != 0 && i > 200 {
                     tracing::warn!(
                         cpuctl = format_args!("{cpuctl:#010x}"),
-                        pc = format_args!("{fecs_pc:#010x}"),
+                        debug_pc = format_args!("{debug_pc:#010x}"),
+                        falcon_pc = format_args!("{falcon_pc:#010x}"),
                         exci = format_args!("{fecs_exci:#010x}"),
-                        "FECS HALTED — firmware hit exception"
+                        "FECS stuck in HRESET (0x10) — STARTCPU not consumed"
                     );
                     break;
                 }
@@ -1195,211 +1181,140 @@ pub(super) fn kepler_load_and_boot_fecs(
         //   d) Start GPCCS first, then FECS
         //   e) Poll CTXSW_MAILBOX0 bit 0
 
-        tracing::info!("Using EXTERNAL firmware boot protocol (nouveau-aligned: no ENGCTL/ITFEN/IINVAL)");
+        tracing::info!("Using EXTERNAL firmware boot protocol (nouveau gf100_gr_init_ctxctl_ext)");
 
-        // Modified nouveau-aligned external boot: gf100_gr_init_ctxctl_ext ordering
-        // with explicit ITFEN=0x03 for all Falcons before any STARTCPU.
+        // Exact Nouveau gf100_gr_init_ctxctl_ext() ordering:
+        //   1. Upload firmware (done above, with unk260 bracket)
+        //   2. wr(0x409800, 0) — clear CTXSW_MAILBOX0 BEFORE start
+        //   3. wr(0x41a10c, 0) — clear GPCCS DMACTL (broadcast)
+        //   4. wr(0x40910c, 0) — clear FECS DMACTL
+        //   5. nvkm_falcon_start(gpccs) — start GPCCS
+        //   6. nvkm_falcon_start(fecs) — start FECS
+        //   7. Poll 0x409800 bit 0
         //
-        // GK210B powers on with ITFEN=0x00 after PMC GR reset. Without
-        // enabling instruction fetch, STARTCPU transitions the Falcon out of
-        // halt (CPUCTL: 0x10→0x00) but the CPU stalls at PC=0 because it
-        // cannot fetch from IMEM.
+        // NO ENGCTL cycle, NO ITFEN write, NO BOOTVEC write.
+        // External firmware discovers topology from hardware fuse mirrors.
 
         super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
         w(0x40_0100, 0xFFFF_FFFF); // GR_INTR: clear all
 
-        // Step 0: Enable ITFEN on ALL Falcons BEFORE any STARTCPU.
-        w(FECS + 0x048, 0x0000_0003);
-        w(GPCCS + 0x048, 0x0000_0003);
+        // NOTE: Per-GPC clock gating (BLCG/SLCG) and GPC MMU init are
+        // already applied in Step 3a/3c before firmware upload. Do NOT
+        // re-apply them here — writing BLCG=0x42 after firmware upload
+        // enables block-level clock gating on the GPCCS falcon CPU, which
+        // prevents STARTCPU from being consumed on GK210B.
+
+        // Nouveau gf100_gr_init_ctxctl_ext() — exact sequence:
+        //   wr(0x409800, 0)  — clear CTXSW_MAILBOX0
+        //   wr(0x41a10c, 0)  — GPCCS DMACTL = 0 (broadcast)
+        //   wr(0x40910c, 0)  — FECS DMACTL = 0
+        //   start(gpccs)     — GPCCS STARTCPU (broadcast)
+        //   start(fecs)      — FECS STARTCPU
+        //   poll(0x409800)   — wait for bit 0
+        //
+        // Nouveau v6.8 does NOT set ITFEN — falcons fetch from IMEM directly.
+        // Do NOT write clock gating — BLCG was applied in Step 3c; re-applying
+        // per-GPC after upload gates the falcon CPU clock on GK210B.
+
+        w(CTXSW_MAILBOX0, 0x0000_0000);
+
+        // DMACTL = 0 (per-GPC for GPCCS since broadcast is dropped on GK210B)
+        w(FECS + 0x10C, 0x0000_0000);
+        let mut gpc_count = 0u32;
         for gpc in 0..8u32 {
             let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
             let probe = r(gpccs_base + 0x100);
-            if probe == 0xDEAD_DEAD || probe & 0xBAD0_0000 == 0xBAD0_0000 { continue; }
-            w(gpccs_base + 0x048, 0x0000_0003);
-        }
-
-        // Step 0.5: GPCCS ENGCTL reset cycle.
-        //
-        // mmiotrace reveals nouveau NEVER initializes GR on headless K80 —
-        // zero PGRAPH register accesses. Our PMC GR reset (bit 12 of 0x200)
-        // first-enables PGRAPH, leaving GPCCS Falcons in power-on reset state
-        // (not initial halt). STARTCPU only works from initial/SW halt.
-        //
-        // ENGCTL cycle (assert → delay → deassert) transitions the Falcon
-        // through its reset sequence into initial halt.
-        {
-            let gpccs_cpuctl_before = r(0x50_2000 + 0x100);
-            let gpccs_engctl_before = r(0x50_2000 + 0x3C0);
-
-            // Broadcast ENGCTL assert (reset all GPCCS Falcons).
-            w(GPCCS + 0x3C0, 0x0000_0001);
-            std::thread::sleep(std::time::Duration::from_millis(2));
-            // Broadcast ENGCTL deassert (release from reset → initial halt).
-            w(GPCCS + 0x3C0, 0x0000_0000);
-            std::thread::sleep(std::time::Duration::from_millis(2));
-
-            let gpccs_cpuctl_after = r(0x50_2000 + 0x100);
-            let gpccs_engctl_after = r(0x50_2000 + 0x3C0);
-            tracing::info!(
-                cpuctl_before = format_args!("{gpccs_cpuctl_before:#010x}"),
-                engctl_before = format_args!("{gpccs_engctl_before:#010x}"),
-                cpuctl_after = format_args!("{gpccs_cpuctl_after:#010x}"),
-                engctl_after = format_args!("{gpccs_engctl_after:#010x}"),
-                "GPCCS ENGCTL reset cycle (power-on reset → initial halt)"
-            );
-        }
-
-        // ENGCTL cycle clears IMEM/DMEM/ITFEN — must re-upload firmware.
-        {
-            let regs: &mut dyn crate::gsp::RegisterAccess =
-                &mut GuardedBarRegAccess(guard);
-            if let Err(e) = kepler_falcon::upload_dmem(regs, GPCCS, 0, &gpccs_data) {
-                tracing::warn!(error = %e, "GPCCS DMEM re-upload after ENGCTL failed");
-            }
-            if let Err(e) = kepler_falcon::upload_imem(regs, GPCCS, 0, &gpccs_code) {
-                tracing::warn!(error = %e, "GPCCS IMEM re-upload after ENGCTL failed");
-            }
-            tracing::info!("GPCCS firmware re-uploaded after ENGCTL cycle");
-        }
-
-        // Re-enable ITFEN on all GPCCS Falcons (ENGCTL clears it).
-        w(GPCCS + 0x048, 0x0000_0003);
-        for gpc in 0..8u32 {
-            let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
-            let itfen = r(gpccs_base + 0x048);
-            if itfen == 0xDEAD_DEAD || itfen & 0xBAD0_0000 == 0xBAD0_0000 {
+            if probe == 0xDEAD_DEAD || probe & 0xBAD0_0000 == 0xBAD0_0000 {
                 continue;
             }
-            w(gpccs_base + 0x048, 0x0000_0003);
+            w(gpccs_base + 0x10C, 0x0000_0000);
+            gpc_count += 1;
         }
 
-        // Step 1: GPCCS BOOTVEC=0, DMACTL=0 via broadcast, then STARTCPU per-GPC.
-        //
-        // On GK210B, the GR_GPC broadcast address (0x41A000) forwards
-        // ITFEN, DMACTL, and BOOTVEC writes correctly but silently drops CPUCTL
-        // writes. STARTCPU must be written to each per-GPC GPCCS directly.
-        w(GPCCS + 0x104, 0x0000_0000); // BOOTVEC = 0 (broadcast)
-        w(GPCCS + 0x10C, 0x0000_0000); // DMACTL = 0 (broadcast)
         {
-            let mut gpccs_started = 0u32;
+            let fecs_state = (r(FECS + 0x100), r(FECS + 0x048), r(FECS + 0x10C));
+            let gpc0_state = (r(0x50_2000 + 0x100), r(0x50_2000 + 0x048), r(0x50_2000 + 0x10C));
+            tracing::info!(
+                gpc_count,
+                fecs_cpuctl = format_args!("{:#010x}", fecs_state.0),
+                fecs_itfen = format_args!("{:#010x}", fecs_state.1),
+                fecs_dmactl = format_args!("{:#010x}", fecs_state.2),
+                gpc0_cpuctl = format_args!("{:#010x}", gpc0_state.0),
+                gpc0_itfen = format_args!("{:#010x}", gpc0_state.1),
+                gpc0_dmactl = format_args!("{:#010x}", gpc0_state.2),
+                "Pre-STARTCPU state (DMACTL=0, ITFEN=0 — Nouveau v6.8 mode)"
+            );
+        }
+
+        // Disable GPCCS BLCG before STARTCPU.
+        // Step 3c applied BLCG=0x42 via broadcast (0x41a890), which DOES reach
+        // per-GPC GPCCS on GK210B (correcting earlier assumption that broadcast
+        // writes are dropped). BLCG=0x42 gates the falcon CPU clock, making
+        // STARTCPU silently ignored. Clear BLCG to 0 so the CPU clock runs.
+        {
+            let bar0 = guard.inner();
+            let mut ungated = 0u32;
             for gpc in 0..8u32 {
                 let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
-                let itfen = r(gpccs_base + 0x048);
-                if itfen == 0xDEAD_DEAD || itfen & 0xBAD0_0000 == 0xBAD0_0000 {
+                let probe = bar0.read_u32((gpccs_base + 0x100) as usize)
+                    .unwrap_or(0xDEAD_DEAD);
+                if probe == 0xDEAD_DEAD || probe & 0xBAD0_0000 == 0xBAD0_0000 {
                     continue;
                 }
-                let _ = guard.write_u32(gpccs_base + 0x104, 0u32); // BOOTVEC = 0
-                let _ = guard.write_u32(gpccs_base + 0x10C, 0u32); // DMACTL = 0
-                let _ = guard.write_u32(gpccs_base + 0x100, 0x0000_0002u32); // STARTCPU
-                gpccs_started += 1;
+                let _ = bar0.write_u32((gpccs_base + 0x890) as usize, 0x0000_0000);
+                let _ = bar0.write_u32((gpccs_base + 0x8b0) as usize, 0x0000_0000);
+                ungated += 1;
             }
-            tracing::info!(gpccs_started, "GPCCS per-GPC STARTCPU issued");
+            let gpc0_blcg = bar0.read_u32(0x50_2890_usize).unwrap_or(0xDEAD_DEAD);
+            tracing::info!(
+                ungated,
+                gpc0_blcg = format_args!("{gpc0_blcg:#010x}"),
+                "GPCCS BLCG disabled per-GPC (was 0x42 from Step 3c broadcast)"
+            );
         }
 
-        // Step 2: Topology registers (written AFTER GPCCS start, per nouveau).
+        // Start GPCCS per-GPC via raw bar0
         {
-            let pri_gpc_count = r(0x12_0074);
-            let mut gpc_disable_mask: u32 = 0;
-            for gpc in 0..pri_gpc_count.min(8) {
-                let is_active = use_tpc_counts.iter()
-                    .take(use_gpc_count as usize)
-                    .any(|&(g, _)| g == gpc);
-                if !is_active {
-                    gpc_disable_mask |= 1 << gpc;
+            let bar0 = guard.inner();
+            for gpc in 0..8u32 {
+                let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
+                let probe = bar0.read_u32((gpccs_base + 0x100) as usize)
+                    .unwrap_or(0xDEAD_DEAD);
+                if probe == 0xDEAD_DEAD || probe & 0xBAD0_0000 == 0xBAD0_0000 {
+                    continue;
                 }
+                let _ = bar0.write_u32((gpccs_base + 0x100) as usize, 0x0000_0002);
             }
-
-            w(0x40_9604, use_gpc_count);
-            w(0x40_9608, use_tpc_total);
-            w(0x40_960C, gpc_disable_mask);
-
-            for (idx, &(_, tpc_nr)) in use_tpc_counts.iter()
-                .take(use_gpc_count as usize)
-                .enumerate()
-            {
-                w(0x40_9640 + (idx as u32) * 4, tpc_nr);
-                w(0x40_9680 + (idx as u32) * 4, tpc_nr);
-            }
-
-            let fbp_count = r(0x12_0078);
-            let fbp_count_val = if fbp_count != 0xDEAD_DEAD && fbp_count & 0xBAD0_0000 != 0xBAD0_0000 {
-                fbp_count
-            } else {
-                use_gpc_count
-            };
-            w(0x40_9A04, fbp_count_val);
-
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            let gpc0_cpuctl = bar0.read_u32(0x50_2100_usize).unwrap_or(0xDEAD_DEAD);
             tracing::info!(
-                gpc_count = use_gpc_count,
-                tpc_total = use_tpc_total,
-                gpc_disable_mask = format_args!("{gpc_disable_mask:#010x}"),
-                fbp_count = fbp_count_val,
-                "FECS topology registers (external)"
+                gpc0_cpuctl = format_args!("{gpc0_cpuctl:#010x}"),
+                started = gpc0_cpuctl & 0x10 == 0,
+                "GPCCS after STARTCPU (BLCG disabled)"
             );
         }
 
-        // Step 3: FECS BOOTVEC=0, DMACTL=0, then STARTCPU (nvkm_falcon_start).
-        w(FECS + 0x104, 0x0000_0000); // BOOTVEC = 0
-        w(FECS + 0x10C, 0x0000_0000); // DMACTL = 0
+        // Start FECS
+        w(FECS + 0x100, 0x0000_0002); // STARTCPU
+
+        std::thread::sleep(std::time::Duration::from_millis(5));
         {
-            let fecs_cpuctl_pre = r(FECS + 0x100);
-            let itfen_verify = r(FECS + 0x048);
-            let gpccs_cpuctl = r(0x50_2000 + 0x100);
-            let gpccs_itfen = r(0x50_2000 + 0x048);
-            w(FECS + 0x100, 0x0000_0002);
-            std::thread::sleep(std::time::Duration::from_micros(100));
-            let fecs_cpuctl_post = r(FECS + 0x100);
-            let fecs_idle = r(FECS + 0x04C);
-            let gpccs_cpuctl_post = r(0x50_2000 + 0x100);
-            tracing::info!(
-                fecs_cpuctl_pre = format_args!("{fecs_cpuctl_pre:#010x}"),
-                fecs_cpuctl_post = format_args!("{fecs_cpuctl_post:#010x}"),
-                fecs_idle = format_args!("{fecs_idle:#010x}"),
-                fecs_itfen = format_args!("{itfen_verify:#010x}"),
-                gpccs_cpuctl_pre = format_args!("{gpccs_cpuctl:#010x}"),
-                gpccs_cpuctl_post = format_args!("{gpccs_cpuctl_post:#010x}"),
-                gpccs_itfen = format_args!("{gpccs_itfen:#010x}"),
-                "FECS STARTCPU issued (ITFEN first, then GPCCS start, then FECS start)"
-            );
-        }
-
-        // Step 4: Clear handshake register (nouveau does this AFTER STARTCPU).
-        w(CTXSW_MAILBOX0, 0x0000_0000);
-
-        // Diagnostic: focused GPC0 GPCCS STARTCPU experiment.
-        std::thread::sleep(std::time::Duration::from_millis(1));
-        {
-            const GPC0_GPCCS: u32 = 0x50_2000;
-            let gpc0_pre = r(GPC0_GPCCS + 0x100);
-            let gpc0_itfen = r(GPC0_GPCCS + 0x048);
-            let gpc0_dmactl = r(GPC0_GPCCS + 0x10C);
-
-            // Try STARTCPU again directly on GPC0 GPCCS (nvkm_falcon_start sequence).
-            w(GPC0_GPCCS + 0x104, 0x0000_0000); // BOOTVEC = 0
-            w(GPC0_GPCCS + 0x10C, 0x0000_0000); // DMACTL = 0
-            w(GPC0_GPCCS + 0x100, 0x0000_0002); // STARTCPU
-            let gpc0_post = r(GPC0_GPCCS + 0x100);
-
-            // Check FECS real state.
             let fecs_cpuctl = r(FECS + 0x100);
-            let fecs_trap = r(FECS + 0x018);
-            let fecs_epc = r(FECS + 0x01C);
-
-            // Try reading Falcon v3 actual UC_PC at offset 0x028.
-            let fecs_uc_pc = r(FECS + 0x028);
-            let gpc0_uc_pc = r(GPC0_GPCCS + 0x028);
-
+            let fecs_idle = r(FECS + 0x04C);
+            let fecs_pc = r(0x40_9C20);
+            let gpc0_cpuctl = r(0x50_2000 + 0x100);
+            let gpc0_pc = r(0x50_2000 + 0x0C20);
+            let gpc0_exci = r(0x50_2000 + 0x04C);
+            let mailbox0 = r(CTXSW_MAILBOX0);
             tracing::info!(
-                gpc0_cpuctl_pre = format_args!("{gpc0_pre:#010x}"),
-                gpc0_cpuctl_post = format_args!("{gpc0_post:#010x}"),
-                gpc0_itfen = format_args!("{gpc0_itfen:#010x}"),
-                gpc0_dmactl = format_args!("{gpc0_dmactl:#010x}"),
                 fecs_cpuctl = format_args!("{fecs_cpuctl:#010x}"),
-                fecs_trap = format_args!("{fecs_trap:#010x}"),
-                fecs_epc = format_args!("{fecs_epc:#010x}"),
-                fecs_uc_pc = format_args!("{fecs_uc_pc:#010x}"),
-                gpc0_uc_pc = format_args!("{gpc0_uc_pc:#010x}"),
-                "Post-start diagnostic (GPC0 GPCCS retry + Falcon UC_PC)"
+                fecs_idle = format_args!("{fecs_idle:#010x}"),
+                fecs_pc = format_args!("{fecs_pc:#010x}"),
+                gpc0_cpuctl = format_args!("{gpc0_cpuctl:#010x}"),
+                gpc0_pc = format_args!("{gpc0_pc:#010x}"),
+                gpc0_exci = format_args!("{gpc0_exci:#010x}"),
+                mailbox0 = format_args!("{mailbox0:#010x}"),
+                "Post-STARTCPU state (5ms after both falcons started)"
             );
         }
 
@@ -1448,7 +1363,7 @@ pub(super) fn kepler_load_and_boot_fecs(
                         cpuctl = format_args!("{cpuctl:#010x}"),
                         pc = format_args!("{fecs_pc:#010x}"),
                         exci = format_args!("{fecs_exci:#010x}"),
-                        "FECS HALTED — firmware hit exception"
+                        "FECS stuck in HRESET (0x10) — STARTCPU not consumed"
                     );
                     break;
                 }

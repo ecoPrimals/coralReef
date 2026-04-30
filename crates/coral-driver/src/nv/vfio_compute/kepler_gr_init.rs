@@ -262,17 +262,17 @@ static GK110_GR_EXCEPTIONS: &[(u32, u32)] = &[
 ///
 /// Returns `(applied, faulted)` counts.
 pub(crate) fn apply_gk110_gr_init(guard: &super::hardware_guard::GuardedBar<'_>) -> (u32, u32) {
+    let gpcs = detect_live_gpcs(guard);
     let mut applied = 0u32;
     let mut faulted = 0u32;
 
     for &(reg, val) in GK110_GR_MMIO.iter().chain(GK110_GR_EXCEPTIONS.iter()) {
-        match guard.write_u32(reg, val) {
-            Ok(()) => applied += 1,
-            Err(_) => faulted += 1,
-        }
+        let (a, f) = write_with_gpc_fanout(guard, &gpcs, reg, val);
+        applied += a;
+        faulted += f;
     }
 
-    tracing::info!(applied, faulted, "GK110 PGRAPH MMIO init applied");
+    tracing::info!(applied, faulted, gpcs = gpcs.len(), "GK110 PGRAPH MMIO init applied (per-GPC fanout)");
     (applied, faulted)
 }
 
@@ -420,16 +420,67 @@ const GK110_CLKGATE_INIT: &[(u32, u32)] = &[
 ///
 /// Returns `(applied, faulted)` counts.
 pub(crate) fn apply_gk110_clkgate(guard: &super::hardware_guard::GuardedBar<'_>) -> (u32, u32) {
+    let gpcs = detect_live_gpcs(guard);
     let mut applied = 0u32;
     let mut faulted = 0u32;
 
     for &(reg, val) in GK110_CLKGATE_INIT {
-        match guard.write_u32(reg, val) {
-            Ok(()) => applied += 1,
-            Err(_) => faulted += 1,
-        }
+        let (a, f) = write_with_gpc_fanout(guard, &gpcs, reg, val);
+        applied += a;
+        faulted += f;
     }
 
-    tracing::info!(applied, faulted, "GK110 clock gating init applied");
+    tracing::info!(applied, faulted, gpcs = gpcs.len(), "GK110 clock gating init applied (per-GPC fanout)");
     (applied, faulted)
+}
+
+/// Detect which GPCs are alive by probing GPCCS CPUCTL at each per-GPC base.
+/// Returns a Vec of live GPC indices.
+fn detect_live_gpcs(guard: &super::hardware_guard::GuardedBar<'_>) -> Vec<u32> {
+    let mut live = Vec::new();
+    for gpc in 0..8u32 {
+        let gpccs_cpuctl = 0x50_0000 + gpc * 0x8000 + 0x2100;
+        match guard.read_u32(gpccs_cpuctl) {
+            Ok(v) if v != 0xDEAD_DEAD && v & 0xBAD0_0000 != 0xBAD0_0000 => {
+                live.push(gpc);
+            }
+            _ => {}
+        }
+    }
+    live
+}
+
+const GPC_BROADCAST_BASE: u32 = 0x41_8000;
+const GPC_BROADCAST_END: u32 = 0x41_C000;
+const GPC_UNICAST_BASE: u32 = 0x50_0000;
+const GPC_STRIDE: u32 = 0x8000;
+
+/// Write a register value. If the address falls in the GPC broadcast range
+/// (0x418000..0x41C000), fan out the write to each live GPC using unicast
+/// addresses. On GK210B, broadcast writes to GPC control registers are
+/// silently dropped; only unicast per-GPC writes take effect.
+fn write_with_gpc_fanout(
+    guard: &super::hardware_guard::GuardedBar<'_>,
+    gpcs: &[u32],
+    reg: u32,
+    val: u32,
+) -> (u32, u32) {
+    if reg >= GPC_BROADCAST_BASE && reg < GPC_BROADCAST_END {
+        let offset = reg - GPC_BROADCAST_BASE;
+        let mut applied = 0u32;
+        let mut faulted = 0u32;
+        for &gpc in gpcs {
+            let unicast = GPC_UNICAST_BASE + gpc * GPC_STRIDE + offset;
+            match guard.write_u32(unicast, val) {
+                Ok(()) => applied += 1,
+                Err(_) => faulted += 1,
+            }
+        }
+        (applied, faulted)
+    } else {
+        match guard.write_u32(reg, val) {
+            Ok(()) => (1, 0),
+            Err(_) => (0, 1),
+        }
+    }
 }

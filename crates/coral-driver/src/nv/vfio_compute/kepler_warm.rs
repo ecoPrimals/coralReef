@@ -118,111 +118,180 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             "POST-done: topology cached (before PMC reset)"
         );
 
-        // Log Falcon ITFEN before PMC reset to see what nouveau left it at.
+        // Check GPCCS falcon CPUCTL at GPC0+0x2100 to detect if GPCs are alive.
+        // GPC identity at 0x500000 (GPC+0x0000) always returns 0xbadf1100 PRI
+        // timeout on GK210B even when GPCs are fully functional — it's the GPC's
+        // PRI slave interface block which is inaccessible. The GPCCS falcon at
+        // GPC+0x2000 and functional registers at GPC+0x0400+ work correctly.
         let fecs_itfen_pre = r(FECS + 0x048);
+        let gpccs0_cpuctl_pre = r(0x50_2100);
+        let gr_hub_pre = r(0x40_0000);
+        let gpcs_already_alive = gpccs0_cpuctl_pre != 0xDEAD_DEAD
+            && gpccs0_cpuctl_pre & 0xBAD0_0000 != 0xBAD0_0000
+            && gpccs0_cpuctl_pre != 0;
         tracing::info!(
             itfen = format_args!("{fecs_itfen_pre:#010x}"),
-            "POST-done: FECS ITFEN before PMC GR reset (nouveau's value)"
+            gpccs0_cpuctl = format_args!("{gpccs0_cpuctl_pre:#010x}"),
+            gr_hub = format_args!("{gr_hub_pre:#010x}"),
+            gpcs_already_alive,
+            "POST-done: GPC state before reset (GPCCS falcon check)"
         );
 
-        // PMC GR reset puts FECS/GPCCS into clean initial halt state.
-        // Without this, FECS is in nouveau's software-halted state and
-        // STARTCPU may stall (CPUCTL=0x00 but PC=0, idle=1).
+        // Always do PMC GR reset to put the GR HUB register file in a clean
+        // state. Without this, GR HUB registers return 0xbadf1002 (DECODE_ERROR)
+        // from the previous driver session, causing FECS firmware to trap on init.
+        // GPCs survive the PMC GR reset on GK210B — the GPCCS falcon at GPC+0x2100
+        // remains accessible after re-enabling PGRAPH (bit 12).
         {
-            let bar0 = guard.inner();
-            let rd_raw =
-                |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
-            let wr_raw =
-                |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
+            tracing::info!("PMC GR reset for clean GR HUB state (GPCs survive on GK210B)");
+            {
+                let bar0 = guard.inner();
+                let rd_raw =
+                    |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+                let wr_raw =
+                    |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
 
-            let pmc_cur = rd_raw(0x200);
-            wr_raw(0x200, pmc_cur & !0x0000_1000);
-            rd_raw(0x200);
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            wr_raw(0x200, pmc_cur | 0x0000_1000);
-            rd_raw(0x200);
-            std::thread::sleep(std::time::Duration::from_millis(50));
+                let pmc_cur = rd_raw(0x200);
+                wr_raw(0x200, pmc_cur & !0x0000_1000);
+                rd_raw(0x200);
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                wr_raw(0x200, pmc_cur | 0x0000_1000);
+                rd_raw(0x200);
+                std::thread::sleep(std::time::Duration::from_millis(50));
 
-            super::pri::nouveau_pri_ring_init(&rd_raw, &wr_raw);
-            super::pri::clear_pri_ring_faults(bar0, &rd_raw, &wr_raw);
+                super::pri::nouveau_pri_ring_init(&rd_raw, &wr_raw);
+                super::pri::clear_pri_ring_faults(bar0, &rd_raw, &wr_raw);
 
-            let fecs_after = rd_raw(FECS + 0x100);
-            let itfen_after = rd_raw(FECS + 0x048);
-            let gpc0_after = rd_raw(0x50_2608);
-            tracing::info!(
-                pmc = format_args!("{:#010x}", rd_raw(0x200)),
-                fecs_cpuctl = format_args!("{fecs_after:#010x}"),
-                itfen = format_args!("{itfen_after:#010x}"),
-                gpc0 = format_args!("{gpc0_after:#010x}"),
-                "POST-done: state after PMC GR reset"
-            );
+                let fecs_after = rd_raw(FECS + 0x100);
+                let gpccs0_after = rd_raw(0x50_2100);
+                let gr_status = rd_raw(0x40_0700);
+                tracing::info!(
+                    pmc = format_args!("{:#010x}", rd_raw(0x200)),
+                    fecs_cpuctl = format_args!("{fecs_after:#010x}"),
+                    gpccs0_cpuctl = format_args!("{gpccs0_after:#010x}"),
+                    gr_status = format_args!("{gr_status:#010x}"),
+                    "POST-done: state after PMC GR reset"
+                );
+            }
         }
 
-        // After PMC GR reset, check if GPCs are accessible.
-        //
-        // CRITICAL: Check GPC0 identity at 0x500000, NOT 0x502608.
-        // Register 0x502608 (TPC fuse readout) is always readable even when
-        // GPCs are power-gated, giving a false positive. Register 0x500000
-        // (GPC0 identity) correctly returns 0xbadf1100 PRI fault when gated.
-        //
-        // On headless K80, nouveau NEVER initializes GR or calls PGOB
-        // (confirmed via mmiotrace + dmesg). GPCs are always gated after
-        // cold POST. We must run PGOB to ungate them.
+        // Check GPC state after reset (whichever path we took).
         {
             super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
-            let gpc0_identity = r(0x50_0000);
+            let gpccs0_cpuctl = r(0x50_2100);
             let gr_hub_check = r(0x40_0000);
-            let gpcs_alive = gpc0_identity != 0xDEAD_DEAD
-                && gpc0_identity & 0xBAD0_0000 != 0xBAD0_0000
-                && gpc0_identity != 0;
+            let gpcs_alive = gpccs0_cpuctl != 0xDEAD_DEAD
+                && gpccs0_cpuctl & 0xBAD0_0000 != 0xBAD0_0000
+                && gpccs0_cpuctl != 0;
             let gr_hub_ok = gr_hub_check != 0xDEAD_DEAD
                 && gr_hub_check & 0xBAD0_0000 != 0xBAD0_0000;
 
             tracing::info!(
-                gpc0_id = format_args!("{gpc0_identity:#010x}"),
+                gpccs0_cpuctl = format_args!("{gpccs0_cpuctl:#010x}"),
                 gr_hub = format_args!("{gr_hub_check:#010x}"),
                 gpcs_alive,
                 gr_hub_ok,
-                "POST-done: GPC/GR HUB state after PMC GR reset"
+                "POST-done: GPC/GR HUB state after reset"
             );
 
-            if !gpcs_alive {
-                // Try nvidia-470 PSW-only PGOB first (works on GK210B, avoids
-                // 0x0205xx PRIVRING faults that plague the Nouveau sequence).
-                tracing::info!("GPCs power-gated — trying nvidia-470 PSW-only PGOB disable");
-                super::pgob::nvidia470_pgob_disable(guard);
+            {
+                // Nouveau ALWAYS calls nvkm_pmu_pgob(false) after PMC GR reset,
+                // regardless of GPC power state. PGOB disable configures internal
+                // PGRAPH power domains via BLG (PMC bit 27) + 0x0205xx magic table.
+                // Without it, the GR HUB register decoder remains gated, returning
+                // 0xbadf1002 (DECODE_ERROR) on all GR HUB register accesses.
+                tracing::info!("PGOB disable (Nouveau-aligned: always after PMC GR reset)");
+
+                // Step 1: Apply privring timing (Nouveau calls this during init)
+                super::pri::gk104_privring_timing(&r, &w);
+
+                // Step 2: Boot PMU firmware — PGOB control register (0x10a78c)
+                // is only writable when the PMU falcon is running firmware.
+                // Falcon CPUCTL bits: 0x10=HALTED, 0x20=HRESET/STOPPED.
+                // Running state = no halt bits set (cpuctl & 0x30 == 0).
+                {
+                    let pmu_cpuctl = r(0x10_A100);
+                    let pmu_running = pmu_cpuctl != 0xDEAD_DEAD
+                        && pmu_cpuctl & 0xBAD0_0000 != 0xBAD0_0000
+                        && pmu_cpuctl & 0x30 == 0;
+
+                    tracing::info!(
+                        pmu_cpuctl = format_args!("{pmu_cpuctl:#010x}"),
+                        pmu_running,
+                        halted = pmu_cpuctl & 0x10 != 0,
+                        hreset = pmu_cpuctl & 0x20 != 0,
+                        "POST-done: PMU state before PGOB"
+                    );
+
+                    if !pmu_running {
+                        let pmu_ok = super::pmu::gk110_pmu_boot(guard);
+                        tracing::info!(pmu_ok, "POST-done: booted PMU for PGOB");
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+
+                    // Diagnostic: check if 0x10a78c accepts writes from VFIO
+                    let psw_pre = r(0x10_a78c);
+                    w(0x10_a78c, 0x0000_0002);
+                    let psw_wrote = r(0x10_a78c);
+                    w(0x10_a78c, psw_pre); // restore
+                    tracing::info!(
+                        psw_pre = format_args!("{psw_pre:#010x}"),
+                        psw_wrote = format_args!("{psw_wrote:#010x}"),
+                        writable = psw_wrote == 0x0000_0002,
+                        "PSW register (0x10a78c) write test"
+                    );
+                }
+
+                // Step 3: PGOB disable — try three approaches in order:
+                //   a) GK104-style PG_CTRL bit 30 (simplest, verified fuse check)
+                //   b) nvidia-470 PSW-only handshake
+                //   c) Full Nouveau gk110_pmu_pgob magic table
+                let check_gpccs0 = || {
+                    let v = r(0x50_2100); // GPCCS falcon CPUCTL
+                    v != 0xDEAD_DEAD && v != 0 && v & 0xBAD0_0000 != 0xBAD0_0000
+                };
+
+                super::pgob::gk104_pgob_disable(guard);
                 super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
-                let gpc0_nv470 = r(0x50_0000);
-                let nv470_ok = gpc0_nv470 != 0xDEAD_DEAD
-                    && gpc0_nv470 != 0
-                    && gpc0_nv470 & 0xBAD0_0000 != 0xBAD0_0000;
-
-                if !nv470_ok {
-                    // PSW-only didn't work — fall back to Nouveau sequence
+                if !check_gpccs0() {
                     tracing::info!(
-                        gpc0 = format_args!("{gpc0_nv470:#010x}"),
-                        "nvidia-470 PGOB didn't ungate — falling back to gk110_pmu_pgob"
+                        gpccs0 = format_args!("{:#010x}", r(0x50_2100)),
+                        "gk104 PG_CTRL didn't ungate — trying nvidia-470 PSW"
+                    );
+                    super::pgob::nvidia470_pgob_disable(guard);
+                    super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+                }
+
+                if !check_gpccs0() {
+                    tracing::info!(
+                        gpccs0 = format_args!("{:#010x}", r(0x50_2100)),
+                        "nvidia-470 PSW didn't ungate — full gk110_pmu_pgob magic table"
                     );
                     super::pgob::gk110_pgob_disable(guard);
                     super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
                 }
+                let pgob_ok = check_gpccs0();
 
-                // Re-enumerate PRI ring after PGOB — new stations may be online.
+                super::pri::gk104_privring_timing(&r, &w);
                 super::pri::nouveau_pri_ring_init(&r, &w);
                 super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
-                let gpc0_post = r(0x50_0000);
+                let gpccs0_post = r(0x50_2100);
                 let gr_hub_post = r(0x40_0000);
+                let pri_hub = r(0x12_0070);
+                let pri_rop = r(0x12_0074);
+                let pri_gpc = r(0x12_0078);
+                let gr_gpc_nr = r(0x40_9604);
                 tracing::info!(
-                    gpc0 = format_args!("{gpc0_post:#010x}"),
+                    gpccs0 = format_args!("{gpccs0_post:#010x}"),
                     gr_hub = format_args!("{gr_hub_post:#010x}"),
-                    gpc_ok = gpc0_post != 0xDEAD_DEAD && gpc0_post & 0xBAD0_0000 != 0xBAD0_0000,
-                    used_nv470 = nv470_ok,
-                    "POST-done: state after PGOB disable"
+                    pri_hub, pri_rop, pri_gpc,
+                    gr_gpc_nr = format_args!("{gr_gpc_nr:#010x}"),
+                    gpc_ok = gpccs0_post != 0xDEAD_DEAD && gpccs0_post & 0xBAD0_0000 != 0xBAD0_0000,
+                    pgob_ok,
+                    "POST-done: state after PGOB (0x70=hub, 0x74=rop, 0x78=gpc)"
                 );
-            } else {
-                tracing::info!("GPCs already alive — skipping PGOB disable");
             }
         }
 
@@ -242,13 +311,16 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
     let pll0_early = r(0x13_0000);
     let pll_coef_early = r(0x13_0004);
     let ptimer_early = r(0x9400);
-    let pri_ring_gpc_cnt = r(0x12_0074);
     let gpc0_early = r(0x50_2608);
     {
         let gpc1 = r(0x50_8000);
         let gpc_bcast = r(0x41_8000);
         let pmu_pgob = r(0x10_a78c);
         let pri_ring_intr = r(0x12_0058);
+        // PRI ring master topology: 0x120070=hub, 0x120074=ROP, 0x120078=GPC
+        let pri_hub_cnt = r(0x12_0070);
+        let pri_rop_cnt = r(0x12_0074);
+        let pri_gpc_cnt = r(0x12_0078);
         tracing::info!(
             pmc = format_args!("{pmc:#010x}"),
             pll0 = format_args!("{pll0_early:#010x}"),
@@ -259,8 +331,10 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             gpc_bcast = format_args!("{gpc_bcast:#010x}"),
             pmu_pgob = format_args!("{pmu_pgob:#010x}"),
             pri_ring_intr = format_args!("{pri_ring_intr:#010x}"),
-            pri_gpc_cnt = format_args!("{pri_ring_gpc_cnt:#010x}"),
-            "EARLIEST diagnostic (pre-init)"
+            pri_hub_cnt = format_args!("{pri_hub_cnt:#010x}"),
+            pri_rop_cnt = format_args!("{pri_rop_cnt:#010x}"),
+            pri_gpc_cnt = format_args!("{pri_gpc_cnt:#010x}"),
+            "EARLIEST diagnostic (0x70=hub, 0x74=rop, 0x78=gpc)"
         );
 
         // GPC power management diagnostic — understand WHY GPCs are 0xbadf1100.
@@ -283,30 +357,64 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         );
     }
 
-    // Step 0: Log PMU state but leave it RUNNING for warm restart.
+    // Step 0: Halt the old PMU firmware BEFORE any PMC changes.
     //
-    // The PMU firmware manages per-GPC power gating.  FECS communicates
-    // with PMU to power-on GPCs when it needs them.  If we halt PMU now,
-    // FECS can't request GPC power and crashes accessing 0xbadf1100 GPCs.
-    // Only halt PMU in the fallback "full reinit" path where we boot
-    // fresh PMU firmware anyway.
+    // The Nouveau PMU firmware actively manages power domains. When we
+    // change PMC_ENABLE, the running PMU may interpret this as a signal
+    // to re-gate engines, counteracting our clock/power setup. Halt it
+    // now and boot fresh PMU firmware later when we need it.
     let pmu_was_running;
     {
         const PMU_BASE: u32 = 0x10_A000;
         let pmu_cpuctl = r(PMU_BASE + 0x100);
         pmu_was_running = pmu_cpuctl != 0xDEAD_DEAD
             && pmu_cpuctl & 0xBAD0_0000 != 0xBAD0_0000
-            && pmu_cpuctl & 0x20 != 0; // bit 5 = RUNNING (nouveau: nvkm_falcon_v1_enabled)
+            && pmu_cpuctl & 0x30 == 0; // running = no HALTED(0x10) or HRESET(0x20) bits
         tracing::info!(
             pmu_cpuctl = format_args!("{pmu_cpuctl:#010x}"),
             pmu_running = pmu_was_running,
-            "PMU falcon state (left running for GPC power management)"
+            halted = pmu_cpuctl & 0x10 != 0,
+            hreset = pmu_cpuctl & 0x20 != 0,
+            "PMU falcon state before halt"
         );
 
-        let gpc0_early_check = r(0x50_2608);
+        if pmu_was_running {
+            // Halt PMU via PTOP reset (same method as gt215_pmu_reset)
+            let bar0 = guard.inner();
+            let rd_raw =
+                |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+            let wr_raw =
+                |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
+
+            let ptop = rd_raw(0x02_2210);
+            wr_raw(0x02_2210, ptop & !0x01); // disable PMU
+            rd_raw(0x02_2210);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            wr_raw(0x02_2210, ptop | 0x01); // re-enable (puts PMU into clean reset state)
+            rd_raw(0x02_2210);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+
+            let pmu_after = r(PMU_BASE + 0x100);
+            tracing::info!(
+                pmu_cpuctl = format_args!("{pmu_after:#010x}"),
+                halted = (pmu_after & 0x20 == 0),
+                "PMU halted via PTOP reset (no longer managing power)"
+            );
+        }
+
+        // PNVIO/crystal diagnostic: check if the reference clock chain is alive
+        let pnvio_xtal = r(0x00e220);
+        let pnvio_ctrl = r(0x00e000);
+        let pnvio_cfg0 = r(0x00e004);
+        let ref_pll0_ctrl = r(0x00e800);
+        let ref_pll0_coef = r(0x00e804);
         tracing::info!(
-            gpc0 = format_args!("{gpc0_early_check:#010x}"),
-            "GPC0 with PMU still running"
+            pnvio_xtal = format_args!("{pnvio_xtal:#010x}"),
+            pnvio_ctrl = format_args!("{pnvio_ctrl:#010x}"),
+            pnvio_cfg0 = format_args!("{pnvio_cfg0:#010x}"),
+            ref_pll0_ctrl = format_args!("{ref_pll0_ctrl:#010x}"),
+            ref_pll0_coef = format_args!("{ref_pll0_coef:#010x}"),
+            "PNVIO/crystal state (reference clock chain)"
         );
     }
 
@@ -353,211 +461,71 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
 
                 let pmc_after = rd_raw(0x200);
 
-                // ── Full clock chain diagnostic ──
-                // Chain: Crystal(27MHz) → Ref PLLs(0xe800) → VCO →
-                //   PCLOCK Core PLLs(0x130000) → Domain Selectors(0x134000) →
-                //   Master Routing(0x137000) → Engine Clocks
-                let ref_pll0_ctrl = rd_raw(0xe800);
-                let ref_pll0_coef = rd_raw(0xe804);
-                let ref_pll1_ctrl = rd_raw(0xe820);
-                let ref_pll1_coef = rd_raw(0xe824);
-                let pclock_pll0_ctrl = rd_raw(0x13_0000);
-                let pclock_pll0_coef = rd_raw(0x13_0004);
-                let pclock_pll0_stat = rd_raw(0x13_0014);
-                let clk_master = rd_raw(0x13_7000);
-                let clk_src_sel = rd_raw(0x13_7100);
-                let clk_ref_div0 = rd_raw(0x13_7120);
-                let clk_ref_div1 = rd_raw(0x13_7140);
-                let clk_out_div0 = rd_raw(0x13_7250);
-                let pclock_master = rd_raw(0x13_8000);
-                tracing::info!(
-                    ref_pll0_ctrl = format_args!("{ref_pll0_ctrl:#010x}"),
-                    ref_pll0_coef = format_args!("{ref_pll0_coef:#010x}"),
-                    ref_pll1_ctrl = format_args!("{ref_pll1_ctrl:#010x}"),
-                    ref_pll1_coef = format_args!("{ref_pll1_coef:#010x}"),
-                    "Clock chain: Reference PLLs (crystal → VCO)"
-                );
-                tracing::info!(
-                    pll0_ctrl = format_args!("{pclock_pll0_ctrl:#010x}"),
-                    pll0_coef = format_args!("{pclock_pll0_coef:#010x}"),
-                    pll0_stat = format_args!("{pclock_pll0_stat:#010x}"),
-                    clk_master = format_args!("{clk_master:#010x}"),
-                    clk_src_sel = format_args!("{clk_src_sel:#010x}"),
-                    pclock_master = format_args!("{pclock_master:#010x}"),
-                    "Clock chain: PCLOCK core PLLs + routing"
-                );
-                tracing::info!(
-                    ref_div0 = format_args!("{clk_ref_div0:#010x}"),
-                    ref_div1 = format_args!("{clk_ref_div1:#010x}"),
-                    out_div0 = format_args!("{clk_out_div0:#010x}"),
-                    pmc = format_args!("{pmc_after:#010x}"),
-                    "Clock chain: dividers + PMC state"
-                );
+                // ── Nouveau-style clock tree diagnostic ──
+                // The nvidia-470 PCLOCK PLLs at 0x130xxx are a red herring —
+                // they require PMU to enable their power domain. Nouveau uses
+                // 0x137xxx for engine clocks (gk104_clk.c).
+                {
+                    let r_diag = |reg: u32| -> u32 {
+                        bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD)
+                    };
+                    let w_diag = |reg: u32, val: u32| {
+                        let _ = bar0.write_u32(reg as usize, val);
+                    };
 
-                // Write-test: can reference PLL accept writes?
-                let ref0_orig = ref_pll0_ctrl;
-                wr_raw(0xe800, ref0_orig ^ 0x1);
-                let ref0_test = rd_raw(0xe800);
-                wr_raw(0xe800, ref0_orig);
-                let ref_writable = ref0_test == (ref0_orig ^ 0x1);
-
-                // Write-test: can PCLOCK PLL accept writes?
-                wr_raw(0x13_0000, 0x0000_0001);
-                let pc0_test = rd_raw(0x13_0000);
-                wr_raw(0x13_0000, pclock_pll0_ctrl);
-                let pclock_writable = pc0_test == 0x0000_0001;
-
-                tracing::info!(
-                    ref_writable,
-                    pclock_writable,
-                    ref0_test = format_args!("{ref0_test:#010x}"),
-                    pc0_test = format_args!("{pc0_test:#010x}"),
-                    "Write-test: PLL register writability"
-                );
-
-                let ref_pll_alive = ref_pll0_ctrl != 0
-                    && ref_pll0_ctrl != 0xDEAD_DEAD
-                    && ref_pll0_coef != 0;
-                let pll_alive = pclock_pll0_ctrl != 0
-                    && pclock_pll0_ctrl != 0xDEAD_DEAD
-                    && pclock_pll0_ctrl & 0xBAD0_0000 != 0xBAD0_0000;
-
-                if !ref_pll_alive {
-                    tracing::warn!("Reference PLLs dead — programming from crystal (27 MHz → ~2 GHz VCO)");
-                    // Crystal = 27 MHz. Target VCO ≈ 2 GHz.
-                    // M=1, N=74, P=0 → actual = 27000 * 74 / 1 = 1998 MHz.
-                    let ref_coef: u32 = 1 | (74 << 8); // M=1, N=74, P=0
-                    wr_raw(0xe800, 0);
-                    wr_raw(0xe804, ref_coef);
-                    wr_raw(0xe800, 1);
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    wr_raw(0xe820, 0);
-                    wr_raw(0xe824, ref_coef);
-                    wr_raw(0xe820, 1);
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-
-                    let ref0_post = rd_raw(0xe800);
-                    let ref0c_post = rd_raw(0xe804);
-                    let ref1_post = rd_raw(0xe820);
+                    // Reference PLLs (always-on domain)
+                    let ref0_ctrl = r_diag(0xe800);
+                    let ref0_coef = r_diag(0xe804);
                     tracing::info!(
-                        ref0_ctrl = format_args!("{ref0_post:#010x}"),
-                        ref0_coef = format_args!("{ref0c_post:#010x}"),
-                        ref1_ctrl = format_args!("{ref1_post:#010x}"),
-                        "After reference PLL programming"
+                        ref0_ctrl = format_args!("{ref0_ctrl:#010x}"),
+                        ref0_coef = format_args!("{ref0_coef:#010x}"),
+                        pmc = format_args!("{pmc_after:#010x}"),
+                        "Clock chain: reference PLLs + PMC"
                     );
-                }
 
-                // Write 0x137xxx clock routing entries first — on GK104/GK110,
-                // routing must be configured before PLLs accept writes.
-                for &(reg, val) in super::kepler_clock::gk110_clock_recipe_entries() {
-                    if reg >= 0x13_7000 && reg <= 0x13_7FFF {
-                        wr_raw(reg, val);
+                    // Full Nouveau clock tree readout
+                    super::kepler_nouveau_clk::nouveau_clock_diagnostic(&r_diag);
+
+                    // Test which 0x137xxx sub-ranges are writable
+                    let (pll_w, div_w, out_w) =
+                        super::kepler_nouveau_clk::test_137xxx_writability(&r_diag, &w_diag);
+
+                    if div_w || pll_w {
+                        // 0x137xxx registers ARE writable — program crystal-based
+                        // engine clocks so PGRAPH has a functional clock domain.
+                        tracing::info!(
+                            pll_writable = pll_w,
+                            div_writable = div_w,
+                            "0x137xxx writable — programming Nouveau-style engine clocks"
+                        );
+
+                        // Start with crystal divider clocks (108 MHz)
+                        super::kepler_nouveau_clk::program_crystal_clocks(&r_diag, &w_diag);
+
+                        // If PLLs are also writable, program 405 MHz engine PLLs
+                        if pll_w {
+                            super::kepler_nouveau_clk::program_engine_plls(&r_diag, &w_diag);
+                        }
+                    } else {
+                        tracing::warn!(
+                            "0x137xxx NOT writable — engine clocks may not be reaching PGRAPH"
+                        );
                     }
                 }
-                // Also write 0x132xxx-0x136xxx domain selectors.
-                for &(reg, val) in super::kepler_clock::gk110_clock_recipe_entries() {
-                    if reg >= 0x13_2000 && reg <= 0x13_6FFF {
-                        wr_raw(reg, val);
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(10));
-
-                wr_raw(0x13_0000, 0x0000_0001);
-                let pc0_test2 = rd_raw(0x13_0000);
-                wr_raw(0x13_0000, 0x0000_0000);
-                let pclock_writable_now = pc0_test2 == 0x0000_0001;
-                tracing::info!(
-                    pclock_writable = pclock_writable_now,
-                    readback = format_args!("{pc0_test2:#010x}"),
-                    clk_master = format_args!("{:#010x}", rd_raw(0x13_7000)),
-                    clk_src = format_args!("{:#010x}", rd_raw(0x13_7100)),
-                    "PCLOCK PLL writability after routing + selector writes"
-                );
 
                 let gpc0_after = rd_raw(0x50_2608);
                 let fecs_after = rd_raw(FECS + CPUCTL_OFF);
                 tracing::info!(
                     gpc0 = format_args!("{gpc0_after:#010x}"),
                     fecs = format_args!("{fecs_after:#010x}"),
-                    "State after warm PMC re-enable + clock chain init"
-                );
-
-                if !pclock_writable_now && !pll_alive {
-                    tracing::warn!("PLLs still not writable — booting PMU to un-gate PLL power");
-                }
-            }
-
-            // If PCLOCK PLLs are still dead after PMC re-enable + master control,
-            // the PLL analog power domain is gated. The PMU manages this.
-            let pll0_check = r(0x13_0000);
-            let pll_alive_pre = pll0_check != 0
-                && pll0_check != 0xDEAD_DEAD
-                && pll0_check & 0xBAD0_0000 != 0xBAD0_0000;
-
-            if !pll_alive_pre {
-                tracing::info!("Booting PMU firmware to un-gate PLL power domains");
-                let pmu_ok = super::pmu::gk110_pmu_boot(guard);
-                std::thread::sleep(std::time::Duration::from_millis(100));
-
-                let pll0_post_pmu = r(0x13_0000);
-                let pll0_coef_post = r(0x13_0004);
-                tracing::info!(
-                    pmu_ok,
-                    pll0 = format_args!("{pll0_post_pmu:#010x}"),
-                    pll0_coef = format_args!("{pll0_coef_post:#010x}"),
-                    "PLLs after PMU boot"
-                );
-
-                let pll_alive_post = pll0_post_pmu != 0
-                    && pll0_post_pmu != 0xDEAD_DEAD
-                    && pll0_post_pmu & 0xBAD0_0000 != 0xBAD0_0000;
-
-                if pll_alive_post {
-                    tracing::info!("PMU boot un-gated PLLs — applying clock recipe");
-                    let (clk_applied, clk_skipped) =
-                        super::kepler_clock::apply_gk110_clock_recipe(guard);
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-
-                    let pll0_final = r(0x13_0000);
-                    tracing::info!(
-                        clk_applied, clk_skipped,
-                        pll0 = format_args!("{pll0_final:#010x}"),
-                        "Clock recipe applied after PMU boot"
-                    );
-                } else {
-                    tracing::warn!("PLLs dead after PMU boot — trying direct clock recipe");
-                    let (clk_applied, clk_skipped) =
-                        super::kepler_clock::apply_gk110_clock_recipe(guard);
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-
-                    let pll0_recipe = r(0x13_0000);
-                    tracing::info!(
-                        clk_applied, clk_skipped,
-                        pll0 = format_args!("{pll0_recipe:#010x}"),
-                        "Clock recipe applied directly (PLLs may still be dead)"
-                    );
-
-                    if pll0_recipe == 0 || pll0_recipe == 0xDEAD_DEAD {
-                        tracing::warn!("All clock init attempts failed — falling back to cold recovery");
-                        super::kepler_recovery::kepler_cold_recovery(guard);
-                    }
-                }
-            } else {
-                tracing::info!(
-                    pll0 = format_args!("{pll0_check:#010x}"),
-                    "PLLs alive after warm PMC re-enable — applying clock recipe"
-                );
-                let (clk_applied, clk_skipped) =
-                    super::kepler_clock::apply_gk110_clock_recipe(guard);
-                std::thread::sleep(std::time::Duration::from_millis(100));
-
-                let pll0_final = r(0x13_0000);
-                tracing::info!(
-                    clk_applied, clk_skipped,
-                    pll0 = format_args!("{pll0_final:#010x}"),
-                    "Clock recipe applied (warm PLLs)"
+                    "State after warm PMC re-enable + Nouveau clock init"
                 );
             }
+            // NOTE: nvidia-470 PCLOCK PLLs (0x130xxx) are intentionally NOT
+            // programmed here. They require PMU to enable their analog power
+            // domain, which never works on headless K80 warm-catch. Instead,
+            // we program Nouveau-style 0x137xxx engine clocks above (crystal
+            // dividers or PLLs), which provide a functional clock to PGRAPH.
         } else {
             tracing::warn!(
                 pmc = format_args!("{pmc:#010x}"),
@@ -715,11 +683,13 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
             let pmu_cpuctl = r(0x10_A100);
             let pmu_running = pmu_cpuctl != 0xDEAD_DEAD
                 && pmu_cpuctl & 0xBAD0_0000 != 0xBAD0_0000
-                && pmu_cpuctl & 0x20 != 0; // bit 5 = CPU running
+                && pmu_cpuctl & 0x30 == 0; // running = no HALTED(0x10) or HRESET(0x20)
 
             tracing::info!(
                 pmu_cpuctl = format_args!("{pmu_cpuctl:#010x}"),
                 pmu_running,
+                halted = pmu_cpuctl & 0x10 != 0,
+                hreset = pmu_cpuctl & 0x20 != 0,
                 "PMU falcon state (left running for GPC power management)"
             );
 
@@ -731,28 +701,99 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
                 tracing::info!("PMU already running from nouveau — skipping re-boot");
             }
 
-            // Try nvidia-470 PSW-only PGOB first — avoids 0x0205xx
-            // PRIVRING faults on GK210B. Falls back to Nouveau sequence.
-            tracing::info!("Trying nvidia-470 PSW-only PGOB disable (cold path)");
-            super::pgob::nvidia470_pgob_disable(guard);
+            // Apply privring timing before PGOB (Nouveau: gk104_privring_init)
+            super::pri::gk104_privring_timing(&r, &w);
+
+            // ── Power management diagnostic ──
+            // The PMU-mediated PGOB (0x10a78c + 0x0205xx) has been ineffective
+            // because the PMU firmware doesn't process the PGOB request.
+            // Try direct PG_CTRL register (0x020004) as a bypass.
+            {
+                let bar0 = guard.inner();
+                let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+                let wr = |reg: u32, val: u32| { let _ = bar0.write_u32(reg as usize, val); };
+
+                let pg_ctrl = rd(0x02_0004);
+                let pg_status = rd(0x02_0008);
+                let pg_elpg = rd(0x02_0000);
+                let pmu_pgob = rd(0x10_a78c);
+                let top_scg = rd(0x02_2204);
+                let pg_fsm = rd(0x02_0010);
+                tracing::info!(
+                    pg_ctrl = format_args!("{pg_ctrl:#010x}"),
+                    pg_status = format_args!("{pg_status:#010x}"),
+                    pg_elpg = format_args!("{pg_elpg:#010x}"),
+                    pmu_pgob = format_args!("{pmu_pgob:#010x}"),
+                    top_scg = format_args!("{top_scg:#010x}"),
+                    pg_fsm = format_args!("{pg_fsm:#010x}"),
+                    "Power management diagnostic (pre-PGOB)"
+                );
+
+                // Attempt 1: Direct PG_CTRL write — clear PGOB bit (31),
+                // set ELPG_DISABLE bit (30) to prevent re-gating.
+                wr(0x02_0004, (pg_ctrl & !0x8000_0000) | 0x4000_0000);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+
+                let pg_ctrl_post = rd(0x02_0004);
+                let gpccs0_test = rd(0x50_2100);
+                tracing::info!(
+                    pg_ctrl_post = format_args!("{pg_ctrl_post:#010x}"),
+                    gpccs0 = format_args!("{gpccs0_test:#010x}"),
+                    gpc_alive = gpccs0_test != 0xDEAD_DEAD && gpccs0_test & 0xBAD0_0000 != 0xBAD0_0000 && gpccs0_test != 0,
+                    "PG_CTRL direct PGOB bypass attempt"
+                );
+
+                // Attempt 2: Write 0 to all power gate control registers
+                // to force-ungate everything.
+                for &pg_reg in &[0x02_0520u32, 0x02_0524, 0x02_0528, 0x02_052C, 0x02_0530] {
+                    let pre = rd(pg_reg);
+                    wr(pg_reg, 0x0000_0000);
+                    let post = rd(pg_reg);
+                    if pre != post {
+                        tracing::info!(
+                            reg = format_args!("{pg_reg:#08x}"),
+                            pre = format_args!("{pre:#010x}"),
+                            post = format_args!("{post:#010x}"),
+                            "Power gate register changed"
+                        );
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+
+                let gpccs0_cpuctl = rd(0x50_2100);
+                tracing::info!(
+                    gpccs0_cpuctl = format_args!("{gpccs0_cpuctl:#010x}"),
+                    gpc_alive = gpccs0_cpuctl != 0xDEAD_DEAD && gpccs0_cpuctl & 0xBAD0_0000 != 0xBAD0_0000 && gpccs0_cpuctl != 0,
+                    "After direct power gate clear"
+                );
+            }
+
+            // Standard PGOB sequences — try all three approaches.
+            // Use GPCCS CPUCTL (GPC+0x2100) instead of GPC identity (GPC+0x0000).
+            let check_gpccs0_alive = || {
+                let v = r(0x50_2100);
+                v != 0xDEAD_DEAD && v != 0 && v & 0xBAD0_0000 != 0xBAD0_0000
+            };
+
+            tracing::info!("Trying gk104-style PG_CTRL PGOB disable");
+            super::pgob::gk104_pgob_disable(guard);
             super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
-            let gpc0_nv470 = r(0x50_0000);
-            let gr_hub_nv470 = r(0x40_0000);
-            let nv470_ok = gpc0_nv470 != 0xDEAD_DEAD
-                && gpc0_nv470 != 0
-                && gpc0_nv470 & 0xBAD0_0000 != 0xBAD0_0000;
-            tracing::info!(
-                gpc0 = format_args!("{gpc0_nv470:#010x}"),
-                gr_hub = format_args!("{gr_hub_nv470:#010x}"),
-                nv470_ok,
-                "nvidia-470 PGOB result (cold path)"
-            );
+            if !check_gpccs0_alive() {
+                tracing::info!("gk104 PG_CTRL insufficient — trying nvidia-470 PSW");
+                super::pgob::nvidia470_pgob_disable(guard);
+                super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
+            }
 
-            if !nv470_ok {
-                tracing::info!("nvidia-470 PGOB insufficient — running full gk110_pmu_pgob");
+            if !check_gpccs0_alive() {
+                tracing::info!("nvidia-470 PSW insufficient — running full gk110_pmu_pgob");
                 super::pgob::gk110_pgob_disable(guard);
             }
+
+            // Re-enumerate PRI ring after PGOB (GPC stations should appear)
+            super::pri::gk104_privring_timing(&r, &w);
+            super::pri::nouveau_pri_ring_init(&r, &w);
+            super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
             // PGOB brought PGRAPH online. Read GPC/TPC topology NOW
             // before the PMC reset clears the fuse mirrors at 0x502608.
@@ -1097,16 +1138,16 @@ pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>)
         // If so, skip the destructive PGOB/SCC/MMIO reinit — it kills the
         // warm state that nouveau set up and that our firmware needs.
         super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
-        let gpc0_warmcheck = r(0x50_0000);
+        let gpccs0_warmcheck = r(0x50_2100); // GPCCS falcon CPUCTL
         let gpc_nr_reg = r(0x40_9604);
-        let gpc0_alive = gpc0_warmcheck != 0xDEAD_DEAD
-            && gpc0_warmcheck & 0xBAD0_0000 != 0xBAD0_0000
-            && gpc0_warmcheck != 0;
+        let gpc0_alive = gpccs0_warmcheck != 0xDEAD_DEAD
+            && gpccs0_warmcheck & 0xBAD0_0000 != 0xBAD0_0000
+            && gpccs0_warmcheck != 0;
         let gpc_nr_readable = gpc_nr_reg != 0xDEAD_DEAD
             && gpc_nr_reg & 0xBAD0_0000 != 0xBAD0_0000;
 
         tracing::info!(
-            gpc0 = format_args!("{gpc0_warmcheck:#010x}"),
+            gpccs0_cpuctl = format_args!("{gpccs0_warmcheck:#010x}"),
             gpc_nr_reg = format_args!("{gpc_nr_reg:#010x}"),
             gpc0_alive, gpc_nr_readable,
             "Warm-state check: can we skip destructive reinit?"

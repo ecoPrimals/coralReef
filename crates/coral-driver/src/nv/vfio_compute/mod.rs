@@ -41,6 +41,7 @@ mod kepler_cold;
 pub mod kepler_csdata;
 mod kepler_fecs_boot;
 mod kepler_gr_init;
+mod kepler_nouveau_clk;
 mod kepler_recovery;
 mod kepler_warm;
 mod layout;
@@ -123,6 +124,7 @@ impl NvVfioComputeDevice {
             fecs_mailbox0: r(falcon::FECS_BASE + falcon::MAILBOX0),
             fecs_mailbox1: r(falcon::FECS_BASE + falcon::MAILBOX1),
             fecs_hwcfg: r(falcon::FECS_BASE + falcon::HWCFG),
+            ctxsw_mailbox0: r(0x0040_9800),
             gpccs_cpuctl: r(falcon::GPCCS_BASE + falcon::CPUCTL),
             pmc_enable: r(misc::PMC_ENABLE),
             pfifo_enable: r(misc::PFIFO_SCHED_EN),
