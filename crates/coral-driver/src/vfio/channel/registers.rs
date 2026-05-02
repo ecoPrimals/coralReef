@@ -99,7 +99,10 @@ pub(crate) mod pfifo {
     /// GV100 runlist pending status. Per-runlist at stride 8.
     /// NOT valid on Kepler — 0x2284 collides with GV100 per-runlist submit
     /// for runlist 1. Kepler uses PFIFO_INTR bit 30 for completion instead.
-    #[allow(dead_code, reason = "GV100-only path; Kepler channel uses PFIFO_INTR polling")]
+    #[allow(
+        dead_code,
+        reason = "GV100-only path; Kepler channel uses PFIFO_INTR polling"
+    )]
     pub const RUNLIST_PENDING: usize = 0x0000_2284;
     #[expect(dead_code, reason = "diagnostic matrix migration in progress")]
     /// Preempt trigger (channel or runlist).
@@ -715,10 +718,16 @@ pub(super) const FAULT_BUF_IOVA: u64 = 0xA000;
 // to keep the IOVA layout stable across generations.
 
 /// Kepler PD IOVA — alias for PD3_IOVA.
-#[allow(dead_code, reason = "Kepler 2-level page table path uses PD3_IOVA directly")]
+#[allow(
+    dead_code,
+    reason = "Kepler 2-level page table path uses PD3_IOVA directly"
+)]
 pub(super) const KEPLER_PD_IOVA: u64 = PD3_IOVA;
 /// Kepler PT IOVA — alias for PT0_IOVA.
-#[allow(dead_code, reason = "Kepler 2-level page table path uses PT0_IOVA directly")]
+#[allow(
+    dead_code,
+    reason = "Kepler 2-level page table path uses PT0_IOVA directly"
+)]
 pub(super) const KEPLER_PT_IOVA: u64 = PT0_IOVA;
 /// NOP push buffer IOVA — dedicated buffer with valid NOP GPU methods.
 pub(super) const NOP_PB_IOVA: u64 = 0xB000;

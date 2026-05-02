@@ -668,11 +668,7 @@ mod tests {
         assert_eq!(rd(0x0A8), 0x0000_0400, "CONFIG = 0x400 (Kepler)");
 
         // CHANNEL_INFO
-        assert_eq!(
-            rd(0x0AC),
-            0x0300_0000 | channel_id,
-            "CHANNEL_INFO"
-        );
+        assert_eq!(rd(0x0AC), 0x0300_0000 | channel_id, "CHANNEL_INFO");
 
         // RAMIN PDB — V1 format
         let pdb_lo = rd(0x200);

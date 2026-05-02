@@ -60,6 +60,7 @@ pub use newline_jsonrpc::start_newline_tcp_jsonrpc;
 pub use newline_jsonrpc::dispatch;
 
 pub mod btsp;
+pub mod btsp_negotiate;
 
 #[cfg(unix)]
 mod unix_jsonrpc;

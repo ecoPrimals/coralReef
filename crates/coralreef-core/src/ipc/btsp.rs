@@ -19,10 +19,10 @@
 //! connection. This prevents a hard dependency on `BearDog` availability during
 //! the Phase 2 rollout window.
 
-use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
+use super::btsp_negotiate::register_session;
 use crate::config;
 
 /// Domain stem for security capability discovery.
@@ -183,9 +183,13 @@ async fn guard_connection_inner() -> BtspOutcome {
     };
 
     match create_btsp_session(&security_sock, family_id).await {
-        Ok(session_id) => {
-            tracing::debug!(session_id, "BTSP session created");
-            register_session(session_id.clone());
+        Ok((session_id, handshake_key)) => {
+            tracing::debug!(
+                session_id,
+                has_key = handshake_key.is_some(),
+                "BTSP session created"
+            );
+            register_session(session_id.clone(), handshake_key);
             BtspOutcome::Authenticated { session_id }
         }
         Err(e) => {
@@ -277,21 +281,17 @@ fn check_discovery_file_for_method(path: &std::path::Path, method: &str) -> Opti
 /// Create a BTSP session via the security provider's `btsp.session.create` RPC.
 ///
 /// Connects over UDS, sends one newline-delimited JSON-RPC request, reads one
-/// response line. Returns the session ID on success.
+/// response line. Returns `(session_id, Option<handshake_key>)`.
 ///
-/// # Phase 2 Evolution Path
-///
-/// Currently calls `btsp.session.create` only. The full flow will add:
-/// 1. Parse challenge from the session create response
-/// 2. Forward challenge to the connecting client over its stream
-/// 3. Receive client's X25519 proof
-/// 4. Call `btsp.session.verify` with the proof
-/// 5. Return cipher parameters for encrypted framing
+/// Per `BTSP_PROTOCOL_STANDARD` v1.0, the `btsp.session.create` response includes
+/// a base64-encoded 32-byte `handshake_key`. When present, this key enables real
+/// AEAD in Phase 3 negotiation. When absent (older provider), Phase 3 falls back
+/// to null cipher.
 #[cfg(unix)]
 async fn create_btsp_session(
     security_sock: &std::path::Path,
     family_id: &str,
-) -> Result<String, BtspSessionError> {
+) -> Result<(String, Option<[u8; 32]>), BtspSessionError> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     let stream = tokio::net::UnixStream::connect(security_sock).await?;
@@ -323,21 +323,40 @@ async fn create_btsp_session(
         )));
     }
 
-    response
-        .get("result")
-        .and_then(|r| r.get("session_id"))
+    let result = response.get("result").ok_or_else(|| {
+        BtspSessionError::Protocol("missing result in btsp.session.create response".into())
+    })?;
+
+    let session_id = result
+        .get("session_id")
         .and_then(|s| s.as_str())
         .map(str::to_string)
         .ok_or_else(|| {
             BtspSessionError::Protocol("missing session_id in btsp.session.create response".into())
+        })?;
+
+    let handshake_key = result
+        .get("handshake_key")
+        .and_then(|v| v.as_str())
+        .and_then(|b64| {
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64).ok()
         })
+        .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok());
+
+    if handshake_key.is_none() {
+        tracing::debug!(
+            "btsp.session.create: no handshake_key in response — Phase 3 will use null cipher"
+        );
+    }
+
+    Ok((session_id, handshake_key))
 }
 
 #[cfg(not(unix))]
 async fn create_btsp_session(
     _security_sock: &std::path::Path,
     _family_id: &str,
-) -> Result<String, BtspSessionError> {
+) -> Result<(String, Option<[u8; 32]>), BtspSessionError> {
     Err(BtspSessionError::Protocol(
         "BTSP handshake requires Unix domain sockets".into(),
     ))
@@ -352,125 +371,6 @@ enum BtspSessionError {
     Json(#[from] serde_json::Error),
     #[error("{0}")]
     Protocol(String),
-}
-
-// ──── Phase 3: `btsp.negotiate` Server Handler ────────────────────────────
-
-/// Global session registry — tracks `session_id`s from successful Phase 2 authentications.
-static SESSION_REGISTRY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-
-fn session_registry() -> &'static Mutex<HashSet<String>> {
-    SESSION_REGISTRY.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
-/// Register a `session_id` from a successful Phase 2 BTSP authentication.
-pub fn register_session(session_id: String) {
-    if let Ok(mut sessions) = session_registry().lock() {
-        sessions.insert(session_id);
-    }
-}
-
-/// Request payload for `btsp.negotiate`.
-#[derive(Debug, serde::Deserialize)]
-pub struct NegotiateRequest {
-    /// Session ID from a successful Phase 2 handshake.
-    pub session_id: String,
-    /// Client's preferred cipher suite.
-    pub preferred_cipher: String,
-    /// Client nonce (base64-encoded, 12+ bytes).
-    pub client_nonce: String,
-    /// Bond type for this session.
-    pub bond_type: String,
-}
-
-/// Response payload for `btsp.negotiate`.
-#[derive(Debug, serde::Serialize)]
-pub struct NegotiateResponse {
-    /// Negotiated cipher (`"chacha20-poly1305"` or `"null"` for plaintext fallback).
-    pub cipher: String,
-    /// Server nonce (base64-encoded).
-    pub server_nonce: String,
-}
-
-/// Handle the `btsp.negotiate` JSON-RPC method (Phase 3).
-///
-/// Validates the `session_id` against live sessions, generates a server nonce,
-/// and returns the negotiated cipher. Currently returns `"null"` cipher because
-/// `coralReef` delegates key material to the crypto-domain provider (`BearDog`) and
-/// does not yet have access to the handshake key needed for HKDF derivation.
-/// When `BearDog` exposes `btsp.session.key_export`, this upgrades to full AEAD.
-///
-/// # Errors
-///
-/// Returns [`NegotiateError`] if `session_id` is invalid or request is malformed.
-pub fn handle_negotiate(req: &NegotiateRequest) -> Result<NegotiateResponse, NegotiateError> {
-    if req.session_id.is_empty() {
-        return Err(NegotiateError::InvalidSession(
-            "session_id must not be empty".into(),
-        ));
-    }
-
-    let session_valid = session_registry()
-        .lock()
-        .map(|sessions| sessions.contains(&req.session_id))
-        .unwrap_or(false);
-
-    if !session_valid {
-        let mode = btsp_mode();
-        if matches!(mode, BtspMode::Production { .. }) {
-            return Err(NegotiateError::InvalidSession(format!(
-                "session_id '{}' not found in active sessions",
-                req.session_id
-            )));
-        }
-        tracing::debug!(
-            session_id = %req.session_id,
-            "dev mode: accepting unknown session_id for negotiate"
-        );
-    }
-
-    if req.client_nonce.is_empty() {
-        return Err(NegotiateError::InvalidParams(
-            "client_nonce must not be empty".into(),
-        ));
-    }
-
-    let nonce_bytes: [u8; 24] = rand::random();
-    let server_nonce = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, nonce_bytes);
-
-    tracing::debug!(
-        session_id = %req.session_id,
-        preferred_cipher = %req.preferred_cipher,
-        bond_type = %req.bond_type,
-        "btsp.negotiate: returning null cipher (key export not yet available)"
-    );
-
-    Ok(NegotiateResponse {
-        cipher: "null".into(),
-        server_nonce,
-    })
-}
-
-/// Errors from `btsp.negotiate` handler.
-#[derive(Debug, thiserror::Error)]
-pub enum NegotiateError {
-    /// Session ID not found or not valid.
-    #[error("invalid session: {0}")]
-    InvalidSession(String),
-    /// Request parameters malformed.
-    #[error("invalid params: {0}")]
-    InvalidParams(String),
-}
-
-impl NegotiateError {
-    /// JSON-RPC error code for this variant.
-    #[must_use]
-    #[allow(dead_code, reason = "public API for downstream error formatting evolution")]
-    pub const fn jsonrpc_code(&self) -> i64 {
-        match self {
-            Self::InvalidSession(_) | Self::InvalidParams(_) => -32_602,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -559,88 +459,5 @@ mod tests {
         let outcome = guard_from_first_byte(None).await;
         assert!(outcome.should_accept());
         assert!(matches!(outcome, BtspOutcome::Degraded { .. }));
-    }
-
-    // ─── Phase 3: btsp.negotiate tests ───────────────────────────────
-
-    #[test]
-    fn negotiate_empty_session_id_rejected() {
-        let req = NegotiateRequest {
-            session_id: String::new(),
-            preferred_cipher: "chacha20-poly1305".into(),
-            client_nonce: "dGVzdG5vbmNlMTIzNDU2".into(),
-            bond_type: "Covalent".into(),
-        };
-        let err = handle_negotiate(&req).unwrap_err();
-        assert!(matches!(err, NegotiateError::InvalidSession(_)));
-    }
-
-    #[test]
-    fn negotiate_empty_client_nonce_rejected() {
-        register_session("test-session-1".into());
-        let req = NegotiateRequest {
-            session_id: "test-session-1".into(),
-            preferred_cipher: "chacha20-poly1305".into(),
-            client_nonce: String::new(),
-            bond_type: "Covalent".into(),
-        };
-        let err = handle_negotiate(&req).unwrap_err();
-        assert!(matches!(err, NegotiateError::InvalidParams(_)));
-    }
-
-    #[test]
-    fn negotiate_valid_session_returns_null_cipher() {
-        register_session("test-session-2".into());
-        let req = NegotiateRequest {
-            session_id: "test-session-2".into(),
-            preferred_cipher: "chacha20-poly1305".into(),
-            client_nonce: "dGVzdG5vbmNlMTIzNDU2".into(),
-            bond_type: "Covalent".into(),
-        };
-        let resp = handle_negotiate(&req).unwrap();
-        assert_eq!(resp.cipher, "null");
-        assert!(!resp.server_nonce.is_empty());
-    }
-
-    #[test]
-    fn negotiate_server_nonce_is_valid_base64() {
-        register_session("test-session-3".into());
-        let req = NegotiateRequest {
-            session_id: "test-session-3".into(),
-            preferred_cipher: "chacha20-poly1305".into(),
-            client_nonce: "dGVzdG5vbmNlMTIzNDU2".into(),
-            bond_type: "Covalent".into(),
-        };
-        let resp = handle_negotiate(&req).unwrap();
-        let decoded = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &resp.server_nonce,
-        )
-        .expect("server_nonce should be valid base64");
-        assert_eq!(decoded.len(), 24);
-    }
-
-    #[test]
-    fn negotiate_dev_mode_accepts_unknown_session() {
-        if btsp_mode().requires_handshake() {
-            return;
-        }
-        let req = NegotiateRequest {
-            session_id: "nonexistent-session-xyz".into(),
-            preferred_cipher: "chacha20-poly1305".into(),
-            client_nonce: "dGVzdG5vbmNlMTIzNDU2".into(),
-            bond_type: "Ionic".into(),
-        };
-        let resp = handle_negotiate(&req).unwrap();
-        assert_eq!(resp.cipher, "null");
-    }
-
-    #[test]
-    fn session_registry_tracks_multiple_sessions() {
-        register_session("sess-a".into());
-        register_session("sess-b".into());
-        let sessions = session_registry().lock().unwrap();
-        assert!(sessions.contains("sess-a"));
-        assert!(sessions.contains("sess-b"));
     }
 }

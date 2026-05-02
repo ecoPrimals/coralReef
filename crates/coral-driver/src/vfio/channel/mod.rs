@@ -500,10 +500,7 @@ impl VfioChannel {
             std::thread::sleep(std::time::Duration::from_millis(5));
             let intr = r(registers::pfifo::INTR);
             if intr & registers::pfifo::INTR_RL_COMPLETE != 0 {
-                let _ = bar0.write_u32(
-                    registers::pfifo::INTR,
-                    registers::pfifo::INTR_RL_COMPLETE,
-                );
+                let _ = bar0.write_u32(registers::pfifo::INTR, registers::pfifo::INTR_RL_COMPLETE);
                 tracing::info!(tick, "runlist completed (INTR bit 30 ACK)");
                 rl_done = true;
                 break;
@@ -649,8 +646,7 @@ impl VfioChannel {
     fn submit_runlist_kepler(&self, bar0: &MappedBar) -> DriverResult<()> {
         let rl_base =
             registers::pfifo::gk104_runlist_base_value(RUNLIST_IOVA, TARGET_SYS_MEM_COHERENT);
-        let rl_submit =
-            registers::pfifo::gk104_runlist_submit_value(self.runlist_id, 1);
+        let rl_submit = registers::pfifo::gk104_runlist_submit_value(self.runlist_id, 1);
 
         tracing::info!(
             rl_base = format_args!("{rl_base:#010x}"),

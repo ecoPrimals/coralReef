@@ -126,10 +126,11 @@ pub fn dispatch_jsonrpc(
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
         "btsp.negotiate" => {
-            let req: super::btsp::NegotiateRequest = extract_params(params)?;
-            match super::btsp::handle_negotiate(&req) {
-                Ok(resp) => serde_json::to_value(resp)
-                    .map_err(|e| IpcServiceError::internal(e.to_string())),
+            let req: super::btsp_negotiate::NegotiateRequest = extract_params(params)?;
+            match super::btsp_negotiate::handle_negotiate(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
                 Err(e) => Err(IpcServiceError::handler(e.to_string())),
             }
         }
