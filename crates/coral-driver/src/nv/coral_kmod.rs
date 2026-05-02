@@ -23,7 +23,7 @@ const CORAL_MAX_BIND_RESOURCES: usize = 16;
 ///
 /// Contains all RM handles needed by coral-driver to operate the channel.
 #[derive(Debug)]
-#[allow(missing_docs)]
+#[allow(missing_docs, reason = "kernel RM handle fields are self-documenting")]
 pub struct KmodChannelInfo {
     pub h_client: u32,
     pub h_device: u32,
@@ -58,7 +58,7 @@ pub struct KmodChannelInfo {
 
 /// A promoted GR context buffer returned by the kernel module.
 #[derive(Debug, Clone)]
-#[allow(missing_docs)]
+#[allow(missing_docs, reason = "kernel context buffer fields are self-documenting")]
 pub struct KmodCtxBuf {
     pub buffer_id: u16,
     pub h_memory: u32,
@@ -68,7 +68,7 @@ pub struct KmodCtxBuf {
 
 /// A bound context buffer resource returned by `CORAL_IOCTL_BIND_CHANNEL`.
 #[derive(Debug, Clone)]
-#[allow(missing_docs)]
+#[allow(missing_docs, reason = "kernel bound resource fields are self-documenting")]
 pub struct KmodBoundResource {
     pub resource_id: u32,
     pub alignment: u64,
@@ -78,7 +78,7 @@ pub struct KmodBoundResource {
 
 /// Result of a successful `CORAL_IOCTL_BIND_CHANNEL`.
 #[derive(Debug)]
-#[allow(missing_docs)]
+#[allow(missing_docs, reason = "kernel bind result fields are self-documenting")]
 pub struct KmodBindResult {
     pub resource_count: u32,
     pub channel_engine_type: u32,
