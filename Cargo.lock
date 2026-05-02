@@ -364,6 +364,7 @@ version = "0.1.0"
 name = "coralreef-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "bytes",
  "clap",
  "coral-driver",
@@ -371,6 +372,7 @@ dependencies = [
  "futures",
  "naga",
  "primal-rpc-client",
+ "rand 0.9.2",
  "serde",
  "serde_json",
  "tarpc",

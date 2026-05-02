@@ -125,6 +125,14 @@ pub fn dispatch_jsonrpc(
             let resp = service::handle_capability_list();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
+        "btsp.negotiate" => {
+            let req: super::btsp::NegotiateRequest = extract_params(params)?;
+            match super::btsp::handle_negotiate(&req) {
+                Ok(resp) => serde_json::to_value(resp)
+                    .map_err(|e| IpcServiceError::internal(e.to_string())),
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
         other => Err(IpcServiceError::dispatch(format!(
             "method not found: {other}"
         ))),

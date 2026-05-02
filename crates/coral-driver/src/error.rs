@@ -493,6 +493,7 @@ pub enum SovereignStagesError {
 impl SovereignStagesError {
     /// Bridges `DriverResult`/`DriverError` from GR/FECS helpers into this enum without a
     /// `#[from]` impl (avoids ambiguity with [`DriverError::SovereignStages`] conversions).
+    #[cfg(all(target_os = "linux", feature = "vfio"))]
     pub(crate) fn vfio_compute(err: DriverError) -> Self {
         Self::VfioCompute(Box::new(err))
     }

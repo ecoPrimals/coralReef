@@ -46,6 +46,8 @@ bytes = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio-util = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
 
 [features]
 default = []

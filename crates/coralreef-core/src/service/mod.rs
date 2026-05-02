@@ -75,6 +75,7 @@ pub fn handle_capability_list() -> CapabilityListResponse {
         "health.readiness".into(),
         "identity.get".into(),
         "capability.list".into(),
+        "btsp.negotiate".into(),
     ];
 
     CapabilityListResponse {

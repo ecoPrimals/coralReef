@@ -72,6 +72,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bitview = { path = "crates/coral-reef-bitview" }
 nak_ir_proc = { path = "crates/nak-ir-proc" }
 
+# BTSP Phase 3 (nonce generation + base64 encoding)
+rand = "0.9"
+base64 = "0.22"
+
 # Testing
 proptest = "1"
 
