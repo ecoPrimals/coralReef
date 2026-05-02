@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Iteration 89.
 
-**Last completed**: BTSP Phase 3 `btsp.negotiate` server handler (null cipher, session registry, 6 tests), Kepler SCHED_ERROR fix (RAMFC 0x3C/0x44 DMA fields + PFIFO_INTR polling), `expect()` panic elimination in device_open, hotSpring cfg-gate fixes, deep audit confirmation (zero bare `#[allow]`, zero `Result<_, String>`, zero TODO/FIXME/HACK).
+**Last completed**: BTSP Phase 3 full AEAD upgrade — `handle_negotiate` now extracts `handshake_key` from BearDog's `btsp.session.create` response, derives ChaCha20-Poly1305 session keys via HKDF-SHA256, returns `cipher:"chacha20-poly1305"` (graceful null fallback when key absent). `btsp.rs` split into Phase 2 guard (461L) + `btsp_negotiate.rs` (619L) with `SessionKeys` encrypt/decrypt + `take_negotiated_keys()` API for transport layer. deps: hkdf, sha2, chacha20poly1305, getrandom, zeroize. 21 crypto tests.
 
-**Tests**: 4645+ passing, 0 failed, ~177 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4632 passing, 0 failed, 160 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 2, 2026.
 
-**Next focus**: BTSP Phase 3 full AEAD (awaiting BearDog `btsp.session.key_export`); coverage push toward 90%; PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration.
+**Next focus**: Encrypted frame loop (transport-layer `AsyncRead`/`AsyncWrite` wrapper using derived `SessionKeys`); coverage push toward 90%; PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming.
 
 ---
 

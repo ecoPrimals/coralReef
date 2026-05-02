@@ -12,11 +12,15 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ### Iteration 89 — BTSP Phase 3 + Kepler Hardening + Deep Audit (2026-05-02)
 
-#### BTSP Phase 3
-- `btsp.negotiate` JSON-RPC server handler: validates session_id, generates 24-byte server nonce, returns null cipher (BearDog key export pending for full AEAD)
-- Session registry: tracks authenticated session_ids from Phase 2 for negotiate validation
-- `btsp.negotiate` advertised in `capability.list`; primalSpring auto-detects
-- deps: `rand` 0.9, `base64` 0.22 added to workspace
+#### BTSP Phase 3 — Full AEAD Upgrade
+- `handle_negotiate` extracts `handshake_key` from BearDog's `btsp.session.create` response (per BTSP_PROTOCOL_STANDARD v1.0)
+- Derives ChaCha20-Poly1305 session keys via HKDF-SHA256 (`btsp-session-v1-c2s`/`btsp-session-v1-s2c`)
+- Returns `cipher:"chacha20-poly1305"` when key available; graceful `"null"` fallback when absent
+- `SessionKeys` struct: Zeroize-on-drop, encrypt/decrypt with random 12-byte nonces
+- `take_negotiated_keys()` public API for transport-layer encrypted frame loop
+- Session registry upgraded: `HashMap<String, SessionEntry>` with `handshake_key`
+- `btsp.rs` split: Phase 2 guard (461L) + `btsp_negotiate.rs` (619L)
+- deps: `hkdf` 0.12, `sha2` 0.10, `chacha20poly1305` 0.10, `getrandom` 0.3, `zeroize` 1, `rand` 0.9, `base64` 0.22
 
 #### Kepler SCHED_ERROR Resolution (hotSpring downstream)
 - RAMFC fields 0x3C (`DMA_LIMIT_REF`) and 0x44 (`PB_DMA_SUBROUTINE`) added — fixes CONTEXT_RELOAD_TIMEOUT
@@ -31,7 +35,8 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - `ok_or_else` → `ok_or` for constant error value (clippy)
 
 #### Tests
-- 6 new BTSP Phase 3 tests + 4 Kepler PFIFO unit tests
+- 21 BTSP Phase 3 + crypto tests (negotiate, HKDF derivation, encrypt/decrypt round-trip, tamper detection, wrong-key rejection)
+- 4 Kepler PFIFO unit tests
 - Zero clippy warnings (pedantic + nursery), zero fmt drift
 
 ### Iteration 88 — Deep Debt, Typed Errors, Hotspring Merge (2026-04-30)

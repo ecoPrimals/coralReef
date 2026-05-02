@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4645+ passing, 0 failed, ~177 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 negotiate tests |
+| Tests | A+ | 4632 passing, 0 failed, 160 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -104,7 +104,7 @@
 | ML pipeline tests | 6 new multi-stage ML pipeline composition tests: sequential compile, workgroup validation, cross-vendor, occupancy planning, stage independence, serde roundtrip |
 | CLI bind host (CR-02) | `--bind` flag + `CORALREEF_IPC_HOST` env var on `coralreef server` for Docker/benchScale network-facing deployments; `0.0.0.0` for cross-container TCP |
 | Safety docs | `# Safety` section on non-x86_64 `uvm_cache_line_flush` stub (parity with x86_64 variant) |
-| Metrics | 4645+ tests passing, 0 failed, ~177 ignored; 0 clippy warnings (default + all-features); 0 doc warnings; 0 files >1000 LOC |
+| Metrics | 4632 tests passing, 0 failed, 160 ignored; 0 clippy warnings (default + all-features); 0 doc warnings; 0 files >1000 LOC |
 
 ### Iteration 78: Deep Debt Evolution — Typed Errors + Smart Refactoring (Apr 9, 2026)
 
@@ -1182,7 +1182,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4645+ passing, 0 failed, ~177 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4632 passing, 0 failed, 160 ignored hardware-gated) |
 | `cargo llvm-cov` | ~65% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
