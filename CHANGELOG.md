@@ -4,11 +4,35 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 88
+**Current status**: Phase 10 — Iteration 89
 
 ---
 
 ## [Unreleased]
+
+### Iteration 89 — BTSP Phase 3 + Kepler Hardening + Deep Audit (2026-05-02)
+
+#### BTSP Phase 3
+- `btsp.negotiate` JSON-RPC server handler: validates session_id, generates 24-byte server nonce, returns null cipher (BearDog key export pending for full AEAD)
+- Session registry: tracks authenticated session_ids from Phase 2 for negotiate validation
+- `btsp.negotiate` advertised in `capability.list`; primalSpring auto-detects
+- deps: `rand` 0.9, `base64` 0.22 added to workspace
+
+#### Kepler SCHED_ERROR Resolution (hotSpring downstream)
+- RAMFC fields 0x3C (`DMA_LIMIT_REF`) and 0x44 (`PB_DMA_SUBROUTINE`) added — fixes CONTEXT_RELOAD_TIMEOUT
+- Kepler runlist polling: replaced GV100 `RUNLIST_PENDING` (0x2284) with PFIFO_INTR bit 30
+- Human-readable SCHED_ERROR reason decoding
+- `expect()` → `Result` propagation in `device_open.rs` Kepler guard
+
+#### Deep Audit Confirmation
+- Zero bare `#[allow]` without reason (7 fixed: 3 dead_code in registers.rs, 4 missing_docs in coral_kmod.rs)
+- `SovereignStagesError::vfio_compute` cfg-gated behind `feature = "vfio"`
+- Unfulfilled `#[expect(cast_possible_truncation)]` removed from page_tables.rs
+- `ok_or_else` → `ok_or` for constant error value (clippy)
+
+#### Tests
+- 6 new BTSP Phase 3 tests + 4 Kepler PFIFO unit tests
+- Zero clippy warnings (pedantic + nursery), zero fmt drift
 
 ### Iteration 88 — Deep Debt, Typed Errors, Hotspring Merge (2026-04-30)
 

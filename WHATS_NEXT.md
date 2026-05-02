@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 88.
+**Current position**: Phase 10 — Iteration 89.
 
-**Last completed**: Branch consolidation (hotspring-sec2-hal merge: GPU generation profiles, PTX emitter, Intel/AMD dispatch), smart file refactoring (6 files >1000L → all under 1000L as cohesive submodules), CR-04 typed errors Wave 4 (zero `Result<_, String>` in production), IPC timing characterization, primalSpring Phase 56c audit reconciliation.
+**Last completed**: BTSP Phase 3 `btsp.negotiate` server handler (null cipher, session registry, 6 tests), Kepler SCHED_ERROR fix (RAMFC 0x3C/0x44 DMA fields + PFIFO_INTR polling), `expect()` panic elimination in device_open, hotSpring cfg-gate fixes, deep audit confirmation (zero bare `#[allow]`, zero `Result<_, String>`, zero TODO/FIXME/HACK).
 
-**Tests**: 4639 passing, 0 failed, 177 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4645+ passing, 0 failed, ~177 ignored (hardware-gated). Zero clippy warnings.
 
-**Last updated**: April 30, 2026.
+**Last updated**: May 2, 2026.
 
-**Next focus**: Coverage push toward 90%; PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration.
+**Next focus**: BTSP Phase 3 full AEAD (awaiting BearDog `btsp.session.key_export`); coverage push toward 90%; PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration.
 
 ---
 
