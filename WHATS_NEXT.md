@@ -4,9 +4,9 @@
 
 **Current position**: Phase 10 — Iteration 90.
 
-**Last completed**: BTSP Phase 3 transport verified reachable — integration test proves full `handle_connection` → `btsp.negotiate` → `take_negotiated_keys` → `process_encrypted_frames` roundtrip. Marker byte consumption fix ensures non-`{` first byte (BTSP handshake marker) doesn't corrupt JSON-RPC line read. GAP-04 (tarpc health endpoint) confirmed as intentional architecture, not debt.
+**Last completed**: Deep debt pass — `CompileFileError` typed error, doc fixes, stale comment cleanup. BTSP Phase 3 transport verified reachable (marker byte fix + integration test). GAP-04 documented as intentional. Full audit: zero `.unwrap()` in production, zero `Result<_, String>` in library, all mocks test-gated, all hardcoded paths env-overridable, all unsafe confined to `coral-driver`.
 
-**Tests**: 4633 passing, 0 failed, 160 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4634 passing, 0 failed, 160 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 3, 2026.
 

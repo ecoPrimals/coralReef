@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: May 2, 2026 (Phase 10 — Iteration 89)
-**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, ecoBin cross-arch evolution & primalSpring / compliance evolution. Hotspring merge complete (GPU generation profiles, PTX emitter WIP). All typed errors; zero `Result<_, String>` in production. Smart file splits: zero files >1000L.
+**Last updated**: May 3, 2026 (Phase 10 — Iteration 90)
+**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, ecoBin cross-arch evolution & primalSpring / compliance evolution. Hotspring merge complete (GPU generation profiles, PTX emitter WIP). All typed errors; zero `Result<_, String>` in production. Smart file splits: zero files >1000L. BTSP Phase 3 transport verified reachable.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM35–SM120, including Blackwell) and AMD (GCN5/RDNA2–RDNA4). Pure Rust; transitive
 libc only via tokio/mio (deferred to mio#1735 rustix migration).
-4632 tests (160 ignored), ~65% line coverage (8 crates above 90%),
+4634 tests (160 ignored), ~65% line coverage (8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
