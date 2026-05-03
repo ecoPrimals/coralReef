@@ -282,10 +282,6 @@ impl SessionKeys {
     /// # Errors
     ///
     /// Returns [`NegotiateError`] if encryption or nonce generation fails.
-    #[allow(
-        dead_code,
-        reason = "public API for encrypted frame loop — wired after transport upgrade"
-    )]
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, NegotiateError> {
         use chacha20poly1305::aead::{Aead, KeyInit};
         use chacha20poly1305::{ChaCha20Poly1305, Nonce};
@@ -312,10 +308,6 @@ impl SessionKeys {
     /// # Errors
     ///
     /// Returns [`NegotiateError`] if the frame is too short or decryption fails.
-    #[allow(
-        dead_code,
-        reason = "public API for encrypted frame loop — wired after transport upgrade"
-    )]
     pub fn decrypt(&self, frame: &[u8]) -> Result<Vec<u8>, NegotiateError> {
         use chacha20poly1305::aead::{Aead, KeyInit};
         use chacha20poly1305::{ChaCha20Poly1305, Nonce};
@@ -356,10 +348,6 @@ fn store_negotiated_keys(session_id: &str, keys: SessionKeys) {
 /// The transport layer calls this once after `btsp.negotiate` returns
 /// `"chacha20-poly1305"` to switch to encrypted framing.
 #[must_use]
-#[allow(
-    dead_code,
-    reason = "public API for encrypted frame loop — wired after transport upgrade"
-)]
 pub fn take_negotiated_keys(session_id: &str) -> Option<SessionKeys> {
     negotiated_keys_registry()
         .lock()

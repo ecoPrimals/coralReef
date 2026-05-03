@@ -109,6 +109,15 @@ impl BtspOutcome {
             Self::DevMode | Self::Authenticated { .. } | Self::Degraded { .. }
         )
     }
+
+    /// The session ID from a successful Phase 2 authentication, if any.
+    #[must_use]
+    pub fn session_id(&self) -> Option<&str> {
+        match self {
+            Self::Authenticated { session_id } => Some(session_id),
+            _ => None,
+        }
+    }
 }
 
 /// First byte that indicates plain JSON-RPC (no BTSP handshake expected).

@@ -18,17 +18,198 @@
 mod inner {
     use std::path::{Path, PathBuf};
 
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
     use tokio::sync::watch;
     use tokio::task::JoinHandle;
 
-    use tokio::io::AsyncBufReadExt;
-
-    use super::super::newline_jsonrpc::process_newline_reader_writer;
+    use super::super::btsp_negotiate;
+    use super::super::newline_jsonrpc::{
+        dispatch_maybe_blocking, make_response, process_newline_reader_writer,
+    };
     use crate::ipc::btsp;
 
     /// Peek timeout for first-byte BTSP protocol detection.
     const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    use super::super::newline_jsonrpc::JsonRpcRequest;
+
+    /// Maximum encrypted frame payload (8 MiB). Prevents unbounded allocations.
+    const MAX_FRAME_LEN: u32 = 8 * 1024 * 1024;
+
+    /// Handle a single connection: attempt Phase 3 negotiate on first line,
+    /// then either enter encrypted frame loop or fall back to plaintext.
+    async fn handle_connection<R, W>(mut reader: R, mut writer: W, session_id: Option<String>)
+    where
+        R: tokio::io::AsyncRead + tokio::io::AsyncBufRead + Unpin,
+        W: tokio::io::AsyncWrite + Unpin,
+    {
+        let mut first_line = String::new();
+        match reader.read_line(&mut first_line).await {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {}
+        }
+
+        let trimmed = first_line.trim();
+        if trimmed.is_empty() {
+            process_newline_reader_writer(reader, writer).await;
+            return;
+        }
+
+        let method = serde_json::from_str::<serde_json::Value>(trimmed)
+            .ok()
+            .and_then(|v| v.get("method")?.as_str().map(String::from));
+
+        if method.as_deref() != Some("btsp.negotiate") {
+            let resp = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
+                Ok(req) if req.jsonrpc == "2.0" => {
+                    let result = dispatch_maybe_blocking(&req.method, req.params).await;
+                    make_response(req.id, result)
+                }
+                Ok(req) => make_response(
+                    req.id,
+                    Err(crate::ipc::error::IpcServiceError::dispatch(format!(
+                        "invalid jsonrpc version: {}",
+                        req.jsonrpc
+                    ))),
+                ),
+                Err(e) => make_response(
+                    serde_json::Value::Null,
+                    Err(crate::ipc::error::IpcServiceError::transport(format!(
+                        "parse error: {e}"
+                    ))),
+                ),
+            };
+            if writer.write_all(resp.as_bytes()).await.is_err()
+                || writer.write_all(b"\n").await.is_err()
+            {
+                return;
+            }
+            let _ = writer.flush().await;
+            process_newline_reader_writer(reader, writer).await;
+            return;
+        }
+
+        let (cipher, resp_text) = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
+            Ok(req) if req.jsonrpc == "2.0" => {
+                let result = dispatch_maybe_blocking(&req.method, req.params).await;
+                let cipher = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|v| v.get("cipher"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("null")
+                    .to_owned();
+                let text = make_response(req.id, result);
+                (cipher, text)
+            }
+            _ => {
+                process_newline_reader_writer(reader, writer).await;
+                return;
+            }
+        };
+
+        if writer.write_all(resp_text.as_bytes()).await.is_err()
+            || writer.write_all(b"\n").await.is_err()
+        {
+            return;
+        }
+        let _ = writer.flush().await;
+
+        if cipher != "chacha20-poly1305" {
+            process_newline_reader_writer(reader, writer).await;
+            return;
+        }
+
+        let Some(sid) = session_id else {
+            tracing::warn!("btsp.negotiate returned chacha20-poly1305 but no session_id");
+            process_newline_reader_writer(reader, writer).await;
+            return;
+        };
+
+        let Some(keys) = btsp_negotiate::take_negotiated_keys(&sid) else {
+            tracing::warn!(
+                session_id = %sid,
+                "btsp.negotiate: no negotiated keys found after chacha20-poly1305"
+            );
+            process_newline_reader_writer(reader, writer).await;
+            return;
+        };
+
+        tracing::info!(session_id = %sid, "switching to encrypted frame loop");
+        process_encrypted_frames(reader, writer, keys).await;
+    }
+
+    /// Encrypted frame loop: `[4B BE u32 len][payload]` → decrypt → dispatch → encrypt → write.
+    async fn process_encrypted_frames<R, W>(
+        mut reader: R,
+        mut writer: W,
+        keys: btsp_negotiate::SessionKeys,
+    ) where
+        R: tokio::io::AsyncRead + Unpin,
+        W: tokio::io::AsyncWrite + Unpin,
+    {
+        while let Ok(len) = reader.read_u32().await {
+            if len > MAX_FRAME_LEN {
+                tracing::warn!(len, "encrypted frame exceeds maximum size — dropping");
+                break;
+            }
+            let mut frame = vec![0u8; len as usize];
+            if reader.read_exact(&mut frame).await.is_err() {
+                break;
+            }
+            let plaintext = match keys.decrypt(&frame) {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::warn!(error = %e, "decryption failed — dropping connection");
+                    break;
+                }
+            };
+
+            let Ok(text) = std::str::from_utf8(&plaintext) else {
+                tracing::warn!("decrypted frame is not valid UTF-8 — dropping");
+                break;
+            };
+            let request_str = text.trim();
+
+            let resp = match serde_json::from_str::<JsonRpcRequest>(request_str) {
+                Ok(req) if req.jsonrpc == "2.0" => {
+                    let result = dispatch_maybe_blocking(&req.method, req.params).await;
+                    make_response(req.id, result)
+                }
+                Ok(req) => make_response(
+                    req.id,
+                    Err(crate::ipc::error::IpcServiceError::dispatch(format!(
+                        "invalid jsonrpc version: {}",
+                        req.jsonrpc
+                    ))),
+                ),
+                Err(e) => make_response(
+                    serde_json::Value::Null,
+                    Err(crate::ipc::error::IpcServiceError::transport(format!(
+                        "parse error: {e}"
+                    ))),
+                ),
+            };
+
+            let Ok(encrypted) = keys.encrypt(resp.as_bytes()) else {
+                tracing::error!("response encryption failed — dropping connection");
+                break;
+            };
+
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "MAX_FRAME_LEN bounds output"
+            )]
+            let frame_len = (encrypted.len() as u32).to_be_bytes();
+            if writer.write_all(&frame_len).await.is_err()
+                || writer.write_all(&encrypted).await.is_err()
+            {
+                break;
+            }
+            let _ = writer.flush().await;
+        }
+    }
 
     /// `true` when the bound socket path uses the shared ecosystem directory segment.
     fn path_in_ecosystem_namespace(socket_path: &Path) -> bool {
@@ -136,8 +317,9 @@ mod inner {
                                     tracing::warn!(?outcome, "BTSP rejected connection");
                                     continue;
                                 }
+                                let session_id = outcome.session_id().map(str::to_owned);
                                 tokio::spawn(async move {
-                                    process_newline_reader_writer(peeker, writer).await;
+                                    handle_connection(peeker, writer, session_id).await;
                                 });
                             }
                             Err(e) => {

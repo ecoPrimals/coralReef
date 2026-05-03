@@ -17,12 +17,12 @@ use super::{CoralReefError, IpcError};
 use crate::service;
 
 #[derive(Deserialize)]
-struct JsonRpcRequest {
-    jsonrpc: String,
-    method: String,
+pub(super) struct JsonRpcRequest {
+    pub(super) jsonrpc: String,
+    pub(super) method: String,
     #[serde(default)]
-    params: serde_json::Value,
-    id: serde_json::Value,
+    pub(super) params: serde_json::Value,
+    pub(super) id: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -233,7 +233,7 @@ where
 }
 
 /// Dispatch a JSON-RPC method, offloading CPU-heavy compile work to the blocking pool.
-async fn dispatch_maybe_blocking(
+pub(super) async fn dispatch_maybe_blocking(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, IpcServiceError> {
