@@ -532,9 +532,9 @@ fn cmd_compile(
             tracing::info!(path = %out_path.display(), size = binary.len(), "compiled");
             UniBinExit::Success
         }
-        Err((status, msg)) => {
-            tracing::error!(error = %msg, "compilation failed");
-            match status {
+        Err(e) => {
+            tracing::error!(error = %e, "compilation failed");
+            match e.exit_status() {
                 commands::ExitStatus::ConfigError => UniBinExit::ConfigError,
                 _ => UniBinExit::GeneralError,
             }

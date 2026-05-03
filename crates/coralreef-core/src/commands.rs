@@ -58,27 +58,61 @@ pub const fn exit_status_for(e: &CompileError) -> ExitStatus {
     }
 }
 
-/// Compile a shader file, returning the binary bytes or an error with exit status.
+/// Errors from [`compile_file`].
+#[derive(Debug, thiserror::Error)]
+pub enum CompileFileError {
+    /// Failed to read input file.
+    #[error("failed to read {path}: {source}")]
+    ReadInput {
+        /// Path that could not be read.
+        path: String,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+
+    /// Input WGSL source is not valid UTF-8.
+    #[error("invalid UTF-8 in WGSL source: {0}")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+
+    /// The compiler rejected the input.
+    #[error("{0}")]
+    Compile(#[from] CompileError),
+}
+
+impl CompileFileError {
+    /// Map to the appropriate process exit status.
+    #[must_use]
+    pub fn exit_status(&self) -> ExitStatus {
+        match self {
+            Self::ReadInput { source, .. } => {
+                if source.kind() == io::ErrorKind::NotFound {
+                    ExitStatus::ConfigError
+                } else {
+                    ExitStatus::GeneralError
+                }
+            }
+            Self::InvalidUtf8(_) => ExitStatus::ConfigError,
+            Self::Compile(e) => exit_status_for(e),
+        }
+    }
+}
+
+/// Compile a shader file, returning the binary bytes.
 ///
 /// # Errors
 ///
-/// Returns `(ExitStatus, String)` on:
-/// - File read failure (`ConfigError` if not found, `GeneralError` otherwise)
-/// - Invalid UTF-8 in WGSL source (`ConfigError`)
-/// - Compilation failure (`ConfigError` for `InvalidInput`/`UnsupportedArch`, `GeneralError` otherwise)
+/// Returns [`CompileFileError`] on file read failure, invalid UTF-8 in WGSL
+/// source, or compilation failure.
 pub fn compile_file(
     input: &Path,
     arch: GpuArch,
     opt_level: u32,
     fp64_software: bool,
-) -> Result<Vec<u8>, (ExitStatus, String)> {
-    let input_bytes = std::fs::read(input).map_err(|e| {
-        let status = if e.kind() == io::ErrorKind::NotFound {
-            ExitStatus::ConfigError
-        } else {
-            ExitStatus::GeneralError
-        };
-        (status, format!("failed to read {}: {e}", input.display()))
+) -> Result<Vec<u8>, CompileFileError> {
+    let input_bytes = std::fs::read(input).map_err(|e| CompileFileError::ReadInput {
+        path: input.display().to_string(),
+        source: e,
     })?;
 
     let options = CompileOptions {
@@ -90,20 +124,14 @@ pub fn compile_file(
     };
 
     if input.extension().is_some_and(|e| e == "wgsl") {
-        let source = String::from_utf8(input_bytes).map_err(|e| {
-            (
-                ExitStatus::ConfigError,
-                format!("invalid UTF-8 in WGSL source: {e}"),
-            )
-        })?;
-        coral_reef::compile_wgsl(&source, &options)
-            .map_err(|e| (exit_status_for(&e), e.to_string()))
+        let source = String::from_utf8(input_bytes)?;
+        Ok(coral_reef::compile_wgsl(&source, &options)?)
     } else {
         let words: Vec<u32> = input_bytes
             .chunks_exact(4)
             .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
-        coral_reef::compile(&words, &options).map_err(|e| (exit_status_for(&e), e.to_string()))
+        Ok(coral_reef::compile(&words, &options)?)
     }
 }
 
@@ -217,8 +245,8 @@ mod tests {
             true,
         );
         assert!(result.is_err());
-        let (status, _) = result.unwrap_err();
-        assert_eq!(status, ExitStatus::ConfigError);
+        let err = result.unwrap_err();
+        assert_eq!(err.exit_status(), ExitStatus::ConfigError);
     }
 
     #[test]
@@ -278,9 +306,9 @@ mod tests {
         std::fs::write(&tmp, [0xff, 0xfe, 0xfd]).unwrap();
         let result = compile_file(&tmp, GpuArch::default(), 2, true);
         assert!(result.is_err());
-        let (status, msg) = result.unwrap_err();
-        assert_eq!(status, ExitStatus::ConfigError);
-        assert!(msg.to_lowercase().contains("utf-8"));
+        let err = result.unwrap_err();
+        assert_eq!(err.exit_status(), ExitStatus::ConfigError);
+        assert!(err.to_string().to_lowercase().contains("utf-8"));
         let _ = std::fs::remove_file(&tmp);
     }
 

@@ -204,7 +204,7 @@ fn extract_gfx_version_from_flags(e_flags: u32) -> u32 {
         0x29 => 902,  // gfx902  (Vega 12)
         0x2C => 906,  // gfx906  (Vega 20 / MI50)
         0x2F => 908,  // gfx908  (CDNA1 / MI100)
-        0x30 => 909,  // gfx909  (placeholder)
+        0x30 => 909,  // gfx909  (Raven Ridge APU)
         0x31 => 90,   // gfx90a  (CDNA2 / MI200)
         0x32 => 940,  // gfx940
         0x33 => 1010, // gfx1010 (Navi 10)

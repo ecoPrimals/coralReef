@@ -96,7 +96,8 @@ impl EmberClient {
 
     /// Try to connect to the ember. Returns None if the ember is not running.
     ///
-    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback: `/run/coralreef/ember.sock`).
+    /// Socket path is resolved from `$CORALREEF_EMBER_SOCKET` (fallback:
+    /// `$XDG_RUNTIME_DIR/biomeos/coral-ember-<family_id>.sock`).
     pub fn connect() -> Option<Self> {
         #[cfg(test)]
         if EMBER_DISABLED.with(|c| c.get()) {
