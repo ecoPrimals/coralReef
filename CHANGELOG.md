@@ -12,12 +12,14 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ### Iteration 89 — BTSP Phase 3 + Kepler Hardening + Deep Audit (2026-05-02)
 
-#### BTSP Phase 3 — Full AEAD Upgrade
+#### BTSP Phase 3 — Full AEAD + Wire Transport
 - `handle_negotiate` extracts `handshake_key` from BearDog's `btsp.session.create` response (per BTSP_PROTOCOL_STANDARD v1.0)
 - Derives ChaCha20-Poly1305 session keys via HKDF-SHA256 (`btsp-session-v1-c2s`/`btsp-session-v1-s2c`)
 - Returns `cipher:"chacha20-poly1305"` when key available; graceful `"null"` fallback when absent
 - `SessionKeys` struct: Zeroize-on-drop, encrypt/decrypt with random 12-byte nonces
-- `take_negotiated_keys()` public API for transport-layer encrypted frame loop
+- **Encrypted frame loop** wired in `unix_jsonrpc.rs`: after `btsp.negotiate` → `take_negotiated_keys()` → `[4B BE u32 len][nonce||ciphertext+tag]` framing
+- `BtspOutcome::session_id()` accessor for transport layer
+- `#[allow(dead_code)]` removed from `encrypt`/`decrypt`/`take_negotiated_keys` — all live production paths
 - Session registry upgraded: `HashMap<String, SessionEntry>` with `handshake_key`
 - `btsp.rs` split: Phase 2 guard (461L) + `btsp_negotiate.rs` (619L)
 - deps: `hkdf` 0.12, `sha2` 0.10, `chacha20poly1305` 0.10, `getrandom` 0.3, `zeroize` 1, `rand` 0.9, `base64` 0.22
@@ -29,10 +31,11 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - `expect()` → `Result` propagation in `device_open.rs` Kepler guard
 
 #### Deep Audit Confirmation
-- Zero bare `#[allow]` without reason (7 fixed: 3 dead_code in registers.rs, 4 missing_docs in coral_kmod.rs)
+- Zero bare `#[allow]` without reason — all 7 crate-level blocks now carry `reason` strings
 - `SovereignStagesError::vfio_compute` cfg-gated behind `feature = "vfio"`
 - Unfulfilled `#[expect(cast_possible_truncation)]` removed from page_tables.rs
 - `ok_or_else` → `ok_or` for constant error value (clippy)
+- Intel `ioctl.rs` kernel UAPI mirror allow block annotated with reason
 
 #### Tests
 - 21 BTSP Phase 3 + crypto tests (negotiate, HKDF derivation, encrypt/decrypt round-trip, tamper detection, wrong-key rejection)

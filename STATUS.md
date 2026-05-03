@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 2, 2026  
-**Phase**: 10 — Iteration 89 (BTSP Phase 3, Kepler SCHED_ERROR fix, deep audit clean)
+**Phase**: 10 — Iteration 89 (BTSP Phase 3 wire transport, Kepler SCHED_ERROR fix, deep audit clean)
 
 ---
 
@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | All 3 binaries: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef`: `--rpc-bind` (NDJSON primary); `coral-ember`/`coral-glowplug`: `--port` |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2 (`capability.list` with flat `methods` array), BTSP Phase 2 complete (mode detection, `guard_connection()`, BearDog delegation, `BtspOutcome`), NUCLEUS composition env wired (`BEARDOG_SOCKET`, `BTSP_PROVIDER_SOCKET`, `DISCOVERY_SOCKET`, `FAMILY_SEED`, `BIOMEOS_SOCKET_DIR`, `CORALREEF_FAMILY_ID`), **UDS JSON-RPC on composition socket** (Iter 87: `resolve_uds_binds` separates tarpc to `-tarpc.sock`, main socket speaks JSON-RPC for primalSpring health/caps) |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat` + `btsp.negotiate`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L2, **BTSP Phase 3 complete** (Phase 2 guard + Phase 3 negotiate → HKDF-SHA256 → ChaCha20-Poly1305 encrypted frame loop, null cipher fallback), NUCLEUS composition env wired, **UDS JSON-RPC on composition socket** (Iter 87: `resolve_uds_binds` separates tarpc to `-tarpc.sock`, main socket speaks JSON-RPC for primalSpring health/caps) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |

@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Iteration 89.
 
-**Last completed**: BTSP Phase 3 full AEAD upgrade — `handle_negotiate` now extracts `handshake_key` from BearDog's `btsp.session.create` response, derives ChaCha20-Poly1305 session keys via HKDF-SHA256, returns `cipher:"chacha20-poly1305"` (graceful null fallback when key absent). `btsp.rs` split into Phase 2 guard (461L) + `btsp_negotiate.rs` (619L) with `SessionKeys` encrypt/decrypt + `take_negotiated_keys()` API for transport layer. deps: hkdf, sha2, chacha20poly1305, getrandom, zeroize. 21 crypto tests.
+**Last completed**: BTSP Phase 3 wire transport — encrypted frame loop wired into `unix_jsonrpc.rs`. After `btsp.negotiate` returns `chacha20-poly1305`, `take_negotiated_keys()` switches the connection to `[4B BE u32 len][nonce||ciphertext+tag]` framing. `SessionKeys::encrypt`/`decrypt` are now live production code (dead_code attrs removed). Null cipher and non-negotiate first messages fall through to plaintext. `BtspOutcome::session_id()` accessor added. All crate-level `#[allow]` blocks now carry `reason` strings.
 
 **Tests**: 4632 passing, 0 failed, 160 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 2, 2026.
 
-**Next focus**: Encrypted frame loop (transport-layer `AsyncRead`/`AsyncWrite` wrapper using derived `SessionKeys`); coverage push toward 90%; PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming.
+**Next focus**: Coverage push toward 90%; PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration.
 
 ---
 
@@ -614,17 +614,18 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4639 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4632 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.
 GPU generation profiles: GenerationProfile dispatch for SM35–SM120 + AmdArch + Intel xe/i915.
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.list` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); Songbird ecosystem registration wired (`ecosystem.rs`).
+IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.list` + `capability.register` + `ipc.heartbeat` + `btsp.negotiate` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); BTSP Phase 3 encrypted frame loop (ChaCha20-Poly1305); Songbird ecosystem registration wired (`ecosystem.rs`).
 Firmware probing: glowPlug mailbox (FECS/GPCCS/SEC2/PMU posted commands) + multi-ring (ordered, timed, fence-based GPU dispatch) — hotSpring integration wired. Ember ring-keeper persists state across glowplug restarts.
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
 Zero `Result<_, String>` in production. Typed errors via thiserror across 4 waves.
+Zero bare `#[allow]` without reason. All crate-level lint relaxations carry justification.
 MmioRegion RAII wrapper consolidates unsafe BAR0 ops. MockBar0 + NvidiaFirmwareSource enable hardware-free testing.
 Default builds are vendor-SDK-free (CUDA opt-in via `--features cuda`). Workspace deps centralized.
 ecoBin v3 `deny.toml` bans all C/FFI deps. Compile latency + ML pipeline composition discoverable via `capability.list`.
