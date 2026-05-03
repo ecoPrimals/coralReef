@@ -39,7 +39,7 @@ mod inner {
 
     /// Handle a single connection: attempt Phase 3 negotiate on first line,
     /// then either enter encrypted frame loop or fall back to plaintext.
-    async fn handle_connection<R, W>(mut reader: R, mut writer: W, session_id: Option<String>)
+    pub async fn handle_connection<R, W>(mut reader: R, mut writer: W, session_id: Option<String>)
     where
         R: tokio::io::AsyncRead + tokio::io::AsyncBufRead + Unpin,
         W: tokio::io::AsyncWrite + Unpin,
@@ -317,6 +317,9 @@ mod inner {
                                     tracing::warn!(?outcome, "BTSP rejected connection");
                                     continue;
                                 }
+                                if first_byte.is_some_and(|b| b != b'{') {
+                                    peeker.consume(1);
+                                }
                                 let session_id = outcome.session_id().map(str::to_owned);
                                 tokio::spawn(async move {
                                     handle_connection(peeker, writer, session_id).await;
@@ -344,6 +347,8 @@ mod inner {
 
 #[cfg(all(unix, test))]
 pub use super::newline_jsonrpc::make_response;
+#[cfg(all(unix, test))]
+pub(super) use inner::handle_connection;
 #[cfg(unix)]
 pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]

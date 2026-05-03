@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: May 2, 2026  
-**Phase**: 10 — Iteration 89 (BTSP Phase 3 wire transport, Kepler SCHED_ERROR fix, deep audit clean)
+**Last updated**: May 3, 2026  
+**Phase**: 10 — Iteration 90 (BTSP Phase 3 transport verified, marker byte fix, GAP-04 resolved)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4632 passing, 0 failed, 160 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests |
+| Tests | A+ | 4633 passing, 0 failed, 160 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -41,7 +41,17 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 81** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 90** |
+
+### Iteration 90: BTSP Phase 3 Transport Verification, GAP-04 Resolved (May 3, 2026)
+
+| Item | Status | Detail |
+|------|--------|--------|
+| BTSP Phase 3 transport path verified | ✅ | Integration test proves `handle_connection` → `btsp.negotiate` → `take_negotiated_keys` → `process_encrypted_frames` is reachable. Full client-side AEAD roundtrip tested |
+| Marker byte consumption fix | ✅ | Non-JSON first byte (BTSP handshake marker) consumed from `BufReader` before `handle_connection` — previously left in buffer corrupting first line read in production BTSP path |
+| GAP-04 (tarpc health endpoint) | ✅ | **Intentional design, not debt**: tarpc transport has full health triad (`health_check`, `health_liveness`, `health_readiness`) + `identity_get` + `capability_list`. tarpc listens on `-tarpc.sock` suffix; main socket speaks JSON-RPC for primalSpring/biomeOS compatibility. Documented in module doc |
+| TCP marker byte fix | ✅ | TCP accept loop also consumes non-`{` marker byte to prevent corruption on non-JSON-first-byte connections |
+| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (833 passing) |
 
 ### Iteration 81: Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery (Apr 15, 2026)
 

@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 89.
+**Current position**: Phase 10 — Iteration 90.
 
-**Last completed**: BTSP Phase 3 wire transport — encrypted frame loop wired into `unix_jsonrpc.rs`. After `btsp.negotiate` returns `chacha20-poly1305`, `take_negotiated_keys()` switches the connection to `[4B BE u32 len][nonce||ciphertext+tag]` framing. `SessionKeys::encrypt`/`decrypt` are now live production code (dead_code attrs removed). Null cipher and non-negotiate first messages fall through to plaintext. `BtspOutcome::session_id()` accessor added. All crate-level `#[allow]` blocks now carry `reason` strings.
+**Last completed**: BTSP Phase 3 transport verified reachable — integration test proves full `handle_connection` → `btsp.negotiate` → `take_negotiated_keys` → `process_encrypted_frames` roundtrip. Marker byte consumption fix ensures non-`{` first byte (BTSP handshake marker) doesn't corrupt JSON-RPC line read. GAP-04 (tarpc health endpoint) confirmed as intentional architecture, not debt.
 
-**Tests**: 4632 passing, 0 failed, 160 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4633 passing, 0 failed, 160 ignored (hardware-gated). Zero clippy warnings.
 
-**Last updated**: May 2, 2026.
+**Last updated**: May 3, 2026.
 
 **Next focus**: Coverage push toward 90%; PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration.
 

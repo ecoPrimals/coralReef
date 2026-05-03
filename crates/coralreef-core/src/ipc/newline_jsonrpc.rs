@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -289,9 +289,16 @@ pub async fn start_newline_tcp_jsonrpc(
                                 drop(stream);
                                 continue;
                             }
+                            let consume_marker = first_byte.is_some_and(|b| b != b'{');
                             tokio::spawn(async move {
                                 let (reader, writer) = stream.into_split();
-                                process_newline_reader_writer(reader, writer).await;
+                                if consume_marker {
+                                    let mut br = tokio::io::BufReader::new(reader);
+                                    let _ = br.read_u8().await;
+                                    process_newline_reader_writer(br, writer).await;
+                                } else {
+                                    process_newline_reader_writer(reader, writer).await;
+                                }
                             });
                         }
                         Err(e) => {

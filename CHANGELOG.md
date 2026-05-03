@@ -4,11 +4,24 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 89
+**Current status**: Phase 10 — Iteration 90
 
 ---
 
 ## [Unreleased]
+
+### Iteration 90 — BTSP Phase 3 Transport Verification (2026-05-03)
+
+#### Transport Reachability Fix
+- Marker byte consumption: non-`{` first byte (BTSP handshake marker) now consumed from `BufReader` before `handle_connection` — previously left in buffer, corrupting first JSON-RPC line read on production BTSP-authenticated connections
+- TCP accept loop: same fix applied for consistency
+
+#### GAP-04 Resolution (tarpc health endpoint)
+- Documented as **intentional design**, not debt: tarpc transport has full health triad (`health_check`, `health_liveness`, `health_readiness`) + `identity_get` + `capability_list`
+- Architecture: tarpc on `-tarpc.sock` suffix, JSON-RPC on main socket — primalSpring reaches health via JSON-RPC, hotSpring compilers use tarpc for high-perf binary calls
+
+#### Verification
+- Integration test `test_btsp_phase3_encrypted_frame_loop_reachable`: full roundtrip through `handle_connection` → `btsp.negotiate` → `take_negotiated_keys` → `process_encrypted_frames` with client-side AEAD encrypt/decrypt
 
 ### Iteration 89 — BTSP Phase 3 + Kepler Hardening + Deep Audit (2026-05-02)
 

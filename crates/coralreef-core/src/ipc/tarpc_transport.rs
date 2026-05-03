@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! tarpc — high-performance binary protocol (bincode over TCP or Unix socket).
+//!
+//! All wateringHole health triad methods are implemented: `health_check`,
+//! `health_liveness`, `health_readiness`, plus `identity_get` and
+//! `capability_list`. The tarpc endpoint listens on a `-tarpc.sock` suffixed
+//! socket (via `resolve_uds_binds`), while the main socket speaks JSON-RPC.
+//! primalSpring GAP-04 (tarpc health) is resolved.
 
 use futures::StreamExt;
 use tokio::sync::watch;
