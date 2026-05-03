@@ -51,7 +51,6 @@
     clippy::single_match_else,
     clippy::struct_field_names,
     clippy::inconsistent_struct_constructor,
-    clippy::needless_lifetimes,
     clippy::needless_borrows_for_generic_args,
     clippy::or_fun_call,
     clippy::redundant_else,
@@ -61,7 +60,8 @@
     clippy::unused_self,
     clippy::used_underscore_items,
     clippy::needless_return,
-    clippy::duplicated_attributes
+    clippy::duplicated_attributes,
+    reason = "hardware driver: register/MMIO patterns require casts, bitwise ops, and kernel-mirrored naming that conflict with pedantic lints"
 )]
 //! # coral-driver — Sovereign GPU Dispatch
 //!

@@ -26,7 +26,8 @@
     clippy::significant_drop_tightening,
     clippy::or_fun_call,
     clippy::semicolon_if_nothing_returned,
-    clippy::items_after_statements
+    clippy::items_after_statements,
+    reason = "PCIe lifecycle broker: sysfs/VFIO device management patterns require casts and kernel-mirrored naming"
 )]
 //! coral-glowplug library — shared types for the sovereign PCIe device lifecycle broker.
 //!

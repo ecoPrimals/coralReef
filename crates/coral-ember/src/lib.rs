@@ -23,7 +23,8 @@
     clippy::needless_lifetimes,
     clippy::unnecessary_literal_bound,
     clippy::match_same_arms,
-    clippy::missing_panics_doc
+    clippy::missing_panics_doc,
+    reason = "VFIO fd holder: fd-passing and daemon lifecycle patterns conflict with pedantic lints"
 )]
 //! coral-ember — Immortal VFIO fd holder for safe daemon restarts.
 //!

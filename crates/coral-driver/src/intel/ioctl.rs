@@ -18,7 +18,12 @@
 
 // Kernel UAPI ioctl structs: field names map 1:1 to kernel headers and are
 // self-documenting.
-#![allow(dead_code, missing_docs, clippy::pub_underscore_fields)]
+#![allow(
+    dead_code,
+    missing_docs,
+    clippy::pub_underscore_fields,
+    reason = "kernel UAPI mirror: field names/layout match kernel headers verbatim"
+)]
 
 // ============================================================================
 // DRM ioctl base definitions

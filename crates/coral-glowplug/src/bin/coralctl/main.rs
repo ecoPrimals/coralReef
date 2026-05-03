@@ -25,7 +25,8 @@
     clippy::or_fun_call,
     clippy::cast_precision_loss,
     clippy::semicolon_if_nothing_returned,
-    clippy::implicit_clone
+    clippy::implicit_clone,
+    reason = "CLI binary: device management command patterns conflict with pedantic lints"
 )]
 //! coralctl — CLI companion for coral-glowplug and coral-ember.
 //!

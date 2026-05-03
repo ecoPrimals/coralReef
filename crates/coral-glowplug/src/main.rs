@@ -26,7 +26,8 @@
     clippy::significant_drop_tightening,
     clippy::or_fun_call,
     clippy::semicolon_if_nothing_returned,
-    clippy::items_after_statements
+    clippy::items_after_statements,
+    reason = "daemon binary: device lifecycle and sysfs patterns conflict with pedantic lints"
 )]
 //! coral-glowplug — Sovereign `PCIe` device lifecycle broker.
 //!
