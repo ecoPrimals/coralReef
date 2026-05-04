@@ -10,6 +10,25 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Iteration 91 — Coverage Expansion + Deep Debt Audit (2026-05-04)
+
+#### Coverage
+- `coral-glowplug/capture.rs`: 7 new tests for `TrainingRecipe` (JSON roundtrip, load nonexistent, load invalid JSON, `flat_writes` aggregation + empty, `training_dir` env override, `recipe_path_for_chip` formatting)
+
+#### Deep Debt Audit (All Clear)
+- Zero `async_trait` usage (native async traits throughout)
+- Zero `lazy_static` usage (`OnceLock`/`LazyLock` only)
+- Zero `Box<dyn Error>` in production code
+- All `.clone()` hotspots are necessary SSA IR manipulation (compiler passes)
+- All `Arc<Mutex<>>` are correct patterns (short critical sections, no `.await` under lock)
+- All `#[expect(dead_code)]` carry reason strings
+- `Result<_, String>` only in `coral_probe.rs` (binary CLI tool)
+- No modernization gaps found
+
+#### Tests
+- 4686 passing, 0 failures, 160 ignored (hardware-gated)
+- Zero clippy warnings (pedantic + nursery)
+
 ### Iteration 90 — BTSP Phase 3 Transport Verification + Deep Debt (2026-05-03)
 
 #### Transport Reachability Fix
