@@ -425,3 +425,112 @@ fn timestamp_now() -> String {
         .unwrap_or_default();
     format!("{}s", dur.as_secs())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use coral_driver::vfio::channel::hbm2_training::DomainCapture;
+
+    fn sample_recipe() -> TrainingRecipe {
+        TrainingRecipe {
+            chip: "gv100".into(),
+            bdf: "0000:65:00.0".into(),
+            warm_driver: "nouveau".into(),
+            cold_boot0: 0x1401_0000,
+            training_writes: vec![
+                DomainCapture {
+                    name: "FBPA".into(),
+                    registers: vec![(0x100_800, 0x0000_0042), (0x100_804, 0x0000_0001)],
+                },
+                DomainCapture {
+                    name: "LTC".into(),
+                    registers: vec![(0x17E_200, 0x0000_00FF)],
+                },
+            ],
+            total_writes: 3,
+            mmiotrace_path: None,
+            timestamp: "1714700000s".into(),
+        }
+    }
+
+    #[test]
+    fn training_recipe_roundtrip_json() {
+        let recipe = sample_recipe();
+        let tmp = std::env::temp_dir().join(format!(
+            "coralreef-capture-test-{}.json",
+            std::process::id()
+        ));
+        recipe.save(&tmp).expect("save should succeed");
+        let loaded = TrainingRecipe::load(&tmp).expect("load should succeed");
+        assert_eq!(loaded.chip, "gv100");
+        assert_eq!(loaded.bdf, "0000:65:00.0");
+        assert_eq!(loaded.warm_driver, "nouveau");
+        assert_eq!(loaded.cold_boot0, 0x1401_0000);
+        assert_eq!(loaded.total_writes, 3);
+        assert_eq!(loaded.training_writes.len(), 2);
+        assert_eq!(loaded.training_writes[0].name, "FBPA");
+        assert_eq!(loaded.training_writes[1].registers.len(), 1);
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn training_recipe_load_nonexistent_returns_error() {
+        let result = TrainingRecipe::load(Path::new("/nonexistent/recipe.json"));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, TrainingRecipeError::Read { .. }));
+    }
+
+    #[test]
+    fn training_recipe_load_invalid_json_returns_parse_error() {
+        let tmp = std::env::temp_dir().join(format!(
+            "coralreef-capture-test-bad-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&tmp, "not valid json{{{").unwrap();
+        let result = TrainingRecipe::load(&tmp);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            TrainingRecipeError::Parse { .. }
+        ));
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn flat_writes_aggregates_all_domains() {
+        let recipe = sample_recipe();
+        let flat = recipe.flat_writes();
+        assert_eq!(flat.len(), 3);
+        assert_eq!(flat[0], (0x100_800, 0x0000_0042));
+        assert_eq!(flat[1], (0x100_804, 0x0000_0001));
+        assert_eq!(flat[2], (0x17E_200, 0x0000_00FF));
+    }
+
+    #[test]
+    fn flat_writes_empty_recipe() {
+        let recipe = TrainingRecipe {
+            chip: "test".into(),
+            bdf: "0000:00:00.0".into(),
+            warm_driver: "none".into(),
+            cold_boot0: 0,
+            training_writes: vec![],
+            total_writes: 0,
+            mmiotrace_path: None,
+            timestamp: "0s".into(),
+        };
+        assert!(recipe.flat_writes().is_empty());
+    }
+
+    #[test]
+    fn training_dir_env_override() {
+        let dir = training_dir();
+        assert!(!dir.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn recipe_path_for_chip_formats_correctly() {
+        let path = recipe_path_for_chip("gv100");
+        assert!(path.to_string_lossy().contains("gv100.json"));
+    }
+}
