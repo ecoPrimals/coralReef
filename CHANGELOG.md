@@ -15,6 +15,12 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 #### Coverage
 - `coral-glowplug/capture.rs`: 7 new tests for `TrainingRecipe` (JSON roundtrip, load nonexistent, load invalid JSON, `flat_writes` aggregation + empty, `training_dir` env override, `recipe_path_for_chip` formatting)
 
+#### Zero-Alloc Performance Evolution
+- `EntryFlags::aperture_name`: `String` → `Cow<'static, str>` (eliminates heap alloc on every PDE/PTE decode)
+- `ember.rs`: 7× `format!("{req}\n")` → `write_rpc_line()` helper (eliminates redundant String allocation per JSON-RPC write)
+- `diff_snapshots`: `Vec::with_capacity(domains.len())` pre-sizes output
+- `device_open` probe: `Vec::with_capacity(8)` for fixed-size register scan
+
 #### Deep Debt Audit (All Clear)
 - Zero `async_trait` usage (native async traits throughout)
 - Zero `lazy_static` usage (`OnceLock`/`LazyLock` only)
