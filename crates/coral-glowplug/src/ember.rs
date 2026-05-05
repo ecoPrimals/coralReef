@@ -63,6 +63,12 @@ fn make_rpc_request(method: &str, params: serde_json::Value) -> String {
     .to_string()
 }
 
+/// Write a JSON-RPC line to a stream without allocating a second string for the newline.
+fn write_rpc_line(stream: &mut impl std::io::Write, req: &str) -> std::io::Result<()> {
+    stream.write_all(req.as_bytes())?;
+    stream.write_all(b"\n")
+}
+
 fn parse_rpc_response(buf: &[u8]) -> Result<serde_json::Value, EmberError> {
     let resp: JsonRpcResponse = serde_json::from_slice(buf)?;
     if let Some(err) = resp.error {
@@ -130,7 +136,7 @@ impl EmberClient {
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
         let req = make_rpc_request("ember.list", serde_json::json!({}));
-        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+        write_rpc_line(&mut &stream, &req)?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
         let n = std::io::Read::read(&mut &stream, &mut buf)?;
@@ -156,7 +162,7 @@ impl EmberClient {
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
         let req = make_rpc_request("ember.release", serde_json::json!({"bdf": bdf}));
-        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+        write_rpc_line(&mut &stream, &req)?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
         let n = std::io::Read::read(&mut &stream, &mut buf)?;
@@ -173,7 +179,7 @@ impl EmberClient {
         stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
 
         let req = make_rpc_request("ember.reacquire", serde_json::json!({"bdf": bdf}));
-        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+        write_rpc_line(&mut &stream, &req)?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
         let n = std::io::Read::read(&mut &stream, &mut buf)?;
@@ -193,7 +199,7 @@ impl EmberClient {
             "ember.device_reset",
             serde_json::json!({"bdf": bdf, "method": method}),
         );
-        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+        write_rpc_line(&mut &stream, &req)?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
         let n = std::io::Read::read(&mut &stream, &mut buf)?;
@@ -269,7 +275,7 @@ impl EmberClient {
             params["trace"] = serde_json::json!(true);
         }
         let req = make_rpc_request("ember.swap", params);
-        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+        write_rpc_line(&mut &stream, &req)?;
 
         let mut buf = vec![0u8; 8192];
         let n = read_full_response(&stream, &mut buf)?;
@@ -384,7 +390,7 @@ impl EmberClient {
         let stream = UnixStream::connect(&self.socket_path).map_err(EmberError::Connect)?;
         stream.set_read_timeout(Some(timeout))?;
         let req = make_rpc_request(method, params);
-        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+        write_rpc_line(&mut &stream, &req)?;
         let mut buf = vec![0u8; 65536];
         let n = read_full_response(&stream, &mut buf)?;
         parse_rpc_response(&buf[..n])
@@ -462,7 +468,7 @@ impl EmberClient {
         stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
         let req = make_rpc_request("ember.vfio_fds", serde_json::json!({"bdf": bdf}));
-        std::io::Write::write_all(&mut &stream, format!("{req}\n").as_bytes())?;
+        write_rpc_line(&mut &stream, &req)?;
 
         let mut buf = [0u8; MAX_RESPONSE_SIZE];
         let (n, fds) = recv_with_fds(&stream, &mut buf)?;

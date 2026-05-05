@@ -415,7 +415,7 @@ impl NvVfioComputeDevice {
                     // re-init the PFIFO scheduler sub-block.
                     if !sched_ok {
                         // Probe a range of PFIFO registers to map the dead zone
-                        let mut probe_results = Vec::new();
+                        let mut probe_results = Vec::with_capacity(8);
                         for off in (0x2000..=0x2700).step_by(0x100) {
                             let val = bar0.read_u32(off).unwrap_or(0xDEAD);
                             let is_fault = val & 0xBAD0_0000 == 0xBAD0_0000;

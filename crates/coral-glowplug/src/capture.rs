@@ -389,7 +389,7 @@ pub fn capture_training(bdf: &str, warm_driver: Option<&str>) -> CaptureResult {
 /// the *warm* value if it differs from cold. Also includes registers present
 /// only in the warm snapshot (driver enabled new domains).
 fn diff_snapshots(cold: &GoldenCapture, warm: &GoldenCapture) -> Vec<DomainCapture> {
-    let mut diffs = Vec::new();
+    let mut diffs = Vec::with_capacity(warm.domains.len());
 
     for warm_domain in &warm.domains {
         let cold_regs: std::collections::HashMap<usize, u32> = cold
@@ -399,7 +399,7 @@ fn diff_snapshots(cold: &GoldenCapture, warm: &GoldenCapture) -> Vec<DomainCaptu
             .map(|d| d.registers.iter().copied().collect())
             .unwrap_or_default();
 
-        let mut domain_diffs = Vec::new();
+        let mut domain_diffs = Vec::with_capacity(warm_domain.registers.len());
         for &(off, warm_val) in &warm_domain.registers {
             let cold_val = cold_regs.get(&off).copied().unwrap_or(0xDEAD_DEAD);
             if cold_val != warm_val {

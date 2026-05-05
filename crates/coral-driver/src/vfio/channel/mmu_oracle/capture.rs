@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Page table and engine register capture (BAR0 / PRAMIN).
 
+use std::borrow::Cow;
 use std::ptr::NonNull;
 
 use serde::{Deserialize, Serialize};
@@ -177,7 +178,7 @@ pub fn decode_entry_addr(entry: u64) -> u64 {
 pub struct EntryFlags {
     pub valid: bool,
     pub aperture: u8,
-    pub aperture_name: String,
+    pub aperture_name: Cow<'static, str>,
     pub vol: bool,
 }
 
@@ -187,13 +188,13 @@ impl EntryFlags {
         Self {
             valid: (entry & 1) != 0,
             aperture,
-            aperture_name: match aperture {
-                0 => "INVALID".into(),
-                1 => "VRAM".into(),
-                2 => "SYS_COH".into(),
-                3 => "SYS_NCOH".into(),
-                _ => "?".into(),
-            },
+            aperture_name: Cow::Borrowed(match aperture {
+                0 => "INVALID",
+                1 => "VRAM",
+                2 => "SYS_COH",
+                3 => "SYS_NCOH",
+                _ => "?",
+            }),
             vol: ((entry >> 3) & 1) != 0,
         }
     }
