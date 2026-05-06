@@ -4,7 +4,7 @@
 
 **Current position**: Phase 10 — Iteration 92.
 
-**Last completed**: Wire Standard L3 alignment — `capabilities.list` now returns `protocol: "jsonrpc-2.0"` and `transport: ["uds", "tcp", "tarpc"]` fields. BufReader post-negotiate audit confirmed correct (no `into_inner()` needed — BufReader passed through to encrypted frame loop). Whitespace-tolerant TCP detection assessed: not needed for our ecosystem.
+**Last completed**: Deep debt pass — `coral_probe.rs` typed errors (zero `Result<_, String>` in any production code), all hardcoded kernel device paths env-overridable (6 new `CORALREEF_*` env vars). Wire Standard L3 alignment (`capabilities.list` returns `protocol` + `transport`). BufReader post-negotiate verified correct. Large file assessment: all cohesive, no splits needed.
 
 **Tests**: 4686 passing, 0 failed, 177 ignored (hardware-gated). Zero clippy warnings.
 

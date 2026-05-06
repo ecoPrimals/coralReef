@@ -3,7 +3,7 @@
 # coralReef — Compiler & Driver Evolution
 
 **Last updated**: May 6, 2026 (Phase 10 — Iteration 92)
-**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, ecoBin cross-arch evolution & primalSpring / compliance evolution. Hotspring merge complete (GPU generation profiles, PTX emitter WIP). All typed errors; zero `Result<_, String>` in production. Smart file splits: zero files >1000L. BTSP Phase 3 transport verified reachable. Wire Standard L3 alignment complete (`protocol` + `transport` on `capabilities.list`). Full modernization audit: zero `async_trait`, zero `lazy_static`, zero `Box<dyn Error>` in production.
+**Phase**: 10 — Multi-GPU Sovereignty, Cross-Vendor Parity, ecoBin cross-arch evolution & primalSpring / compliance evolution. Hotspring merge complete (GPU generation profiles, PTX emitter WIP). All typed errors; zero `Result<_, String>` in any production code (binary or library). All hardcoded device paths env-overridable. Smart file splits: zero files >1000L. BTSP Phase 3 transport verified reachable. Wire Standard L3 alignment complete. Full modernization audit: zero `async_trait`, zero `lazy_static`, zero `Box<dyn Error>` in production.
 
 ---
 

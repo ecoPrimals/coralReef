@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 6, 2026  
-**Phase**: 10 — Iteration 92 (Wire Standard L3 alignment: protocol + transport on capabilities.list)
+**Phase**: 10 — Iteration 92 (Wire Standard L3 + deep debt: typed errors, env-overridable device paths)
 
 ---
 
