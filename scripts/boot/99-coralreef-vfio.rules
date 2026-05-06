@@ -1,51 +1,58 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
-# coralReef udev rules for VFIO device management
+# coralReef udev rules for per-device driver binding at boot
 #
-# Both Titan V GPUs (10de:1d81) are claimed by vfio-pci at module load
-# time via modprobe options (ids=10de:1d81). These udev rules handle
-# post-bind setup: power pinning, reset disabling, and permissions.
+# Fleet: Titan V #1 (02:00.0), RTX 5060 (21:00.0), Tesla K80 (4b:00.0 + 4c:00.0)
+# Titan V #1: vfio-pci (oracle, swappable to nouveau via ember)
+# RTX 5060: nvidia (display, locked — no rule needed, nvidia claims by default)
+# K80 die #1 (4b:00.0): vfio-pci (sovereign target, cold at boot)  IOMMU group 35
+# K80 die #2 (4c:00.0): vfio-pci (reagent target, cold at boot)    IOMMU group 36
 #
-# Rules match by PCI device ID (not BDF) so they survive PCIe
-# re-enumeration when cards are physically moved between slots.
+# K80 DESIGN NOTE: Both K80 dies boot on vfio-pci (cold). Nouveau cannot
+# cold-start GK210 — BOOT0 returns 0x0f22d0a1 (hardware default, not a valid
+# chipset ID) because UEFI only POSTs the primary display GPU.
+#
+# Initialization path: ember detects cold hardware via BOOT0/PTIMER heuristics,
+# then the K80 is POSTed by passing it to an agentReagents micro-VM running
+# nvidia-470. After POST, ember swaps to vfio-pci for sovereign compute.
+#
+# NOTE: K80 (10de:102d) IS in kernel cmdline vfio-pci.ids to prevent nvidia-580
+# from probing and killing it (nvidia-580 does not support GK210, failed probe
+# leaves PCIe PHY dead). Ember can still unbind from vfio-pci later.
+# Titan V also cmdline-protected (nvidia-580 rejects GV100).
+#
+# K80 binding is handled by kernel cmdline vfio-pci.ids=10de:102d.
+# DO NOT write drivers_probe — the re-probe through the PLX PEX 8747
+# triggers a device reset that kills the PCIe link (rev ff / all-0xFF
+# config space). The udev rules here only set safety attributes on
+# devices already bound by the kernel cmdline.
 #
 # Install:
 #   sudo cp scripts/boot/99-coralreef-vfio.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules
 
-# ══════════════════════════════════════════════════════════════
-# RTX 5060 Display GPU — LOCKED TO NVIDIA ONLY
-# ══════════════════════════════════════════════════════════════
-# Prevents nouveau, vfio-pci, or any other driver from ever binding
-# the display GPU, even during Titan V driver-swap experiments.
-ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x2d05", ATTR{driver_override}="nvidia"
-# Lock audio function to snd_hda_intel
-ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x22eb", ATTR{driver_override}="snd_hda_intel"
+# --- Tesla K80 die #1 -> vfio-pci (sovereign target, cold) ---
+# IOMMU group 35 — already claimed by vfio-pci.ids on kernel cmdline
+ACTION=="add", KERNEL=="0000:4b:00.0", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x102d", RUN+="/bin/sh -c 'echo vfio-pci > /sys/bus/pci/devices/0000:4b:00.0/driver_override'"
+ACTION=="add", KERNEL=="0000:4b:00.0", SUBSYSTEM=="pci", ATTR{power/control}="on"
+ACTION=="add", KERNEL=="0000:4b:00.0", SUBSYSTEM=="pci", ATTR{d3cold_allowed}="0"
+ACTION=="add", KERNEL=="0000:4b:00.0", SUBSYSTEM=="pci", RUN+="/bin/sh -c 'echo > /sys/bus/pci/devices/0000:4b:00.0/reset_method 2>/dev/null || true'"
+ACTION=="bind", KERNEL=="0000:4b:00.0", SUBSYSTEM=="pci", RUN+="/bin/sh -c 'sleep 1 && chmod 666 /dev/vfio/35 2>/dev/null || true'"
 
-# ══════════════════════════════════════════════════════════════
-# Titan V (10de:1d81) — VFIO SOVEREIGN COMPUTE
-# ══════════════════════════════════════════════════════════════
+# --- Tesla K80 die #2 -> vfio-pci (reagent target, cold) ---
+# IOMMU group 36 — already claimed by vfio-pci.ids on kernel cmdline
+ACTION=="add", KERNEL=="0000:4c:00.0", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x102d", RUN+="/bin/sh -c 'echo vfio-pci > /sys/bus/pci/devices/0000:4c:00.0/driver_override'"
+ACTION=="add", KERNEL=="0000:4c:00.0", SUBSYSTEM=="pci", ATTR{power/control}="on"
+ACTION=="add", KERNEL=="0000:4c:00.0", SUBSYSTEM=="pci", ATTR{d3cold_allowed}="0"
+ACTION=="add", KERNEL=="0000:4c:00.0", SUBSYSTEM=="pci", RUN+="/bin/sh -c 'echo > /sys/bus/pci/devices/0000:4c:00.0/reset_method 2>/dev/null || true'"
+ACTION=="bind", KERNEL=="0000:4c:00.0", SUBSYSTEM=="pci", RUN+="/bin/sh -c 'sleep 1 && chmod 666 /dev/vfio/36 2>/dev/null || true'"
 
-# ── Power Management ─────────────────────────────────────────
-# Keep all Titan V's in D0 (prevent runtime PM D3hot transitions)
-ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", ATTR{power/control}="on"
+# --- Titan V #1 -> vfio-pci (oracle, swappable to nouveau via ember) ---
+# IOMMU group 69 — also claimed by kernel cmdline vfio-pci.ids=10de:1d81,10de:10f2
+ACTION=="add", KERNEL=="0000:02:00.0", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", RUN+="/bin/sh -c 'echo vfio-pci > /sys/bus/pci/devices/0000:02:00.0/driver_override'"
+ACTION=="add", KERNEL=="0000:02:00.0", SUBSYSTEM=="pci", ATTR{power/control}="on"
+ACTION=="bind", KERNEL=="0000:02:00.0", SUBSYSTEM=="pci", RUN+="/bin/sh -c 'sleep 1 && chmod 666 /dev/vfio/69 2>/dev/null || true'"
 
-# ── Reset Method Disabling ───────────────────────────────────
-# Disable destructive bus reset (preserves HBM2 state across rebind)
-ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", RUN+="/bin/sh -c 'echo > /sys$devpath/reset_method 2>/dev/null || true'"
+# Titan V #1 audio -> vfio-pci (same IOMMU group 69)
+ACTION=="add", KERNEL=="0000:02:00.1", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", RUN+="/bin/sh -c 'echo vfio-pci > /sys/bus/pci/devices/0000:02:00.1/driver_override'"
 
-# ── Audio Function Binding ───────────────────────────────────
-# Titan V audio (10de:10f2) must also be in vfio-pci (same IOMMU group)
-ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x10f2", RUN+="/bin/sh -c 'echo vfio-pci > /sys$devpath/driver_override 2>/dev/null || true'"
-
-# ── Permissions ──────────────────────────────────────────────
-# VFIO container and group devices — allow coralreef service user
-KERNEL=="vfio", MODE="0666"
+# VFIO devices: world read/write
 SUBSYSTEM=="vfio", MODE="0666"
-
-# Per-device sysfs permissions for coral-glowplug hot-swap operations
-# Matches any Titan V regardless of BDF
-ACTION=="add|change", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x1d81", \
-  RUN+="/bin/sh -c 'chmod 0666 /sys$devpath/driver_override /sys$devpath/config /sys$devpath/resource0 2>/dev/null || true'"
-
-ACTION=="add|change", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{device}=="0x10f2", \
-  RUN+="/bin/sh -c 'chmod 0666 /sys$devpath/driver_override 2>/dev/null || true'"

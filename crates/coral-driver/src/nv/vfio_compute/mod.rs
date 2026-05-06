@@ -45,7 +45,7 @@ mod kepler_nouveau_clk;
 mod kepler_recovery;
 mod kepler_warm;
 mod layout;
-mod pgob;
+pub(crate) mod pgob;
 mod pmu;
 mod pri;
 mod quiesce;
@@ -57,7 +57,7 @@ mod warm_channel;
 pub use gr_engine_status::GrEngineStatus;
 pub use raw_device::RawVfioDevice;
 
-pub(super) use layout::{gpfifo, sm_to_chip};
+pub(super) use layout::{LOCAL_MEM_WINDOW_LEGACY, LOCAL_MEM_WINDOW_VOLTA, gpfifo, sm_to_chip};
 
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::channel::VfioChannel;
@@ -98,10 +98,6 @@ pub struct NvVfioComputeDevice {
     fence_pb_buf: Option<DmaBuffer>,
     fence_value: u32,
     /// Guard page at IOVA 0x0 — absorbs firmware DMA to low addresses.
-    #[expect(
-        dead_code,
-        reason = "WIP: wired when IOC path maps guard explicitly; retains allocation for bring-up"
-    )]
     guard_page: Option<DmaBuffer>,
     device: VfioDevice,
 }
@@ -209,13 +205,23 @@ impl NvVfioComputeDevice {
         acr_boot::FalconProbe::capture(&self.bar0)
     }
 
-    /// Run the Falcon Boot Solver — tries all strategies to boot FECS.
+    /// Run the Falcon Boot Solver — generation-aware strategy dispatch.
+    ///
+    /// Kepler (NoAcr) returns immediately — PIO boot is handled by
+    /// `sovereign_init` / `kepler_warm_gr_init`. Volta+ runs the full
+    /// ACR cascade.
     pub fn falcon_boot_solver(
         &self,
         journal: Option<&dyn acr_boot::BootJournal>,
     ) -> DriverResult<Vec<acr_boot::AcrBootResult>> {
         let chip = sm_to_chip(self.sm_version);
-        acr_boot::FalconBootSolver::boot(&self.bar0, chip, Some(self.container.clone()), journal)
+        acr_boot::FalconBootSolver::boot_for_generation(
+            &self.bar0,
+            self.sm_version,
+            chip,
+            Some(self.container.clone()),
+            journal,
+        )
     }
 
     /// Run only the system-memory ACR boot strategy (Exp 083).

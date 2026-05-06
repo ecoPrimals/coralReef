@@ -97,24 +97,20 @@ pub mod method {
     pub const SEND_SIGNALING_PCAS2_B: u32 = 0x02C0;
     /// Turing compute class value — used to determine launch path.
     pub const TURING_COMPUTE_A: u32 = 0xC5C0;
-    /// PCAS2 action: invalidate + copy + schedule.
+    /// PCAS2 action (Ampere+): invalidate QMD cache, copy from memory, schedule.
+    /// 4-bit field [3:0] per clcec0.h NVCEC0_SEND_SIGNALING_PCAS2_B_PCAS_ACTION.
     pub const PCAS_ACTION_INVALIDATE_COPY_SCHEDULE: u32 = 3;
 }
 
 impl PushBuf {
-    /// Build a one-time compute init push buffer for Volta+ (SM70+).
+    /// Build a one-time compute init push buffer.
     ///
-    /// Binds the compute class to subchannel 1 via `SET_OBJECT` and configures
-    /// SLM (Shader Local Memory) base address + per-TPC allocation limit.
-    /// This mirrors NVK's `nvk_push_dispatch_state_init()` + `nvk_queue_state_update()`.
+    /// When `skip_set_object` is false (pre-Blackwell / nouveau), pushes
+    /// `SET_OBJECT` on subchannel 0 to program the PBDMA subchannel table.
     ///
-    /// NVK does NOT set `SET_SHADER_SHARED_MEMORY_WINDOW` or
-    /// `SET_SHADER_LOCAL_MEMORY_WINDOW` for compute subchannels — those are
-    /// only needed for the 3D engine. The compute SM accesses local/shared
-    /// memory through dedicated address spaces, not the generic window.
-    ///
-    /// Repeated `SET_OBJECT` calls on Blackwell corrupt channel state
-    /// (GR_CLASS_ERROR 0x0D), so this is separated from per-dispatch work.
+    /// When `skip_set_object` is true (Blackwell proprietary), the subchannel
+    /// is already bound via RM control `NV906F_CTRL_CMD_BIND` (0x906f0101).
+    /// Pushing `SET_OBJECT` again causes Xid 13 "Class Mismatch".
     #[must_use]
     pub fn compute_init(
         compute_class: u32,
@@ -122,16 +118,89 @@ impl PushBuf {
         slm_base_addr: u64,
         slm_per_tpc_bytes: u64,
     ) -> Self {
-        let mut pb = Self::new();
-        let sub = 1_u32;
+        Self::compute_init_inner(compute_class, _local_mem_window, slm_base_addr, slm_per_tpc_bytes, false)
+    }
 
-        pb.push_1(sub, method::SET_OBJECT, compute_class);
+    /// Like [`compute_init`](Self::compute_init) but skips the push buffer
+    /// `SET_OBJECT`, relying on the RM bind for subchannel setup.
+    #[must_use]
+    pub fn compute_init_rm_bound(
+        _local_mem_window: u64,
+        slm_base_addr: u64,
+        slm_per_tpc_bytes: u64,
+    ) -> Self {
+        Self::compute_init_inner(0, _local_mem_window, slm_base_addr, slm_per_tpc_bytes, true)
+    }
+
+    /// Blackwell compute init on a specific subchannel with memory windows.
+    #[must_use]
+    pub fn compute_init_subchannel(
+        compute_class: u32,
+        local_mem_window: u64,
+        shared_mem_window: u64,
+        slm_base_addr: u64,
+        slm_per_tpc_bytes: u64,
+        subchannel: u32,
+    ) -> Self {
+        let mut pb = Self::compute_init_on_subchannel(
+            compute_class, local_mem_window, slm_base_addr, slm_per_tpc_bytes, false, subchannel,
+        );
+        if shared_mem_window != 0 {
+            #[expect(clippy::cast_possible_truncation, reason = "deliberate split into 32-bit halves")]
+            {
+                pb.push_1(subchannel, method::SET_SHADER_SHARED_MEMORY_WINDOW_A, (shared_mem_window >> 32) as u32);
+                pb.push_1(subchannel, method::SET_SHADER_SHARED_MEMORY_WINDOW_B, shared_mem_window as u32);
+            }
+        }
+        pb
+    }
+
+    fn compute_init_inner(
+        compute_class: u32,
+        _local_mem_window: u64,
+        slm_base_addr: u64,
+        slm_per_tpc_bytes: u64,
+        skip_set_object: bool,
+    ) -> Self {
+        Self::compute_init_on_subchannel(compute_class, _local_mem_window, slm_base_addr, slm_per_tpc_bytes, skip_set_object, 0)
+    }
+
+    fn compute_init_on_subchannel(
+        compute_class: u32,
+        local_mem_window: u64,
+        slm_base_addr: u64,
+        slm_per_tpc_bytes: u64,
+        skip_set_object: bool,
+        sub: u32,
+    ) -> Self {
+        let mut pb = Self::new();
+
+        if !skip_set_object {
+            pb.push_1(sub, method::SET_OBJECT, compute_class);
+        }
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "deliberate split into 32-bit halves"
         )]
         {
+            // Window addresses: the SM uses these as the VA base for
+            // LD.LOCAL / ST.LOCAL and shared-memory accesses. Without
+            // valid windows the GPU faults with "Invalid Address Space"
+            // during warp setup (even for an EXIT-only shader).
+            if local_mem_window != 0 {
+                pb.push_1(
+                    sub,
+                    method::SET_SHADER_LOCAL_MEMORY_WINDOW_A,
+                    (local_mem_window >> 32) as u32,
+                );
+                pb.push_1(
+                    sub,
+                    method::SET_SHADER_LOCAL_MEMORY_WINDOW_B,
+                    local_mem_window as u32,
+                );
+            }
+
             pb.push_1(
                 sub,
                 method::SET_SHADER_LOCAL_MEMORY_A,
@@ -175,16 +244,25 @@ impl PushBuf {
     /// from the generation profile.
     ///
     /// Invalidates caches and launches via `SEND_PCAS_A` + the appropriate
-    /// signaling method. The compute class must already be bound to subchannel 1
-    /// via a prior [`compute_init`](Self::compute_init) submission.
+    /// signaling method. The compute class must already be bound to the
+    /// target subchannel via a prior init or RM bind.
     #[must_use]
     pub fn compute_dispatch_with_launch(
         launch: super::generation::LaunchMethod,
         qmd_addr: u64,
     ) -> Self {
+        Self::compute_dispatch_on_subchannel(launch, qmd_addr, 0)
+    }
+
+    /// Dispatch on a specific subchannel.
+    #[must_use]
+    pub fn compute_dispatch_on_subchannel(
+        launch: super::generation::LaunchMethod,
+        qmd_addr: u64,
+        sub: u32,
+    ) -> Self {
         use super::generation::LaunchMethod;
         let mut pb = Self::new();
-        let sub = 1_u32;
 
         pb.push_1(
             sub,
@@ -266,7 +344,7 @@ mod tests {
         let hdr = words[0];
         assert_eq!(hdr >> 29, 1, "SEC_OP should be 1 (INC_METHOD)");
         assert_eq!((hdr >> 16) & 0x1FFF, 1, "count should be 1");
-        assert_eq!((hdr >> 13) & 0x7, 1, "subchannel should be 1");
+        assert_eq!((hdr >> 13) & 0x7, 0, "subchannel should be 0");
     }
 
     #[test]
@@ -274,7 +352,7 @@ mod tests {
         let pb = PushBuf::compute_init(0xCEC0, 0xFF00_0000, 0x1_0000_0000, 0x8000);
         let words = pb.as_words();
         let hdr = words[0];
-        assert_eq!((hdr >> 13) & 0x7, 1, "subchannel 1");
+        assert_eq!((hdr >> 13) & 0x7, 0, "subchannel 0");
         assert_eq!(hdr & 0x1FFF, 0, "SET_OBJECT method addr >> 2 = 0");
         assert_eq!(words[1], 0xCEC0, "compute class");
     }

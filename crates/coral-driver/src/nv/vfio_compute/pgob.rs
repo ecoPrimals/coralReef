@@ -33,7 +33,7 @@ pub(super) static PGOB_POWER_STEPS: &[(u32, u32)] = &[
 ///
 /// Accesses 0x10a78c (PMU PGOB) directly via `MappedBar`, bypassing
 /// `GuardedBar`'s blocklist — this full protocol is the safety boundary.
-pub(super) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) {
+pub(crate) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) {
     let bar0 = guard.inner();
     let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
     let wr = |reg: u32, val: u32| {
@@ -111,6 +111,16 @@ pub(super) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
 
     // Settle time for PGRAPH to come online
     std::thread::sleep(std::time::Duration::from_millis(50));
+
+    // GK210B auto-clock-gates the GR HUB within nanoseconds of the last
+    // PRI access. Disable BLCG/SLCG immediately after PGRAPH re-enable,
+    // before any diagnostic reads that would give the gating hardware a
+    // window to shut down the domain.
+    wr(0x40_41f0, 0x0000_0000); // GR HUB BLCG off
+    wr(0x40_41f4, 0x0000_0000); // GR HUB SLCG off
+    wr(0x40_9890, 0x0000_0000); // FECS BLCG off
+    wr(0x40_98b0, 0x0000_0000); // FECS BLCG2 off
+    wr(0x40_0500, 0x0000_0000); // TRAP_EN off (quiesce GR HUB)
 
     let gr_hub_test = rd(0x400700);
     let fecs_test = rd(0x409100);

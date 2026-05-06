@@ -72,8 +72,20 @@ impl Bar0Access {
     ///
     /// # Errors
     ///
-    /// Returns `ApplyError::MmioFailed` if opening/mapping the BAR0 resource fails.
+    /// Returns `ApplyError::MmioFailed` if opening/mapping the BAR0 resource fails,
+    /// or if the device is held by a live ember instance.
     pub fn from_sysfs_device(sysfs_device: &str) -> Result<Self, ApplyError> {
+        #[cfg(feature = "vfio")]
+        if let Some(bdf) = bdf_from_sysfs_device(sysfs_device) {
+            if crate::vfio::ember_gate::is_device_held_by_ember(&bdf) {
+                return Err(ApplyError::MmioFailed {
+                    offset: 0,
+                    detail: format!(
+                        "device {bdf} is held by ember — use EmberSession::connect() instead of direct BAR0 open"
+                    ),
+                });
+            }
+        }
         let path = format!("{sysfs_device}/resource0");
         Self::open_resource(&path)
     }
@@ -210,6 +222,22 @@ unsafe impl Send for Bar0Access {}
 
 // SAFETY: Matches the `Send` / `Sync` rationale in the [`Bar0Access`] docs.
 unsafe impl Sync for Bar0Access {}
+
+/// Extract a PCI BDF from a sysfs device directory path.
+///
+/// Follows the sysfs symlink (e.g. `/sys/class/drm/renderD128/device` ->
+/// `/sys/devices/.../0000:06:00.0`) and returns the final BDF component.
+/// Returns `None` if the path can't be resolved or doesn't end in a BDF.
+#[cfg(feature = "vfio")]
+fn bdf_from_sysfs_device(sysfs_device: &str) -> Option<String> {
+    let resolved = std::fs::canonicalize(sysfs_device).ok()?;
+    let name = resolved.file_name()?.to_str()?;
+    if name.contains(':') && name.contains('.') {
+        Some(name.to_string())
+    } else {
+        None
+    }
+}
 
 #[cfg(test)]
 mod tests {

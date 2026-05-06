@@ -16,9 +16,11 @@ impl ComputeDevice for NvUvmComputeDevice {
     fn alloc(&mut self, size: u64, _domain: MemoryDomain) -> DriverResult<BufferHandle> {
         let aligned = page_align(size);
 
-        // Blackwell via kmod: allocate VRAM + GPU VA mapping from kernel
-        // context to ensure GPU page tables are eagerly populated.
-        if let Some(ref kmod) = self.coral_kmod {
+        // Blackwell via kmod (non-UVM path only): allocate VRAM + GPU VA
+        // mapping from kernel context. On Blackwell UVM, fall through to
+        // the system-memory path below since the kmod DMA mapping doesn't
+        // work with externally-owned VA spaces.
+        if let Some(ref kmod) = self.coral_kmod && !self.uses_uvm_mapping {
             let (h_mem, gpu_va) = kmod.alloc_gpu_buffer(self.kmod_h_client, aligned)?;
 
             // CPU mapping via BAR1 (GPU device fd) for VRAM access.
@@ -198,14 +200,25 @@ impl ComputeDevice for NvUvmComputeDevice {
         // Colocate shader code and descriptor table in a single buffer so
         // both share the same GPU page mapping.  Descriptor data starts at a
         // 256-byte–aligned offset after the shader binary.
+        //
+        // SM120+ (Blackwell PTX ABI): ptxas places kernel parameters at
+        // c[0][0x380] (EIATTR_PARAM_CBANK offset), NOT c[0][0x160]. The
+        // .nv.constant0 section is 0x390 bytes. Descriptor-based STG.E
+        // instructions also read from c[0][0x358].
+        //
+        // SM < 100 (SASS backend via coral-reef): parameters at c[0][0].
+        let is_ptx_abi = self.sm_version() >= 100;
+        let param_window_offset: usize = if is_ptx_abi { 0x380 } else { 0 };
+
         let shader_len = shader.len();
         let desc_offset = (shader_len + 255) & !255; // 256-byte align
         let desc_entry_size = 16_usize;
         let desc_entries = buffers.len().max(1);
         let desc_data_len = desc_entry_size * desc_entries;
-        // Align overall CBUF size to 64 bytes (NVK min_cbuf_alignment for
-        // Turing+).
-        let desc_cbuf_size = ((desc_data_len + 63) & !63) as u32;
+        let cbuf_payload_end = param_window_offset + desc_data_len;
+        // SM120 constant0 section is 0x390 bytes minimum.
+        let min_cbuf_size: usize = if is_ptx_abi { 0x390 } else { 0 };
+        let desc_cbuf_size = ((cbuf_payload_end.max(min_cbuf_size) + 63) & !63) as u32;
         let combined_size = u64::try_from(desc_offset + desc_cbuf_size as usize)
             .map_err(|_| DriverError::platform_overflow("combined size fits in u64"))?;
 
@@ -275,27 +288,29 @@ impl ComputeDevice for NvUvmComputeDevice {
 
         let shader_va = self.buffers.get(&shader_handle.0).map_or(0, |b| b.gpu_va);
 
-        // Build CBUF descriptor table at the aligned offset inside the same
-        // buffer.  The compiler generates `c[0][binding * 16]` to load buffer
-        // addresses (16-byte stride per binding: [va_lo, va_hi, size, pad]).
-        let mut desc_data = vec![0u8; desc_data_len];
+        // Build CBUF descriptor table inside the same buffer.
+        //
+        // SM < 100 (SASS backend): descriptors at c[0][binding * 16].
+        // SM >= 100 (PTX backend): descriptors at c[0][0x160 + binding * 16]
+        //   because ptxas maps `ld.param` to c[0][0x160+].
+        let mut cbuf_data = vec![0u8; desc_cbuf_size as usize];
         for (i, bh) in buffers.iter().enumerate() {
             if let Some(buf) = self.buffers.get(&bh.0) {
-                let off = i * 16;
+                let off = param_window_offset + i * 16;
                 let va = buf.gpu_va;
                 let sz = u32::try_from(buf.size).unwrap_or(u32::MAX);
                 let va_lo = (va & 0xFFFF_FFFF) as u32;
                 let va_hi = (va >> 32) as u32;
-                desc_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
-                desc_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
-                desc_data[off + 8..off + 12].copy_from_slice(&sz.to_le_bytes());
+                cbuf_data[off..off + 4].copy_from_slice(&va_lo.to_le_bytes());
+                cbuf_data[off + 4..off + 8].copy_from_slice(&va_hi.to_le_bytes());
+                cbuf_data[off + 8..off + 12].copy_from_slice(&sz.to_le_bytes());
             }
         }
         self.upload(
             shader_handle,
             u64::try_from(desc_offset)
                 .map_err(|_| DriverError::platform_overflow("desc_offset fits u64"))?,
-            &desc_data,
+            &cbuf_data,
         )?;
         let desc_va = shader_va + desc_offset as u64;
 
@@ -328,6 +343,11 @@ impl ComputeDevice for NvUvmComputeDevice {
             cbufs,
         };
 
+        eprintln!(
+            "[dispatch] shader_va=0x{shader_va:016X} desc_va=0x{desc_va:016X} \
+             grid={dims:?} wg={:?} gpr={} sm={} bufs={}",
+            info.workgroup, info.gpr_count, self.sm_version(), buffers.len()
+        );
         tracing::debug!(
             shader_va = format_args!("0x{shader_va:016X}"),
             desc_va = format_args!("0x{desc_va:016X}"),
@@ -350,9 +370,47 @@ impl ComputeDevice for NvUvmComputeDevice {
         self.upload(qmd_handle, 0, qmd_bytes)?;
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
+        eprintln!(
+            "[dispatch] qmd_va=0x{qmd_va:016X} aligned256={} qmd_words={} cbuf_size={desc_cbuf_size}",
+            qmd_va % 256 == 0, qmd_words.len(),
+        );
+        for row in 0..qmd_words.len() / 4 {
+            let base = row * 4;
+            if qmd_words[base..base + 4].iter().all(|&w| w == 0) {
+                continue;
+            }
+            eprintln!(
+                "[qmd] [{:3}..{:3}] bit{:4}: {:08X} {:08X} {:08X} {:08X}",
+                base, base + 3, base * 32,
+                qmd_words[base], qmd_words[base + 1],
+                qmd_words[base + 2], qmd_words[base + 3],
+            );
+        }
+
         let compute_class = self.gpu_gen.compute_class();
-        let pb = PushBuf::compute_dispatch(compute_class, qmd_va);
+        let launch = if compute_class > crate::nv::pushbuf::method::TURING_COMPUTE_A {
+            crate::nv::generation::LaunchMethod::Pcas2
+        } else {
+            crate::nv::generation::LaunchMethod::Pcas
+        };
+        let pb = PushBuf::compute_dispatch_on_subchannel(launch, qmd_va, self.compute_subchannel);
         let pb_bytes = pb.as_bytes();
+
+        eprintln!(
+            "[dispatch] push_buf words ({}):",
+            pb.as_words().len()
+        );
+        for (i, w) in pb.as_words().iter().enumerate() {
+            let is_hdr = i % 2 == 0;
+            if is_hdr {
+                let subchan = (*w >> 13) & 0x7;
+                let method = (*w & 0x1FFF) << 2;
+                let count = (*w >> 16) & 0x1FFF;
+                eprintln!("  [{i}] hdr: 0x{w:08X} (sub={subchan} method=0x{method:04X} count={count})");
+            } else {
+                eprintln!("  [{i}] dat: 0x{w:08X}");
+            }
+        }
 
         let pb_handle = self.alloc(
             u64::try_from(pb_bytes.len())
@@ -389,11 +447,27 @@ impl ComputeDevice for NvUvmComputeDevice {
             std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
         }
 
+        eprintln!(
+            "[dispatch] pb_va=0x{pb_va:016X} pb_dwords={pb_dwords} gp_put_before={}",
+            self.gp_put,
+        );
+
+        if !buffers.is_empty() {
+            if let Some(buf) = self.buffers.get(&buffers[0].0) {
+                eprintln!(
+                    "[dispatch] buf[0] gpu_va=0x{:016X} size={} cpu_addr=0x{:016X}",
+                    buf.gpu_va, buf.size, buf.cpu_addr,
+                );
+            }
+        }
+
         self.submit_gpfifo(pb_va, pb_dwords)?;
 
-        // On Blackwell+, GP_GET is not in USERD — submit a semaphore release
-        // so poll_gpfifo_completion can track completion via the fence value.
         if self.uses_semaphore_fence {
+            eprintln!(
+                "[dispatch] fence_value_before={} fence_gpu_va=0x{:016X}",
+                self.fence_value, self.fence_gpu_va,
+            );
             self.submit_fence_release()?;
         }
 

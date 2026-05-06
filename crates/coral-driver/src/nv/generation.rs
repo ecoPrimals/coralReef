@@ -417,7 +417,7 @@ pub const BLACKWELL_B: GenerationProfile = GenerationProfile {
     sm_range: 120..=u32::MAX,
     qmd_version: QmdVersion::V50,
     qmd_word_count: 96,
-    channel_class: 0xCA6F, // BLACKWELL_CHANNEL_GPFIFO_B
+    channel_class: 0xC96F, // BLACKWELL_CHANNEL_GPFIFO_A (CUDA R580 trace: 0xC96F for all Blackwell)
     compute_class: 0xCEC0, // BLACKWELL_COMPUTE_B
     launch_method: LaunchMethod::Pcas2,
     local_mem_window: LOCAL_MEM_WINDOW_VOLTA,

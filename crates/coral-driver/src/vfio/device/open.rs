@@ -36,6 +36,7 @@ impl VfioDevice {
     ///
     /// Returns error if both backends fail.
     pub fn open(bdf: &str) -> Result<Self, DriverError> {
+        crate::vfio::ember_gate::check_driver(bdf)?;
         match Self::open_iommufd(bdf) {
             Ok(dev) => {
                 tracing::info!(bdf, "VFIO device opened via iommufd/cdev");
@@ -240,6 +241,7 @@ impl VfioDevice {
     /// 1. Map BAR0 and quiesce PFIFO/engines via MMIO
     /// 2. Call [`enable_bus_master`] explicitly
     pub fn open_no_busmaster(bdf: &str) -> Result<Self, DriverError> {
+        crate::vfio::ember_gate::check_driver(bdf)?;
         match Self::open_iommufd_no_busmaster(bdf) {
             Ok(dev) => {
                 tracing::info!(bdf, "VFIO device opened (no bus master) via iommufd/cdev");

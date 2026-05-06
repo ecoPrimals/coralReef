@@ -586,16 +586,58 @@ fn execute_devinit_script(
 
             // 0x87 RAM_RESTRICT_PLL: type(u8) = 2 byte header,
             //   then group_count * 4 bytes of freq values.
-            //   Calls init_prog_pll for the strap-selected frequency.
+            //   Programs the PLL for the strap-selected frequency bank.
             0x87 => {
                 let pll_type = rd08(off + 1);
                 let grp_count = ram_restrict_group_count(rom);
-                tracing::debug!(
-                    pll_type,
-                    grp_count,
-                    "DEVINIT RAM_RESTRICT_PLL (0x87) — skipped (handled by clock recipe)"
-                );
-                off += 2 + grp_count * 4;
+                let strap = ram_restrict_strap(&bar_read);
+                off += 2;
+
+                let mut selected_freq = 0u32;
+                for j in 0..grp_count {
+                    if off + 4 > rom.len() {
+                        break;
+                    }
+                    let freq = rd16(off) as u32 * 10; // stored as 10 kHz units
+                    if j == strap {
+                        selected_freq = freq;
+                    }
+                    off += 4;
+                }
+
+                // Map PLL type to register via VBIOS PLL limits table.
+                // Common K80/GK110 mappings (from VBIOS analysis):
+                //   type 0x04 → 0x132000 (GPC clock source)
+                //   type 0x00 → 0x004028 (NVPLL/core)
+                //   type 0x01 → 0x004020 (MPLL/memory)
+                // Fall back to type-based heuristic if no PLL limits table.
+                let pll_reg = match pll_type {
+                    0x00 => 0x00_4028,
+                    0x01 => 0x00_4020,
+                    0x04 => 0x13_2000,
+                    0x08 => 0x13_7000,
+                    _ => 0,
+                };
+
+                if execute && pll_reg != 0 && selected_freq > 0 {
+                    tracing::info!(
+                        pll_type,
+                        strap,
+                        pll_reg = format_args!("{pll_reg:#010x}"),
+                        freq_khz = selected_freq,
+                        "DEVINIT RAM_RESTRICT_PLL (0x87) — programming"
+                    );
+                    devinit_pll_set(bar0, pll_reg, selected_freq);
+                    writes += 1;
+                } else {
+                    tracing::debug!(
+                        pll_type,
+                        strap,
+                        pll_reg = format_args!("{pll_reg:#010x}"),
+                        freq_khz = selected_freq,
+                        "DEVINIT RAM_RESTRICT_PLL (0x87) — no mapping or zero freq"
+                    );
+                }
             }
 
             // 0x8F RAM_RESTRICT_ZM_REG_GROUP: addr(u32) + incr(u8) +
@@ -637,16 +679,55 @@ fn execute_devinit_script(
             }
 
             // 0x45 IO_RESTRICT_PLL: port(u16)+idx(u8)+mask(u8)+shift(u8)+
-            //   flag(u8)+count(u8)+reg(u32) = 12 byte header, then count*2
+            //   flag(u8)+count(u8)+reg(u32) = 12 byte header, then count * 2
+            //   bytes (u16 frequencies in 10 kHz units).
             0x45 => {
+                let _port = rd16(off + 1);
+                let idx = rd08(off + 3);
+                let mask = rd08(off + 4);
+                let shift = rd08(off + 5);
+                let _flag = rd08(off + 6);
                 let count = rd08(off + 7) as usize;
                 let reg = rd32(off + 8);
-                tracing::debug!(
-                    reg = format_args!("{reg:#010x}"),
-                    count,
-                    "DEVINIT IO_RESTRICT_PLL (0x45) — skipped (handled by clock recipe)"
-                );
-                off += 12 + count * 2;
+                off += 12;
+
+                let io_val = bar_read(0x0060_1000 + (idx as u32) * 4);
+                let bank = if shift < 8 {
+                    ((io_val as u8 & mask) >> shift) as usize
+                } else {
+                    0
+                };
+
+                let mut selected_freq = 0u32;
+                for j in 0..count {
+                    if off + 2 > rom.len() {
+                        break;
+                    }
+                    let freq = rd16(off) as u32 * 10;
+                    if j == bank {
+                        selected_freq = freq;
+                    }
+                    off += 2;
+                }
+
+                if execute && reg < 0x0100_0000 && selected_freq > 0 {
+                    tracing::info!(
+                        reg = format_args!("{reg:#010x}"),
+                        bank,
+                        freq_khz = selected_freq,
+                        "DEVINIT IO_RESTRICT_PLL (0x45) — programming"
+                    );
+                    devinit_pll_set(bar0, reg, selected_freq);
+                    writes += 1;
+                } else {
+                    tracing::debug!(
+                        reg = format_args!("{reg:#010x}"),
+                        bank,
+                        count,
+                        freq_khz = selected_freq,
+                        "DEVINIT IO_RESTRICT_PLL (0x45) — no freq or skipped"
+                    );
+                }
             }
 
             0x34 | 0x4A => {

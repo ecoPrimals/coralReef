@@ -100,6 +100,11 @@ pub struct NvDevice {
     drm: DrmDevice,
     channel: u32,
     compute_class: u32,
+    /// NVIF object handle for the compute engine (NVK-style).
+    /// Used as the SET_OBJECT value in push buffers instead of `compute_class`.
+    /// On legacy channels (where subchan binding is in CHANNEL_ALLOC), this
+    /// equals `compute_class`.
+    compute_object_handle: u32,
     /// Detected SM architecture version (e.g. 70 for Volta, 86 for Ampere).
     sm_version: u32,
     /// Whether the new UAPI (`VM_INIT`/`VM_BIND`/`EXEC`) is active.
@@ -192,13 +197,17 @@ impl NvDevice {
 
     #[cfg(feature = "nouveau")]
     fn open_from_drm(drm: DrmDevice, sm: u32) -> DriverResult<Self> {
-        let compute_class = probe::compute_class_for_sm(sm);
+        let skip_gr_init = std::env::var("CORALREEF_SKIP_GR_INIT").is_ok();
 
-        // Phase 0: Sovereign BAR0 GR init — write PGRAPH registers BEFORE
-        // channel creation so the compute engine has valid context state.
-        // This replaces the PMU firmware that nouveau lacks on Volta, and
-        // supplements GSP on Ampere where the kernel path may be incomplete.
-        probe::try_bar0_gr_init(&drm.path, sm);
+        if !skip_gr_init {
+            probe::try_bar0_gr_init(&drm.path, sm);
+        }
+
+        // Phase 0.5: On Kepler headless compute cards, nouveau initializes
+        // power domains but may not load FECS/GPCCS firmware. Boot them now.
+        if !skip_gr_init {
+            probe::try_kepler_fecs_boot(&drm.path, sm);
+        }
 
         // Phase 1: New UAPI probe (kernel 6.6+). On kernel 6.17+ Volta,
         // VM_INIT is required — CHANNEL_ALLOC fails without it.
@@ -227,26 +236,55 @@ impl NvDevice {
             }
         };
 
-        // Phase 2: Channel creation (should benefit from BAR0 GR init).
-        let channel = match ioctl::create_channel(drm.fd(), compute_class) {
-            Ok(ch) => ch,
-            Err(e) => {
-                tracing::error!(
-                    path = %drm.path,
-                    compute_class = format_args!("0x{compute_class:04X}"),
-                    new_uapi,
-                    error = %e,
-                    "Channel creation failed — running diagnostics"
-                );
-                probe::run_open_diagnostics(&drm, sm, compute_class);
-                return Err(e);
+        // Phase 2: Channel creation.
+        // On the new UAPI (kernel 6.17+), use NVK-style: bare channel + NVIF
+        // engine binding. This properly initializes the GR context and avoids
+        // CTXNOTVALID from PBDMA.
+        let (channel, compute_class, compute_object_handle) = if new_uapi {
+            match ioctl::create_channel_nvk_style(drm.fd()) {
+                Ok((ch, cls, nvif_handle)) => {
+                    tracing::info!(
+                        path = %drm.path, channel = ch,
+                        compute_class = format_args!("0x{cls:04X}"),
+                        nvif_handle = format_args!("0x{nvif_handle:08X}"),
+                        "NVK-style channel created (bare + NVIF engine bind)"
+                    );
+                    (ch, cls, nvif_handle)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = %drm.path,
+                        error = %e,
+                        "NVK-style channel creation failed — falling back to legacy subchan"
+                    );
+                    let compute_class = probe::compute_class_for_sm(sm);
+                    let ch = ioctl::create_channel(drm.fd(), compute_class)?;
+                    (ch, compute_class, compute_class)
+                }
             }
+        } else {
+            let compute_class = probe::compute_class_for_sm(sm);
+            let ch = match ioctl::create_channel(drm.fd(), compute_class) {
+                Ok(ch) => ch,
+                Err(e) => {
+                    tracing::error!(
+                        path = %drm.path,
+                        compute_class = format_args!("0x{compute_class:04X}"),
+                        error = %e,
+                        "Channel creation failed — running diagnostics"
+                    );
+                    probe::run_open_diagnostics(&drm, sm, compute_class);
+                    return Err(e);
+                }
+            };
+            (ch, compute_class, compute_class)
         };
+
         tracing::info!(
             path = %drm.path, channel,
             compute_class = format_args!("0x{compute_class:04X}"),
             new_uapi,
-            "NVIDIA nouveau channel created with compute subchannel"
+            "NVIDIA nouveau channel ready"
         );
 
         let exec_syncobj = if new_uapi {
@@ -262,10 +300,11 @@ impl NvDevice {
         };
 
         let caps = generation::profile_for_sm(sm).to_capabilities();
-        let mut dev = Self {
+        let dev = Self {
             drm,
             channel,
             compute_class,
+            compute_object_handle,
             sm_version: sm,
             new_uapi,
             next_va: NV_USER_VA_START,
@@ -276,10 +315,6 @@ impl NvDevice {
             inflight: Vec::new(),
             caps,
         };
-
-        // Phase 3: Submit any remaining FECS channel methods (low-address
-        // entries that can go through the push buffer).
-        dev.try_fecs_channel_init();
 
         Ok(dev)
     }
@@ -326,7 +361,8 @@ impl NvDevice {
             }
         };
 
-        let seq = GrInitSequence::for_gv100(&blobs);
+        let profile = generation::profile_for_sm(self.sm_version);
+        let seq = GrInitSequence::for_profile(&blobs, profile);
         let (_bar0, fecs) = gsp::split_for_application(&seq);
 
         let channel_methods: Vec<(u32, u32)> = fecs
@@ -426,6 +462,7 @@ impl NvDevice {
             drm,
             channel: 0,
             compute_class: pushbuf::class::VOLTA_COMPUTE_A,
+            compute_object_handle: pushbuf::class::VOLTA_COMPUTE_A,
             sm_version: 70,
             new_uapi: false,
             next_va: NV_USER_VA_START,
@@ -674,8 +711,12 @@ impl NvDevice {
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
         let profile = generation::profile_for_sm(self.sm_version);
-        let mut pb =
-            pushbuf::PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
+        let mut pb = pushbuf::PushBuf::compute_init(
+            self.compute_class,
+            profile.local_mem_window,
+            0,
+            0,
+        );
         let dispatch =
             pushbuf::PushBuf::compute_dispatch_with_launch(profile.launch_method, qmd_va);
         pb.append(&dispatch);
@@ -704,7 +745,7 @@ impl NvDevice {
                 ioctl::exec_submit(self.drm.fd(), self.channel, pb_va, push_len)?;
             }
         } else {
-            let mut bo_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 4);
+            let mut bo_handles: Vec<u32> = Vec::with_capacity(buffers.len() + 5);
             if let Some(b) = self.buffers.get(&shader_handle.0) {
                 bo_handles.push(b.gem_handle);
             }
@@ -715,6 +756,9 @@ impl NvDevice {
                 bo_handles.push(b.gem_handle);
             }
             if let Some(b) = self.buffers.get(&desc_handle.0) {
+                bo_handles.push(b.gem_handle);
+            }
+            if let Some(b) = self.buffers.get(&driver_const_handle.0) {
                 bo_handles.push(b.gem_handle);
             }
             for bh in buffers {

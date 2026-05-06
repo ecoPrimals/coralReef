@@ -1,31 +1,50 @@
-# coral-glowplug configuration — biomeGate: Titan V + Radeon VII + RTX 5060
+# coral-glowplug configuration — biomeGate: Titan V + K80 + RTX 5060
 #
 # This file is the reference config. Install to:
 #   ~/.config/coralreef/glowplug.toml  (user service)
 #   /etc/coralreef/glowplug.toml       (system service)
+#
+# BDFs updated 2026-05 (post-BIOS update).
 
 [daemon]
-# Reference: `$XDG_RUNTIME_DIR/<BIOMEOS_ECOSYSTEM_NAMESPACE>/coral-glowplug-<BIOMEOS_FAMILY_ID>.sock`
 socket = "$XDG_RUNTIME_DIR/biomeos/coral-glowplug-default.sock"
 log_level = "info"
 health_interval_ms = 5000
 
-# Titan V — NVIDIA GV100, 12 GB HBM2, VFIO at boot
+# Titan V — NVIDIA GV100 (SM70), 12 GB HBM2, VFIO at boot
 # CRITICAL: do NOT boot on nouveau — desktop apps (Cursor/Xorg) will grab
 # renderD* and block during shutdown, causing kernel oops on GV100.
 [[device]]
-bdf = "0000:03:00.0"
+bdf = "0000:02:00.0"
 name = "titan-v"
 boot_personality = "vfio"
 power_policy = "always_on"
 role = "oracle"
 
-# Radeon VII — AMD Vega 20 (GFX906), 16 GB HBM2
-# Solo IOMMU group (no companion audio device).
-# Boots on amdgpu — switch to vfio for sovereign experiments.
+# Tesla K80 GPU0 — NVIDIA GK210B (SM37), 12 GB GDDR5, VFIO at boot
+# Behind PLX PEX 8747 PCIe switch. Compute-only (headless).
+# Use ember sacrifice pattern: dispatch failures must not wedge the PLX switch.
 [[device]]
-bdf = "0000:4c:00.0"
-name = "radeon-vii"
-boot_personality = "amdgpu"
+bdf = "0000:4b:00.0"
+name = "k80-gpu0"
+boot_personality = "vfio"
 power_policy = "always_on"
 role = "compute"
+
+# Tesla K80 GPU1 — NVIDIA GK210B (SM37), 12 GB GDDR5, VFIO at boot
+[[device]]
+bdf = "0000:4c:00.0"
+name = "k80-gpu1"
+boot_personality = "vfio"
+power_policy = "always_on"
+role = "compute"
+
+# RTX 5060 — NVIDIA GB206 (SM120), 16 GB GDDR7
+# Display GPU — stays on nvidia proprietary driver. Protected from VFIO.
+# [[device]]
+# bdf = "0000:21:00.0"
+# name = "rtx-5060"
+# boot_personality = "nvidia"
+# power_policy = "always_on"
+# role = "display"
+# driver_override = "nvidia"

@@ -444,6 +444,32 @@ pub(crate) fn apply_gk110_clkgate(guard: &super::hardware_guard::GuardedBar<'_>)
     (applied, faulted)
 }
 
+/// Cold-boot variant: writes 0 to every BLCG/SLCG register address,
+/// fully disabling auto-clock-gating.
+///
+/// On VFIO without a running PMU, nouveau's operating values (BLCG != 0)
+/// cause the GR HUB and GPCCS falcon CPU clock to auto-gate within
+/// nanoseconds, breaking PIO firmware upload and STARTCPU.
+pub(crate) fn apply_gk110_clkgate_cold(guard: &super::hardware_guard::GuardedBar<'_>) -> (u32, u32) {
+    let gpcs = detect_live_gpcs(guard);
+    let mut applied = 0u32;
+    let mut faulted = 0u32;
+
+    for &(reg, _val) in GK110_CLKGATE_INIT {
+        let (a, f) = write_with_gpc_fanout(guard, &gpcs, reg, 0);
+        applied += a;
+        faulted += f;
+    }
+
+    tracing::info!(
+        applied,
+        faulted,
+        gpcs = gpcs.len(),
+        "GK110 clock gating COLD init — all BLCG/SLCG zeroed"
+    );
+    (applied, faulted)
+}
+
 /// Detect which GPCs are alive by probing GPCCS CPUCTL at each per-GPC base.
 /// Returns a Vec of live GPC indices.
 fn detect_live_gpcs(guard: &super::hardware_guard::GuardedBar<'_>) -> Vec<u32> {

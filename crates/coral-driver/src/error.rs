@@ -341,6 +341,16 @@ pub enum ChannelError {
     /// External BAR0 pointer (e.g. VFIO `MappedBar`) was null.
     #[error("BAR0 mapping pointer is null")]
     Bar0ExternalNull,
+
+    /// Device is exclusively held by a live coral-ember instance.
+    ///
+    /// Direct sysfs BAR0 access is blocked; use ember's VFIO fd sharing
+    /// or MMIO RPC instead.
+    #[error("device {bdf} is held by ember — route BAR0 access through ember")]
+    DeviceHeldByEmber {
+        /// PCI BDF address of the held device.
+        bdf: String,
+    },
 }
 
 #[cfg(feature = "vfio")]
@@ -586,6 +596,18 @@ pub enum DriverError {
     #[error("hardware guard: {0}")]
     HardwareGuardRefusal(Cow<'static, str>),
 
+    /// Device is exclusively held by a live coral-ember instance.
+    ///
+    /// Direct hardware access (VFIO open, sysfs BAR0 mmap) is blocked to
+    /// prevent accidental probing that could kill fragile GPUs (e.g. K80
+    /// through a PLX bridge). Use `EmberSession::connect()` or glowplug's
+    /// `request_fds` to obtain access through ember's safety perimeter.
+    #[error("device {bdf} is held by ember — use EmberSession::connect() instead of direct open")]
+    DeviceHeldByEmber {
+        /// PCI BDF address of the held device.
+        bdf: String,
+    },
+
     /// PCI sysfs/config-space discovery or PM transition failed.
     #[error("PCI discovery: {0}")]
     PciDiscovery(#[from] PciDiscoveryError),
@@ -801,7 +823,7 @@ mod tests {
     #[test]
     fn sovereign_stages_vfio_compute_preserves_source() {
         let inner = DriverError::DeviceNotFound(std::borrow::Cow::Borrowed("missing firmware"));
-        let sse = SovereignStagesError::vfio_compute(inner);
+        let sse = SovereignStagesError::VfioCompute(Box::new(inner));
         let de: DriverError = sse.into();
         assert!(de.source().is_some());
         assert!(de.to_string().contains("sovereign stages"));

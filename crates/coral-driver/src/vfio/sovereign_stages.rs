@@ -159,6 +159,18 @@ fn kepler_falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, Sover
     let _ = bar0.write_u32(0x260, 1);
     std::thread::sleep(Duration::from_millis(10));
 
+    // PGOB disable: ungate GPC compute domains before any GR register access.
+    // Without this, GPC reads return 0xBADF3000 and FECS boot fails.
+    if crate::nv::generation::is_kepler(profile) {
+        tracing::info!("Kepler falcon boot: running PGOB disable before GR init");
+        let guard = crate::nv::vfio_compute::hardware_guard::GuardedBar::new(bar0, 32)
+            .map_err(|e| SovereignStagesError::KeplerFalconBootTimeout {
+                name: "pgob_guard",
+                cpuctl: 0,
+            })?;
+        crate::nv::vfio_compute::pgob::gk110_pgob_disable(&guard);
+    }
+
     crate::nv::vfio_compute::NvVfioComputeDevice::apply_gr_bar0_init(bar0, sm_version);
 
     let fw_dir = format!("/lib/firmware/nvidia/{}", profile.firmware_chip);

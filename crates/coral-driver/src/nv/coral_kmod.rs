@@ -374,9 +374,18 @@ impl CoralKmod {
     /// Must be called after `UVM_REGISTER_GPU_VASPACE` has been issued from
     /// userspace. The kernel module retrieves the phase-1 state and creates
     /// channel group, context share, channel, compute engine, etc.
-    pub fn complete_init(&self, h_client: u32) -> DriverResult<KmodChannelInfo> {
+    ///
+    /// On Blackwell (externally-owned VA), `gpfifo_gpu_va` must be the
+    /// UVM-mapped GPU VA of the GPFIFO memory from phase 1. The kmod skips
+    /// NV01_MEMORY_VIRTUAL and DMA mapping, and does NOT schedule the TSG.
+    pub fn complete_init(
+        &self,
+        h_client: u32,
+        gpfifo_gpu_va: u64,
+    ) -> DriverResult<KmodChannelInfo> {
         let mut params = CoralCompleteInitParams {
             h_client,
+            gpfifo_gpu_va,
             ..Default::default()
         };
 

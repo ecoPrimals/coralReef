@@ -148,7 +148,7 @@ impl RmClient {
         let mut params = Nv906fBindParams {
             h_engine_object: h_engine,
             engine_class_1: engine_class,
-            engine_class_2: engine_class,
+            engine_class_2: engine_class, // CUDA 580.x trace: both class fields = engine_class
             engine_type,
         };
 
@@ -157,6 +157,86 @@ impl RmClient {
             0x906f_0101, // NV906F_CTRL_CMD_BIND
             &mut params,
             "RM_CONTROL(NV906F_BIND)",
+        )
+    }
+
+    /// Set work-submit token notification index for a channel
+    /// (`NVC36F_CTRL_CMD_GPFIFO_SET_WORK_SUBMIT_TOKEN_NOTIF_INDEX`, 0xC36F0108).
+    ///
+    /// CUDA calls this on each channel after bind. The token encodes
+    /// scheduling metadata used by the PBDMA.
+    pub fn set_work_submit_token(&mut self, h_channel: u32, token: u32) -> DriverResult<()> {
+        let mut params: [u8; 4] = token.to_ne_bytes();
+        self.rm_control(
+            h_channel,
+            0xc36f_0108, // NVC36F_CTRL_CMD_GPFIFO_SET_WORK_SUBMIT_TOKEN_NOTIF_INDEX
+            &mut params,
+            "RM_CONTROL(SET_WORK_SUBMIT_TOKEN)",
+        )
+    }
+
+    /// Query the total GR context buffer size for a channel
+    /// (`NV2080_CTRL_CMD_GR_GET_CTX_BUFFER_SIZE`, 0x20801218).
+    ///
+    /// CUDA calls this on the subdevice after engine bind. Returns the
+    /// total size in bytes that GSP-RM allocated for context buffers.
+    pub fn gr_get_ctx_buffer_size(
+        &mut self,
+        h_subdevice: u32,
+        h_channel: u32,
+    ) -> DriverResult<u64> {
+        #[repr(C)]
+        struct Params {
+            h_channel: u32,
+            _pad: u32,
+            total_buffer_size: u64,
+        }
+        let mut params = Params {
+            h_channel,
+            _pad: 0,
+            total_buffer_size: 0,
+        };
+        self.rm_control(
+            h_subdevice,
+            0x2080_1218, // NV2080_CTRL_CMD_GR_GET_CTX_BUFFER_SIZE
+            &mut params,
+            "RM_CONTROL(GR_GET_CTX_BUFFER_SIZE)",
+        )?;
+        Ok(params.total_buffer_size)
+    }
+
+    /// Set context-switch preemption mode for a TSG
+    /// (`NV2080_CTRL_CMD_GR_SET_CTXSW_PREEMPTION_MODE`, 0x20801210).
+    ///
+    /// CUDA calls this after TSG schedule with `flags=1, gfxp=0, cilp=2`.
+    /// This configures CILP (Cooperative Instruction Level Preemption)
+    /// for the GR engine on the TSG.
+    pub fn gr_set_ctxsw_preemption_mode(
+        &mut self,
+        h_subdevice: u32,
+        h_changrp: u32,
+    ) -> DriverResult<()> {
+        #[repr(C)]
+        #[derive(Default)]
+        struct Params {
+            flags: u32,
+            h_channel: u32,
+            gfxp_preempt_mode: u32,
+            cilp_preempt_mode: u32,
+            _reserved: [u32; 4],
+        }
+        let mut params = Params {
+            flags: 1,
+            h_channel: h_changrp,
+            gfxp_preempt_mode: 0,
+            cilp_preempt_mode: 2,
+            ..Default::default()
+        };
+        self.rm_control(
+            h_subdevice,
+            0x2080_1210, // NV2080_CTRL_CMD_GR_SET_CTXSW_PREEMPTION_MODE
+            &mut params,
+            "RM_CONTROL(GR_SET_CTXSW_PREEMPTION_MODE)",
         )
     }
 

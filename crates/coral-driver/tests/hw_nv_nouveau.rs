@@ -22,9 +22,13 @@ mod tests {
 
     fn compile_for_sm(sm: u32, wgsl: &str) -> coral_reef::backend::CompiledBinary {
         let arch = match sm {
-            86.. => NvArch::Sm86,
-            75..=85 => NvArch::Sm75,
-            _ => NvArch::Sm70,
+            100.. => NvArch::Sm120,
+            89..=99 => NvArch::Sm89,
+            86..=88 => NvArch::Sm86,
+            80..=85 => NvArch::Sm80,
+            75..=79 => NvArch::Sm75,
+            50..=74 => NvArch::Sm70,
+            _ => NvArch::Sm35,
         };
         let opts = CompileOptions {
             target: GpuTarget::Nvidia(arch),

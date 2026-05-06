@@ -81,6 +81,7 @@ struct Bar0Rw {
 
 impl Bar0Rw {
     fn open(bdf: &str) -> Result<Self, ChannelError> {
+        crate::vfio::ember_gate::check_channel(bdf)?;
         let path = crate::linux_paths::sysfs_pci_device_file(bdf, "resource0");
         let file = std::fs::OpenOptions::new()
             .read(true)

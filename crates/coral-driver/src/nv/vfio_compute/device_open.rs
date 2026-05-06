@@ -223,6 +223,8 @@ impl NvVfioComputeDevice {
 
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
+        let profile = crate::nv::generation::profile_for_sm(sm_version);
+
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
         let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
@@ -232,16 +234,31 @@ impl NvVfioComputeDevice {
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
-        let channel = VfioChannel::create(
-            container.clone(),
-            &bar0,
-            GPFIFO_IOVA,
-            gpfifo::ENTRIES as u32,
-            USERD_IOVA,
-            0,
-        )?;
+        let channel = match profile.page_table_format {
+            crate::nv::generation::PageTableFormat::V1TwoLevel => {
+                tracing::info!(sm_version, "ember FD handoff: using Kepler 2-level page table channel");
+                let guard = super::hardware_guard::GuardedBar::new(&bar0, 32).map_err(|r| {
+                    crate::error::DriverError::HardwareGuardRefusal(r.to_string().into())
+                })?;
+                VfioChannel::create_kepler(
+                    container.clone(),
+                    &guard,
+                    GPFIFO_IOVA,
+                    gpfifo::ENTRIES as u32,
+                    USERD_IOVA,
+                    0,
+                )?
+            }
+            crate::nv::generation::PageTableFormat::V2FiveLevel => VfioChannel::create(
+                container.clone(),
+                &bar0,
+                GPFIFO_IOVA,
+                gpfifo::ENTRIES as u32,
+                USERD_IOVA,
+                0,
+            )?,
+        };
 
-        let profile = crate::nv::generation::profile_for_sm(sm_version);
         let caps = profile.to_capabilities();
         let sem_fence = crate::nv::generation::uses_semaphore_fence(profile);
 

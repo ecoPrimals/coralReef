@@ -46,6 +46,12 @@ pub const fn sm_to_chip(sm: u32) -> &'static str {
 /// context, resolving the CTXNOTVALID error.
 #[cfg(feature = "nouveau")]
 pub fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
+    let profile = crate::nv::generation::profile_for_sm(sm);
+    if crate::nv::generation::is_kepler(profile) {
+        tracing::info!(sm, "Kepler GPU — skipping BAR0 GR init (nouveau handles natively)");
+        return;
+    }
+
     let chip = sm_to_chip(sm);
     let blobs = match GrFirmwareBlobs::parse(chip) {
         Ok(b) => b,
@@ -55,7 +61,8 @@ pub fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
         }
     };
 
-    let seq = GrInitSequence::for_gv100(&blobs);
+    let profile = crate::nv::generation::profile_for_sm(sm);
+    let seq = GrInitSequence::for_profile(&blobs, profile);
     let (bar0_entries, fecs_entries) = gsp::split_for_application(&seq);
 
     tracing::info!(
@@ -120,6 +127,199 @@ pub fn try_bar0_gr_init(render_node_path: &str, sm: u32) {
     } else {
         tracing::warn!(chip, errors = ?verify_errors, "BAR0 pre-init verification issues");
     }
+}
+
+/// Boot FECS/GPCCS on Kepler GPUs where nouveau initialized hardware but
+/// didn't load falcon firmware (headless compute cards like Tesla K80).
+///
+/// Checks if FECS is in HRESET and, if so, uploads firmware via PIO and
+/// starts the falcons. Requires BAR0 write access (root).
+#[cfg(feature = "nouveau")]
+pub fn try_kepler_fecs_boot(render_node_path: &str, sm: u32) {
+    let profile = crate::nv::generation::profile_for_sm(sm);
+    if !crate::nv::generation::is_kepler(profile) {
+        return;
+    }
+
+    let mut bar0 = match bar0::Bar0Access::from_render_node(render_node_path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::debug!(error = %e, "BAR0 not available — cannot boot FECS");
+            return;
+        }
+    };
+
+    use crate::gsp::RegisterAccess;
+
+    let fecs_cpuctl = bar0.read_u32(0x409100).unwrap_or(0xDEAD_DEAD);
+    let fecs_running = fecs_cpuctl & 0x20 == 0 && fecs_cpuctl & 0x02 != 0;
+    if fecs_running {
+        tracing::info!(fecs_cpuctl = format_args!("{fecs_cpuctl:#010x}"), "FECS already running");
+        return;
+    }
+
+    let fecs_hreset = fecs_cpuctl & 0x10 != 0;
+    if !fecs_hreset {
+        tracing::warn!(
+            fecs_cpuctl = format_args!("{fecs_cpuctl:#010x}"),
+            "FECS not in HRESET — cannot safely upload firmware"
+        );
+        return;
+    }
+
+    tracing::info!("Kepler FECS in HRESET — uploading firmware via BAR0 PIO");
+
+    let fw_dir = format!(
+        "{}/firmware/gk210",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let load = |name: &str| -> Option<Vec<u8>> {
+        let path = format!("{fw_dir}/{name}");
+        match std::fs::read(&path) {
+            Ok(data) => Some(data),
+            Err(e) => {
+                tracing::warn!(path, error = %e, "firmware file missing");
+                None
+            }
+        }
+    };
+
+    let Some(fecs_code) = load("gk210_fecs_code.bin") else { return };
+    let Some(fecs_data) = load("gk210_fecs_data.bin") else { return };
+    let Some(gpccs_code) = load("gk210_gpccs_code.bin") else { return };
+    let Some(gpccs_data) = load("gk210_gpccs_data.bin") else { return };
+
+    tracing::info!(
+        fecs_code = fecs_code.len(),
+        fecs_data = fecs_data.len(),
+        gpccs_code = gpccs_code.len(),
+        gpccs_data = gpccs_data.len(),
+        "Kepler firmware loaded"
+    );
+
+    let fecs_base: u32 = 0x409000;
+
+    // Enable ITFEN (PIO transfers) on FECS
+    let _ = bar0.write_u32(fecs_base + 0x048, 0x03);
+
+    upload_falcon_dmem(&mut bar0, fecs_base, &fecs_data);
+    upload_falcon_imem(&mut bar0, fecs_base, &fecs_code);
+
+    let dmem_ok = verify_falcon_dmem(&mut bar0, fecs_base, &fecs_data);
+    tracing::info!(dmem_ok, "FECS DMEM verification");
+
+    // Upload GPCCS per-GPC
+    for gpc in 0..8u32 {
+        let gpccs_base = 0x50_0000 + gpc * 0x8000 + 0x2000;
+        let cpuctl = bar0.read_u32(gpccs_base + 0x100).unwrap_or(0xDEAD_DEAD);
+        if cpuctl == 0xDEAD_DEAD || cpuctl & 0xBAD0_0000 == 0xBAD0_0000 {
+            continue;
+        }
+        let _ = bar0.write_u32(gpccs_base + 0x048, 0x03);
+        upload_falcon_dmem(&mut bar0, gpccs_base, &gpccs_data);
+        upload_falcon_imem(&mut bar0, gpccs_base, &gpccs_code);
+    }
+
+    // Boot FECS: set BOOTVEC and STARTCPU
+    let _ = bar0.write_u32(fecs_base + 0x104, 0);
+    let _ = bar0.write_u32(fecs_base + 0x100, 0x02);
+
+    for i in 0..40u32 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let cpuctl = bar0.read_u32(fecs_base + 0x100).unwrap_or(0);
+        let mailbox = bar0.read_u32(fecs_base + 0x800).unwrap_or(0);
+        if mailbox & 0x8000_0000 != 0 || cpuctl & 0x20 != 0 {
+            tracing::info!(
+                poll = i,
+                cpuctl = format_args!("{cpuctl:#010x}"),
+                mailbox = format_args!("{mailbox:#010x}"),
+                "FECS boot complete"
+            );
+            return;
+        }
+        if i % 10 == 0 {
+            tracing::info!(
+                poll = i,
+                cpuctl = format_args!("{cpuctl:#010x}"),
+                mailbox = format_args!("{mailbox:#010x}"),
+                "FECS boot polling..."
+            );
+        }
+    }
+    tracing::warn!("FECS boot timed out (2s)");
+}
+
+/// Upload DMEM via manual word-by-word PIO addressing.
+///
+/// GK110B (K80) falcons do not support AINCW (auto-increment write) from
+/// userspace mmap — each word must be individually addressed via DMEMC.
+#[cfg(feature = "nouveau")]
+fn upload_falcon_dmem(bar0: &mut bar0::Bar0Access, base: u32, data: &[u8]) {
+    use crate::gsp::RegisterAccess;
+    let words = (data.len() + 3) / 4;
+    for i in 0..words {
+        let off = i * 4;
+        let val = u32::from_le_bytes([
+            data.get(off).copied().unwrap_or(0),
+            data.get(off + 1).copied().unwrap_or(0),
+            data.get(off + 2).copied().unwrap_or(0),
+            data.get(off + 3).copied().unwrap_or(0),
+        ]);
+        let addr = u32::try_from(off).unwrap_or(0);
+        let _ = bar0.write_u32(base + 0x1C0, addr);
+        let _ = bar0.write_u32(base + 0x1C4, val);
+    }
+}
+
+/// Upload IMEM via manual word-by-word PIO addressing with 256-byte block tags.
+#[cfg(feature = "nouveau")]
+fn upload_falcon_imem(bar0: &mut bar0::Bar0Access, base: u32, data: &[u8]) {
+    use crate::gsp::RegisterAccess;
+    let words = (data.len() + 3) / 4;
+    for i in 0..words {
+        let off = i * 4;
+        let val = u32::from_le_bytes([
+            data.get(off).copied().unwrap_or(0),
+            data.get(off + 1).copied().unwrap_or(0),
+            data.get(off + 2).copied().unwrap_or(0),
+            data.get(off + 3).copied().unwrap_or(0),
+        ]);
+        let addr = u32::try_from(off).unwrap_or(0);
+        let _ = bar0.write_u32(base + 0x180, addr);
+        if addr % 256 == 0 {
+            let _ = bar0.write_u32(base + 0x188, addr / 256);
+        }
+        let _ = bar0.write_u32(base + 0x184, val);
+    }
+}
+
+/// Verify first N words of DMEM match expected data (manual addressing).
+#[cfg(feature = "nouveau")]
+fn verify_falcon_dmem(bar0: &mut bar0::Bar0Access, base: u32, data: &[u8]) -> bool {
+    use crate::gsp::RegisterAccess;
+    let check_words = (data.len() / 4).min(16);
+    for i in 0..check_words {
+        let off = i * 4;
+        let expected = u32::from_le_bytes([
+            data[off],
+            data.get(off + 1).copied().unwrap_or(0),
+            data.get(off + 2).copied().unwrap_or(0),
+            data.get(off + 3).copied().unwrap_or(0),
+        ]);
+        let addr = u32::try_from(off).unwrap_or(0);
+        let _ = bar0.write_u32(base + 0x1C0, addr);
+        let actual = bar0.read_u32(base + 0x1C4).unwrap_or(0);
+        if actual != expected {
+            tracing::warn!(
+                word = i,
+                expected = format_args!("{expected:#010x}"),
+                actual = format_args!("{actual:#010x}"),
+                "DMEM mismatch"
+            );
+            return false;
+        }
+    }
+    true
 }
 
 /// Run diagnostic probes when channel creation fails.

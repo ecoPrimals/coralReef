@@ -85,6 +85,10 @@ pub struct NvUvmComputeDevice {
     pub(super) doorbell_addr: u64,
     /// Work submit token returned by RM (written to doorbell to notify GPU).
     pub(super) work_submit_token: u32,
+    /// Which subchannel the compute engine is bound to.
+    /// Blackwell proprietary: 1 (matches GR engine type from RM bind).
+    /// Pre-Blackwell / nouveau: 0 (SET_OBJECT on subchannel 0).
+    pub(super) compute_subchannel: u32,
     /// Whether this GPU uses semaphore-based completion (Blackwell+).
     /// Blackwell removed GP_GET from the USERD control struct, so we must
     /// use a semaphore release in the push buffer to signal completion.
@@ -136,6 +140,7 @@ impl NvUvmComputeDevice {
             match Self::open_via_kmod(kmod, gpu_index, sm) {
                 Ok(dev) => return Ok(dev),
                 Err(e) => {
+                    eprintln!("[coral-driver] kmod init failed (sm={sm}): {e}");
                     tracing::warn!("coral-kmod init failed ({e}), falling back to userspace RM");
                 }
             }

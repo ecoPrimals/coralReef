@@ -36,7 +36,7 @@ pub struct NvidiaKeplerLifecycle {
 
 impl VendorLifecycle for NvidiaKeplerLifecycle {
     fn description(&self) -> &str {
-        "NVIDIA Kepler (GDDR5, no FLR — cold vfio-pci unbind causes D-state)"
+        "NVIDIA Kepler (GDDR5, no FLR — sysfs unbind D-states through PLX bridge)"
     }
 
     fn available_reset_methods(&self) -> Vec<ResetMethod> {
@@ -44,6 +44,14 @@ impl VendorLifecycle for NvidiaKeplerLifecycle {
         // but is risky on multi-die boards (K80) sharing root complexes
         // with USB. Remove+rescan is the only reliable fallback.
         vec![ResetMethod::RemoveRescan]
+    }
+
+    fn skip_sysfs_unbind(&self) -> bool {
+        // Kepler (K80) nouveau unbind triggers GR engine teardown that
+        // D-states through the PLX PEX 8747 bridge, deadlocking the
+        // writing thread. PCI remove+rescan bypasses the blocking sysfs
+        // write path entirely.
+        true
     }
 
     fn prepare_for_unbind(&self, bdf: &str, _current_driver: &str) -> Result<(), SwapError> {
@@ -59,7 +67,10 @@ impl VendorLifecycle for NvidiaKeplerLifecycle {
     fn rebind_strategy(&self, target_driver: &str) -> RebindStrategy {
         match target_driver {
             "vfio" | "vfio-pci" => RebindStrategy::SimpleBind,
-            _ => RebindStrategy::SimpleWithRescanFallback,
+            // DRM drivers on Kepler (especially K80 through PLX bridge)
+            // D-state on sysfs unbind. PCI remove+rescan bypasses the
+            // blocking teardown path.
+            _ => RebindStrategy::PciRescan,
         }
     }
 

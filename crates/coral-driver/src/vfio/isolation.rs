@@ -111,7 +111,32 @@ pub fn fork_isolated_raw(
                     Ok(None) => {
                         if std::time::Instant::now() >= deadline {
                             let _ = kill_process(child_pid, Signal::KILL);
-                            let _ = waitpid(Some(child_pid), WaitOptions::empty());
+                            // Non-blocking reap: if the child is in D-state
+                            // (uninterruptible sleep from a kernel deadlock),
+                            // SIGKILL won't take effect until the kernel code
+                            // returns. A blocking waitpid here would deadlock
+                            // the parent too. Poll briefly, then abandon the
+                            // zombie — it will be reaped when it eventually
+                            // exits D-state (or on parent exit by init).
+                            let reap_deadline =
+                                std::time::Instant::now() + Duration::from_secs(2);
+                            loop {
+                                match waitpid(Some(child_pid), WaitOptions::NOHANG) {
+                                    Ok(Some(_)) => break,
+                                    Ok(None) => {
+                                        if std::time::Instant::now() >= reap_deadline {
+                                            tracing::warn!(
+                                                pid = child_pid.as_raw_nonzero().get(),
+                                                "fork isolation: child stuck in D-state after SIGKILL, \
+                                                 abandoning zombie (will be reaped on exit)"
+                                            );
+                                            break;
+                                        }
+                                        std::thread::sleep(Duration::from_millis(50));
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
                             return IsolationResult::Timeout;
                         }
                         std::thread::sleep(poll_interval);

@@ -9,6 +9,25 @@ pub(in crate::nv::vfio_compute) fn kepler_load_and_boot_fecs(
     cached_tpc_total: u32,
     cached_tpc_counts: &[(u32, u32); 8],
 ) {
+    kepler_load_and_boot_fecs_inner(guard, cached_gpc_count, cached_tpc_total, cached_tpc_counts, false)
+}
+
+/// Skip the GR precursor (PMC reset + PGOB + MMIO init) when the caller
+/// has already performed those steps. Avoids the redundant PGRAPH reset
+/// that re-gates GR HUB on GK210B via aggressive auto-clock-gating.
+pub(in crate::nv::vfio_compute) fn kepler_load_and_boot_fecs_direct(
+    guard: &GuardedBar<'_>,
+) {
+    kepler_load_and_boot_fecs_inner(guard, 0, 0, &[(0, 0); 8], true)
+}
+
+fn kepler_load_and_boot_fecs_inner(
+    guard: &GuardedBar<'_>,
+    cached_gpc_count: u32,
+    cached_tpc_total: u32,
+    cached_tpc_counts: &[(u32, u32); 8],
+    skip_precursor: bool,
+) {
     let Some(blobs) = super::firmware::resolve_kepler_firmware() else {
         return;
     };
@@ -18,15 +37,18 @@ pub(in crate::nv::vfio_compute) fn kepler_load_and_boot_fecs(
         fecs_data = blobs.fecs_data.len(),
         gpccs_code = blobs.gpccs_code.len(),
         gpccs_data = blobs.gpccs_data.len(),
+        skip_precursor,
         "Loading GK110 FECS/GPCCS firmware via PIO"
     );
 
-    super::gr_precursor::run_gr_boot_precursor(
-        guard,
-        cached_gpc_count,
-        cached_tpc_total,
-        cached_tpc_counts,
-    );
+    if !skip_precursor {
+        super::gr_precursor::run_gr_boot_precursor(
+            guard,
+            cached_gpc_count,
+            cached_tpc_total,
+            cached_tpc_counts,
+        );
+    }
 
     if !super::firmware_upload::upload_kepler_firmware(guard, &blobs) {
         return;

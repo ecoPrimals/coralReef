@@ -32,13 +32,14 @@ fn kepler_ids_recognized() {
 }
 
 #[test]
-fn kepler_uses_rescan_fallback_for_native() {
+fn kepler_uses_pci_rescan_for_drm_and_simple_for_vfio() {
     let lc = NvidiaKeplerLifecycle { device_id: 0x102d };
     assert_eq!(
         lc.rebind_strategy("nouveau"),
-        RebindStrategy::SimpleWithRescanFallback
+        RebindStrategy::PciRescan,
     );
     assert_eq!(lc.rebind_strategy("vfio-pci"), RebindStrategy::SimpleBind);
+    assert!(lc.skip_sysfs_unbind());
 }
 
 #[test]

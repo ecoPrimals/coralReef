@@ -38,7 +38,7 @@ fn default_ember_socket_path_without_env_override() -> String {
 }
 
 /// Default ember socket path, overridable via `$CORALREEF_EMBER_SOCKET`.
-fn default_socket() -> String {
+pub(super) fn default_socket() -> String {
     std::env::var("CORALREEF_EMBER_SOCKET")
         .ok()
         .filter(|s| !s.is_empty())

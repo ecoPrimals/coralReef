@@ -261,3 +261,52 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     eprintln!("****************************************************");
     eprintln!("\n=== End Warm Handoff Readback ===");
 }
+
+/// Run the Falcon Boot Solver on a VFIO GPU to attempt cold sovereign boot.
+///
+/// This test opens the GPU via VFIO (cold path), then runs the full ACR
+/// strategy cascade to boot FECS/GPCCS. If any strategy succeeds, FECS
+/// should become responsive and GR context setup becomes possible.
+#[test]
+#[ignore = "requires VFIO-bound GPU hardware"]
+fn vfio_falcon_boot_solver() {
+    let dev = open_vfio();
+    eprintln!("\n=== Falcon Boot Solver Test ===\n");
+    eprintln!("SM version: {}", dev.sm_version());
+
+    let probe = dev.falcon_probe();
+    eprintln!("{probe}");
+
+    eprintln!("\nRunning falcon boot solver...\n");
+    match dev.falcon_boot_solver(None) {
+        Ok(results) => {
+            eprintln!("\n=== Boot Solver Results ({} strategies tried) ===", results.len());
+            for (i, r) in results.iter().enumerate() {
+                eprintln!("  [{i}] {} — success={}", r.strategy, r.success);
+                if !r.notes.is_empty() {
+                    for note in &r.notes {
+                        eprintln!("      {note}");
+                    }
+                }
+            }
+            let any_success = results.iter().any(|r| r.success);
+            if any_success {
+                eprintln!("\n*** AT LEAST ONE STRATEGY SUCCEEDED ***");
+                let post_probe = dev.falcon_probe();
+                eprintln!("{post_probe}");
+
+                if dev.fecs_is_alive() {
+                    eprintln!("FECS IS ALIVE — GR engine accessible for compute!");
+                } else {
+                    eprintln!("FECS not responding to method interface yet.");
+                }
+            } else {
+                eprintln!("\nNo strategy succeeded. All falcon boot paths exhausted.");
+            }
+        }
+        Err(e) => {
+            eprintln!("Boot solver error: {e}");
+        }
+    }
+    eprintln!("\n=== End Falcon Boot Solver ===");
+}

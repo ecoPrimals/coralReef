@@ -36,6 +36,7 @@ pub mod channel;
 pub mod device;
 pub mod dma;
 pub mod ember_client;
+pub mod ember_gate;
 pub mod gpu_vendor;
 pub mod ioctl;
 pub mod irq;

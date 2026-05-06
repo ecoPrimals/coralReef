@@ -85,88 +85,55 @@ impl NvUvmComputeDevice {
             }
         }
 
-        // VA space strategy for Blackwell:
+        // VA space strategy:
         //
-        // Blackwell requires flags=0x48 (IS_EXTERNALLY_OWNED | ENABLE_FAULTING_EXTERNAL)
-        // for UVM_REGISTER_GPU_VASPACE. With this flag, UVM manages page tables
-        // (demand-faulting context buffers and shader memory). RM_MAP_MEMORY_DMA
-        // is NOT supported on externally-owned VA spaces — all GPU VA mappings
-        // must use UVM_CREATE_EXTERNAL_RANGE + UVM_MAP_EXTERNAL_ALLOCATION.
+        // Blackwell (SM >= 100): faulting VA space (0x48) + UVM registration.
+        // The kmod's COMPLETE_INIT path uses demand-paged context buffers
+        // via UVM — no GPU_PROMOTE_CTX needed.  All user buffers (GPFIFO,
+        // fence, push buffers) are UVM-externally-mapped so PBDMA can
+        // fetch them without faulting.  GR context buffers are allocated
+        // on demand by GSP-RM, with UVM servicing the page faults.
         //
-        // Pre-Blackwell: use flags=0x04 (RM-managed faulting) with RM_MAP_MEMORY_DMA.
-        use crate::nv::uvm::{
-            NV_VASPACE_FLAGS_BLACKWELL_FAULTING, NV_VASPACE_FLAGS_ENABLE_FAULTING,
-        };
+        // Pre-Blackwell: non-faulting VA space (flags=0) with DMA mapping.
+        let is_blackwell_plus = sm >= 100;
+        let uses_uvm_mapping = is_blackwell_plus;
 
-        let profile = crate::nv::generation::profile_for_sm(sm);
-        let is_blackwell_plus = matches!(
-            profile.boot_strategy,
-            crate::nv::generation::BootStrategy::KmodPromote
-        );
-
-        let (h_vaspace, uses_uvm_mapping) = if is_blackwell_plus {
-            match client.alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_BLACKWELL_FAULTING) {
-                Ok(h) => {
-                    tracing::debug!(
-                        h_vaspace = format_args!("0x{h:08X}"),
-                        "VA space BLACKWELL_FAULTING (0x48)"
-                    );
-                    match uvm.register_gpu_vaspace(&gpu_uuid, client.ctl_fd(), client.handle(), h) {
-                        Ok(()) => {
-                            tracing::debug!(
-                                "UVM_REGISTER_GPU_VASPACE OK — UVM manages page tables"
-                            );
-                            (h, true)
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "UVM_REGISTER_GPU_VASPACE(0x48) failed: {e}, \
-                                 falling back to RM-managed VA space"
-                            );
-                            client.free_object(h_device, h).ok();
-                            let h2 = client
-                                .alloc_vaspace_with_flags(
-                                    h_device,
-                                    NV_VASPACE_FLAGS_ENABLE_FAULTING,
-                                )
-                                .or_else(|_| client.alloc_vaspace(h_device))?;
-                            tracing::debug!(
-                                h_vaspace = format_args!("0x{h2:08X}"),
-                                "VA space fallback ENABLE_FAULTING"
-                            );
-                            (h2, false)
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("alloc_vaspace(0x48) failed: {e}, using 0x04");
-                    let h = client
-                        .alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_ENABLE_FAULTING)
-                        .or_else(|_| client.alloc_vaspace(h_device))?;
-                    (h, false)
-                }
-            }
+        let h_vaspace = if is_blackwell_plus {
+            let h = client.alloc_vaspace_for_uvm(h_device)?;
+            eprintln!("[coral-driver] Blackwell faulting VA space allocated (0x48)");
+            h
         } else {
-            let h = client
-                .alloc_vaspace_with_flags(h_device, NV_VASPACE_FLAGS_ENABLE_FAULTING)
-                .or_else(|_| client.alloc_vaspace(h_device))?;
-            match uvm.register_gpu_vaspace(&gpu_uuid, client.ctl_fd(), client.handle(), h) {
-                Ok(()) => tracing::debug!("UVM_REGISTER_GPU_VASPACE OK"),
-                Err(e) => tracing::warn!("UVM_REGISTER_GPU_VASPACE failed: {e} (non-fatal)"),
-            }
-            (h, false)
+            let h = client.alloc_vaspace(h_device)?;
+            eprintln!("[coral-driver] VA space allocated (non-faulting)");
+            h
         };
 
-        // GPU VA bump allocator base for UVM external mapping (4 GiB, well within the VA range)
-        let mut uvm_va_next: u64 = 0x1_0000_0000;
+        // Register the GPU VA space with UVM so it can service page faults
+        // for demand-paged GR context buffers and UVM-mapped user buffers.
+        if is_blackwell_plus {
+            match uvm.register_gpu_vaspace(
+                &gpu_uuid,
+                client.ctl_fd(),
+                client.handle(),
+                h_vaspace,
+            ) {
+                Ok(()) => eprintln!("[coral-driver] UVM_REGISTER_GPU_VASPACE OK"),
+                Err(e) => {
+                    eprintln!("[coral-driver] UVM_REGISTER_GPU_VASPACE failed: {e} (continuing)");
+                }
+            }
+        }
 
-        // CUDA calls UVM_PAGEABLE_MEM_ACCESS after UVM_REGISTER_GPU_VASPACE.
         match uvm.pageable_mem_access() {
             Ok(supported) => tracing::debug!(supported, "UVM_PAGEABLE_MEM_ACCESS OK"),
             Err(e) => tracing::warn!("UVM_PAGEABLE_MEM_ACCESS failed: {e} (continuing)"),
         }
 
-        let h_changrp = client.alloc_channel_group(h_device, h_vaspace)?;
+        // Blackwell compute TSGs: hVASpace=0 (VA space comes from context share).
+        // CUDA trace confirms first compute TSG has hVASpace=0 while CE TSGs
+        // pass the VA space handle directly.
+        let tsg_vaspace = if is_blackwell_plus { 0 } else { h_vaspace };
+        let h_changrp = client.alloc_channel_group(h_device, tsg_vaspace)?;
         tracing::debug!(
             h_changrp = format_args!("0x{h_changrp:08X}"),
             "channel_group OK"
@@ -178,84 +145,42 @@ impl NvUvmComputeDevice {
             "context_share OK"
         );
 
-        // NV01_MEMORY_VIRTUAL is required by RM even for externally-owned VA spaces.
-        // It serves as a container for RM's internal VA space bookkeeping. On UVM mode,
-        // we don't use it for DMA mapping but RM needs it for channel scheduling.
-        match client.alloc_virtual_memory(h_device, h_virt_mem, h_vaspace) {
-            Ok(_) => tracing::debug!("virtual_memory OK"),
-            Err(e) => {
-                if !uses_uvm_mapping {
-                    return Err(e);
-                }
-                tracing::warn!("alloc_virtual_memory failed: {e} (non-fatal for UVM mode)");
-            }
-        }
+        // For non-faulting VA: allocate NV01_MEMORY_VIRTUAL for DMA mappings.
+        // For faulting (Blackwell): skip — UVM manages GPU page tables.
+        let h_virt_mem = if is_blackwell_plus {
+            0_u32
+        } else {
+            client.alloc_virtual_memory(h_device, h_virt_mem, h_vaspace)?;
+            tracing::debug!("virtual_memory OK");
+            h_virt_mem
+        };
 
-        let gpfifo_gpu_va = if uses_uvm_mapping {
-            use super::super::types::page_align;
+        // Map GPFIFO into GPU VA space.
+        // Blackwell: UVM external mapping (must happen before channel creation).
+        // Pre-Blackwell: DMA mapping via NV01_MEMORY_VIRTUAL.
+        let mut uvm_va_next: u64 = 0x1_0000_0000;
+        let gpfifo_gpu_va = if is_blackwell_plus {
             use crate::nv::uvm::ExternalMapping;
-            let aligned = page_align(GPFIFO_SIZE);
+            use super::super::types::page_align;
+            let gpfifo_size = page_align(GPFIFO_SIZE.max(512 * 8));
             let va = uvm_va_next;
-            uvm.create_external_range(va, aligned)?;
+            uvm.create_external_range(va, gpfifo_size)?;
             uvm.map_external_allocation(&ExternalMapping {
                 base: va,
-                length: aligned,
+                length: gpfifo_size,
                 offset: 0,
                 rm_ctrl_fd: client.ctl_fd(),
                 h_client: client.handle(),
                 h_memory: h_gpfifo_mem,
                 gpu_uuid: &gpu_uuid,
             })?;
-            uvm_va_next = va + aligned;
+            uvm_va_next = va + gpfifo_size;
+            eprintln!("[coral-driver] GPFIFO UVM-mapped at 0x{va:016X}");
             va
         } else {
             client.rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, GPFIFO_SIZE)?
         };
         tracing::debug!(gpfifo_gpu_va = format_args!("0x{gpfifo_gpu_va:016X}"));
-
-        // For externally-owned VA spaces, ALL RM allocations used by the channel
-        // must have GPU VA mappings via UVM — otherwise RM refuses to schedule
-        // the channel ("Cannot schedule externally-owned channel with unbound allocations").
-        if uses_uvm_mapping {
-            use super::super::types::page_align;
-            use crate::nv::uvm::ExternalMapping;
-
-            let userd_aligned = page_align(userd_vram_size);
-            let userd_va = uvm_va_next;
-            uvm.create_external_range(userd_va, userd_aligned)?;
-            uvm.map_external_allocation(&ExternalMapping {
-                base: userd_va,
-                length: userd_aligned,
-                offset: 0,
-                rm_ctrl_fd: client.ctl_fd(),
-                h_client: client.handle(),
-                h_memory: h_userd_mem,
-                gpu_uuid: &gpu_uuid,
-            })?;
-            uvm_va_next = userd_va + userd_aligned;
-            tracing::debug!(
-                userd_va = format_args!("0x{userd_va:016X}"),
-                "USERD UVM mapped"
-            );
-
-            let errnotif_aligned = page_align(4096);
-            let errnotif_va = uvm_va_next;
-            uvm.create_external_range(errnotif_va, errnotif_aligned)?;
-            uvm.map_external_allocation(&ExternalMapping {
-                base: errnotif_va,
-                length: errnotif_aligned,
-                offset: 0,
-                rm_ctrl_fd: client.ctl_fd(),
-                h_client: client.handle(),
-                h_memory: h_errnotif_mem,
-                gpu_uuid: &gpu_uuid,
-            })?;
-            uvm_va_next = errnotif_va + errnotif_aligned;
-            tracing::debug!(
-                errnotif_va = format_args!("0x{errnotif_va:016X}"),
-                "errnotif UVM mapped"
-            );
-        }
 
         let (h_channel, hw_channel_id) = client.alloc_gpfifo_channel(
             h_changrp,
@@ -320,228 +245,111 @@ impl NvUvmComputeDevice {
 
         tracing::debug!("USERD/GPFIFO CPU mapping done");
         let compute_class = gpu_gen.compute_class();
-        let h_compute = client.alloc_compute_engine(h_channel, compute_class)?;
-        tracing::debug!(
-            h_compute = format_args!("0x{h_compute:08X}"),
-            compute_class = format_args!("0x{compute_class:08X}"),
-            "compute engine allocated"
-        );
 
+        eprintln!("[coral-driver] alloc_compute_engine: h_channel=0x{h_channel:08X} class=0x{compute_class:04X}");
+        let h_compute = client.alloc_compute_engine(h_channel, compute_class)?;
+        eprintln!("[coral-driver] alloc_compute_engine OK: h_compute=0x{h_compute:08X}");
+
+        eprintln!("[coral-driver] channel_bind_engine: h_compute=0x{h_compute:08X} class=0x{compute_class:04X} engine_type=1 (GR0)");
         client.channel_bind_engine(h_channel, h_compute, compute_class, 1)?;
-        tracing::debug!("channel_bind_engine OK");
+        eprintln!("[coral-driver] channel_bind_engine OK");
+
+        // ── Blackwell post-bind: work submit token + ctx buffer query ──
+        //
+        // CUDA 580.x trace shows these two controls after engine bind
+        // and before TSG schedule. GR_CTXSW_SETUP_BIND (0x2080123A) is
+        // NOT called by CUDA — the RM_ALLOC of the compute class + bind
+        // is sufficient; GSP-RM creates context buffers lazily via UVM
+        // page faults when the first dispatch hits.
+        if is_blackwell_plus {
+            let token = 0x4000_0005_u32 + (h_channel & 0xFF);
+            match client.set_work_submit_token(h_channel, token) {
+                Ok(()) => eprintln!("[coral-driver] SET_WORK_SUBMIT_TOKEN OK (0x{token:08X})"),
+                Err(e) => eprintln!("[coral-driver] SET_WORK_SUBMIT_TOKEN failed: {e} (non-fatal)"),
+            }
+            match client.gr_get_ctx_buffer_size(h_subdevice, h_channel) {
+                Ok(sz) => eprintln!("[coral-driver] GR_GET_CTX_BUFFER_SIZE: {sz} bytes (0x{sz:X})"),
+                Err(e) => eprintln!("[coral-driver] GR_GET_CTX_BUFFER_SIZE failed: {e} (non-fatal)"),
+            }
+        }
 
         // ── Context buffer binding ────────────────────────────────────
         //
-        // Blackwell+ requires kernel privilege for context buffer promotion
-        // (GPU_PROMOTE_CTX returns INSUFFICIENT_PERMISSIONS from userspace).
+        // Blackwell (faulting VA): call gr_ctxsw_setup_bind (demand-paged)
+        // to trigger GSP-RM context buffer allocation. Without this, the
+        // GR engine rejects SET_OBJECT because context buffers don't exist.
         //
-        // Hybrid approach: if coral-kmod is loaded, use CORAL_IOCTL_BIND_CHANNEL
-        // which calls nvUvmInterface{RetainChannel,BindChannelResources} from
-        // kernel context. Falls back to userspace GPU_PROMOTE_CTX for older GPUs.
-        let (ctx_buffers, kmod_bind_ok) = 'promote: {
-            // Pre-Blackwell UVM: context buffers are demand-faulted by UVM.
-            // Blackwell UVM still needs explicit promotion because UVM fault
-            // servicing is incomplete — SM hits ESR 0x10 on first CBUF access.
-            if uses_uvm_mapping && !is_blackwell_plus {
-                tracing::debug!(
-                    "UVM mapping active (pre-Blackwell) — skipping GPU_PROMOTE_CTX \
-                     (context buffers will be demand-faulted)"
-                );
-                break 'promote (Vec::new(), false);
+        // Pre-Blackwell (non-faulting VA): explicit alloc + DMA map +
+        // gr_ctxsw_setup_bind_with_mem.
+        let ctx_buffers = if is_blackwell_plus {
+            match client.gr_ctxsw_setup_bind(h_subdevice, h_channel) {
+                Ok(()) => eprintln!("[coral-driver] gr_ctxsw_setup_bind (demand-paged) OK"),
+                Err(e) => eprintln!("[coral-driver] gr_ctxsw_setup_bind failed: {e} (continuing)"),
             }
-
-            // Try kernel-privileged binding via coral-kmod (Blackwell+).
-            if is_blackwell_plus && let Some(kmod) = crate::nv::coral_kmod::CoralKmod::try_open() {
-                match kmod.bind_channel(&gpu_uuid, client.handle(), h_vaspace, h_channel, sm) {
-                    Ok(result) => {
-                        tracing::debug!(
-                            resource_count = result.resource_count,
-                            hw_channel_id = result.hw_channel_id,
-                            engine_type = result.channel_engine_type,
-                            tsg_id = result.tsg_id,
-                            "BIND_CHANNEL via kmod OK"
-                        );
-                        let ctx = result
-                            .resources
-                            .iter()
-                            .map(|r| CtxBuffer {
-                                buffer_id: r.resource_id as u16,
-                                h_memory: 0,
-                                size: r.size,
-                                gpu_va: r.gpu_va,
-                            })
-                            .collect::<Vec<_>>();
-                        break 'promote (ctx, true);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "BIND_CHANNEL via kmod failed: {e}, \
-                                 falling back to GPU_PROMOTE_CTX"
-                        );
-                    }
-                }
-            }
-
-            // Userspace GPU_PROMOTE_CTX path (works on pre-Blackwell).
-            let descs = match client.query_gr_context_buffers_info(h_subdevice) {
-                Ok(d) if !d.is_empty() => {
-                    tracing::debug!(count = d.len(), "GPU_PROMOTE_CTX: buffers from RM query");
-                    d
-                }
-                other => {
-                    if let Err(e) = &other {
-                        tracing::warn!("KGR_GET_CONTEXT_BUFFERS_INFO failed: {e}");
-                    }
-                    tracing::debug!("Using hardcoded Blackwell context buffer sizes");
-                    crate::nv::uvm::rm_client::alloc::hardcoded_blackwell_ctx_buffers()
-                }
-            };
-
-            use crate::nv::uvm::structs::PromoteCtxBufferEntry;
-
-            let mut promote_entries: Vec<PromoteCtxBufferEntry> = Vec::new();
-            let mut allocated: Vec<CtxBuffer> = Vec::new();
-            let mut ctx_handle_counter = h_device + 0x7000_u32;
-
-            for desc in &descs {
-                let h_mem = ctx_handle_counter;
-                ctx_handle_counter += 1;
-
-                if let Err(e) = client.alloc_system_memory(h_device, h_mem, desc.size) {
-                    tracing::warn!(buffer_id = desc.buffer_id, "alloc ctx_buf failed: {e}");
-                    continue;
-                }
-
-                let gpu_va = if desc.is_nonmapped {
-                    0_u64
-                } else {
-                    match client.rm_map_memory_dma(h_device, h_virt_mem, h_mem, 0, desc.size) {
-                        Ok(va) => va,
-                        Err(e) => {
-                            tracing::warn!(buffer_id = desc.buffer_id, "map ctx_buf failed: {e}");
-                            client.free_object(h_device, h_mem).ok();
-                            continue;
-                        }
-                    }
-                };
-
-                tracing::trace!(
-                    buffer_id = desc.buffer_id,
-                    gpu_va = format_args!("0x{gpu_va:016X}"),
-                    size = format_args!("0x{:X}", desc.size),
-                    "ctx_buf mapped"
-                );
-
-                let entry = PromoteCtxBufferEntry {
-                    gpu_phys_addr: 0,
-                    gpu_virt_addr: gpu_va,
-                    size: if desc.needs_init { desc.size } else { 0 },
-                    phys_attr: if desc.needs_init { 4 } else { 0 },
-                    buffer_id: desc.buffer_id,
-                    b_initialize: u8::from(desc.needs_init),
-                    b_nonmapped: u8::from(desc.is_nonmapped),
-                };
-                promote_entries.push(entry);
-
-                allocated.push(CtxBuffer {
-                    buffer_id: desc.buffer_id,
-                    h_memory: h_mem,
-                    size: desc.size,
-                    gpu_va,
-                });
-            }
-
-            if !promote_entries.is_empty() {
-                match client.gpu_promote_ctx(h_subdevice, h_channel, &promote_entries) {
-                    Ok(()) => {
-                        tracing::debug!(
-                            count = promote_entries.len(),
-                            "GPU_PROMOTE_CTX: buffers promoted OK"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "GPU_PROMOTE_CTX failed: {e} \
-                             (kernel-only — will fall back to gr_ctxsw_setup_bind)"
-                        );
-                        for cb in &allocated {
-                            if cb.gpu_va != 0 {
-                                client
-                                    .rm_unmap_memory_dma(
-                                        h_device,
-                                        h_virt_mem,
-                                        cb.h_memory,
-                                        cb.gpu_va,
-                                    )
-                                    .ok();
+            Vec::<CtxBuffer>::new()
+        } else {
+            let ctx_size: u64 = 16 * 1024 * 1024;
+            let h_ctx_mem = h_device + 0x7000;
+            match client.alloc_system_memory(h_device, h_ctx_mem, ctx_size) {
+                Ok(_) => {
+                    match client.rm_map_memory_dma(h_device, h_virt_mem, h_ctx_mem, 0, ctx_size) {
+                        Ok(ctx_va) => {
+                            eprintln!("[coral-driver] GR context buffer: va=0x{ctx_va:X} size=0x{ctx_size:X}");
+                            match client.gr_ctxsw_setup_bind_with_mem(h_subdevice, h_channel, ctx_va) {
+                                Ok(()) => eprintln!("[coral-driver] gr_ctxsw_setup_bind_with_mem OK"),
+                                Err(e) => {
+                                    eprintln!("[coral-driver] gr_ctxsw_setup_bind_with_mem failed: {e}");
+                                    client.gr_ctxsw_setup_bind(h_subdevice, h_channel).ok();
+                                }
                             }
-                            client.free_object(h_device, cb.h_memory).ok();
                         }
-                        break 'promote (Vec::new(), false);
+                        Err(e) => {
+                            eprintln!("[coral-driver] DMA map GR ctx failed: {e}");
+                            client.free_object(h_device, h_ctx_mem).ok();
+                            client.gr_ctxsw_setup_bind(h_subdevice, h_channel).ok();
+                        }
                     }
                 }
+                Err(e) => {
+                    eprintln!("[coral-driver] alloc GR ctx failed: {e}");
+                    client.gr_ctxsw_setup_bind(h_subdevice, h_channel).ok();
+                }
             }
-
-            (allocated, false)
+            Vec::<CtxBuffer>::new()
         };
 
-        if kmod_bind_ok {
-            tracing::debug!(
-                "Skipping gr_ctxsw_setup_bind (kmod BindChannelResources already bound)"
-            );
-        } else if !uses_uvm_mapping {
-            let main_ctx_va = ctx_buffers
-                .iter()
-                .find(|cb| cb.buffer_id == crate::nv::uvm::PROMOTE_CTX_BUFFER_ID_MAIN)
-                .map_or(0_u64, |cb| cb.gpu_va);
-            tracing::debug!(
-                h_channel = format_args!("0x{h_channel:08X}"),
-                main_ctx_va = format_args!("0x{main_ctx_va:016X}"),
-                "gr_ctxsw_setup_bind..."
-            );
-            client.gr_ctxsw_setup_bind_with_mem(h_subdevice, h_channel, main_ctx_va)?;
-            tracing::debug!("gr_ctxsw_setup_bind OK");
-        }
+        // Register the channel with UVM so it can service page faults
+        // for demand-paged GR context buffers during compute dispatch.
+        if is_blackwell_plus {
+            let chan_resource_range: u64 = 0x1000_0000; // 256 MiB
+            let chan_resource_base =
+                (uvm_va_next + chan_resource_range - 1) & !(chan_resource_range - 1);
+            uvm_va_next = chan_resource_base + chan_resource_range;
 
-        // Register channel with UVM to bind internal RM allocations.
-        // On Blackwell+ with externally-owned VA spaces, RM refuses to schedule
-        // a channel whose internal allocations lack GPU VA bindings. UVM_REGISTER_CHANNEL
-        // resolves this by having the UVM module call RetainChannel + BindChannelResources
-        // using its own kernel session (same one from UVM_REGISTER_GPU_VASPACE).
-        if uses_uvm_mapping {
-            let chan_resource_range: u64 = 256 * 1024 * 1024;
-            let chan_resource_base = uvm_va_next;
-            uvm_va_next += chan_resource_range;
-
-            tracing::debug!(
-                base = format_args!("0x{chan_resource_base:X}"),
-                len = format_args!("0x{chan_resource_range:X}"),
-                h_client = format_args!("0x{:08X}", client.handle()),
-                h_channel = format_args!("0x{h_channel:08X}"),
-                "UVM_REGISTER_CHANNEL..."
-            );
-            uvm.register_channel(
+            match uvm.register_channel(
                 &gpu_uuid,
                 client.ctl_fd(),
                 client.handle(),
                 h_channel,
                 chan_resource_base,
                 chan_resource_range,
-            )?;
-            tracing::debug!("UVM_REGISTER_CHANNEL OK — channel resources bound");
+            ) {
+                Ok(()) => eprintln!("[coral-driver] UVM_REGISTER_CHANNEL OK: base=0x{chan_resource_base:X}"),
+                Err(e) => eprintln!("[coral-driver] UVM_REGISTER_CHANNEL failed: {e} (continuing)"),
+            }
         }
 
-        match client.tsg_gpfifo_schedule(h_changrp) {
-            Ok(()) => tracing::debug!("tsg_gpfifo_schedule OK"),
-            Err(e) => {
-                if uses_uvm_mapping {
-                    tracing::warn!(
-                        "tsg_gpfifo_schedule failed: {e} \
-                         (non-fatal on UVM mode — may be auto-scheduled)"
-                    );
-                } else {
-                    return Err(e);
-                }
+        client.tsg_gpfifo_schedule(h_changrp).map_err(|e| {
+            eprintln!("[coral-driver] tsg_gpfifo_schedule FAILED: {e}");
+            e
+        })?;
+        eprintln!("[coral-driver] tsg_gpfifo_schedule OK");
+
+        // Set context-switch preemption mode (CUDA does this after schedule)
+        if is_blackwell_plus {
+            match client.gr_set_ctxsw_preemption_mode(h_subdevice, h_changrp) {
+                Ok(()) => eprintln!("[coral-driver] GR_SET_CTXSW_PREEMPTION_MODE OK"),
+                Err(e) => eprintln!("[coral-driver] GR_SET_CTXSW_PREEMPTION_MODE failed: {e} (non-fatal)"),
             }
         }
 
@@ -598,58 +406,54 @@ impl NvUvmComputeDevice {
             fence_pb_gpu_va,
             fence_pb_mmap_fd,
         ) = if uses_semaphore_fence {
-            // Fence value buffer: GPU writes semaphore payload here.
             let h_fence_mem = h_device + 0x5005;
             client.alloc_system_memory(h_device, h_fence_mem, 4096)?;
-            let fence_va = if uses_uvm_mapping {
-                use super::super::types::page_align;
+
+            let h_fence_pb = h_device + 0x5006;
+            client.alloc_system_memory(h_device, h_fence_pb, 4096)?;
+
+            let (fence_va, fpb_va) = if is_blackwell_plus {
                 use crate::nv::uvm::ExternalMapping;
-                let aligned = page_align(4096);
-                let va = uvm_va_next;
-                uvm.create_external_range(va, aligned)?;
+                use super::super::types::page_align;
+
+                let fv_va = uvm_va_next;
+                uvm.create_external_range(fv_va, page_align(4096))?;
                 uvm.map_external_allocation(&ExternalMapping {
-                    base: va,
-                    length: aligned,
+                    base: fv_va,
+                    length: page_align(4096),
                     offset: 0,
                     rm_ctrl_fd: client.ctl_fd(),
                     h_client: client.handle(),
                     h_memory: h_fence_mem,
                     gpu_uuid: &gpu_uuid,
                 })?;
-                uvm_va_next = va + aligned;
-                va
-            } else {
-                client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_mem, 0, 4096)?
-            };
-            let fence_fd = open_ctl()?;
-            let fence_cpu =
-                client.rm_map_memory_on_fd(fence_fd.as_raw_fd(), h_device, h_fence_mem, 0, 4096)?;
-            // SAFETY: RM mapped the fence allocation into CPU VA; dword 0 is the fence payload.
-            unsafe { VolatilePtr::new(fence_cpu as *mut u32).write(0) };
+                uvm_va_next = fv_va + page_align(4096);
 
-            // Fence push buffer: rewritten before each fence submission.
-            let h_fence_pb = h_device + 0x5006;
-            client.alloc_system_memory(h_device, h_fence_pb, 4096)?;
-            let fpb_va = if uses_uvm_mapping {
-                use super::super::types::page_align;
-                use crate::nv::uvm::ExternalMapping;
-                let aligned = page_align(4096);
-                let va = uvm_va_next;
-                uvm.create_external_range(va, aligned)?;
+                let fp_va = uvm_va_next;
+                uvm.create_external_range(fp_va, page_align(4096))?;
                 uvm.map_external_allocation(&ExternalMapping {
-                    base: va,
-                    length: aligned,
+                    base: fp_va,
+                    length: page_align(4096),
                     offset: 0,
                     rm_ctrl_fd: client.ctl_fd(),
                     h_client: client.handle(),
                     h_memory: h_fence_pb,
                     gpu_uuid: &gpu_uuid,
                 })?;
-                uvm_va_next = va + aligned;
-                va
+                uvm_va_next = fp_va + page_align(4096);
+                eprintln!("[coral-driver] fence UVM-mapped: val=0x{fv_va:016X} pb=0x{fp_va:016X}");
+                (fv_va, fp_va)
             } else {
-                client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_pb, 0, 4096)?
+                let fv = client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_mem, 0, 4096)?;
+                let fp = client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_pb, 0, 4096)?;
+                (fv, fp)
             };
+
+            let fence_fd = open_ctl()?;
+            let fence_cpu =
+                client.rm_map_memory_on_fd(fence_fd.as_raw_fd(), h_device, h_fence_mem, 0, 4096)?;
+            unsafe { VolatilePtr::new(fence_cpu as *mut u32).write(0) };
+
             let fpb_fd = open_ctl()?;
             let fpb_cpu =
                 client.rm_map_memory_on_fd(fpb_fd.as_raw_fd(), h_device, h_fence_pb, 0, 4096)?;
@@ -657,7 +461,7 @@ impl NvUvmComputeDevice {
             tracing::info!(
                 fence_va = format_args!("0x{fence_va:016X}"),
                 fpb_va = format_args!("0x{fpb_va:016X}"),
-                "Blackwell semaphore fence allocated (GP_GET unavailable)"
+                "semaphore fence allocated"
             );
             (
                 fence_cpu,
@@ -712,6 +516,7 @@ impl NvUvmComputeDevice {
             usermode_mmap_fd,
             doorbell_addr,
             work_submit_token,
+            compute_subchannel: if uses_semaphore_fence { 1 } else { 0 },
             uses_semaphore_fence,
             fence_cpu_addr,
             fence_gpu_va,
@@ -775,8 +580,10 @@ impl NvUvmComputeDevice {
             1_u32
         };
 
+        eprintln!("[coral-driver] NOP submit: nop_gpu_va=0x{nop_gpu_va:X} fence_gpu_va=0x{:X} pb_dwords={pb_dwords}", dev.fence_gpu_va);
         dev.submit_gpfifo(nop_gpu_va, pb_dwords)?;
         dev.poll_gpfifo_completion()?;
+        eprintln!("[coral-driver] NOP smoke test passed");
         tracing::info!("NOP smoke test passed — GPFIFO pipeline operational");
 
         // Allocate a Shader Local Memory (SLM) buffer for per-warp scratch
@@ -800,15 +607,35 @@ impl NvUvmComputeDevice {
         // per-TPC limit: align to 0x8000 (32 KiB, NVK convention).
         let slm_per_tpc: u64 = 0x8000;
 
-        // One-time compute init: bind the compute class to subchannel 1 and
-        // configure shared/local memory windows + SLM base. This must happen
-        // exactly once per channel — repeated SET_OBJECT calls on Blackwell
-        // corrupt the channel state (GR_CLASS_ERROR 0x0D).
+        // One-time compute init: SET_OBJECT + memory windows + SLM base.
+        //
+        // Blackwell: SET_OBJECT on subchannel 1 (subchannel 0 causes Xid 13
+        // "Class Mismatch"). Memory window addresses must be set or the SM
+        // faults with "Invalid Address Space" during warp setup.
+        //
+        // Pre-Blackwell: SET_OBJECT on subchannel 0.
         {
             use crate::nv::pushbuf::PushBuf;
 
-            let init_pb =
-                PushBuf::compute_init(compute_class, 0xFF00_0000, slm_gpu_va, slm_per_tpc);
+            // High VA bases for per-warp local and per-CTA shared memory
+            // address translation. These don't need UVM mapping — UVM
+            // faulting resolves page faults lazily when a shader actually
+            // accesses local/shared memory through these windows.
+            const LOCAL_MEM_WINDOW: u64 = 0x7293_0000_0000;
+            const SHARED_MEM_WINDOW: u64 = 0x7294_0000_0000;
+
+            let init_pb = if is_blackwell_plus {
+                PushBuf::compute_init_subchannel(
+                    compute_class,
+                    LOCAL_MEM_WINDOW,
+                    SHARED_MEM_WINDOW,
+                    slm_gpu_va,
+                    slm_per_tpc,
+                    1,
+                )
+            } else {
+                PushBuf::compute_init(compute_class, 0xFF00_0000, slm_gpu_va, slm_per_tpc)
+            };
             let init_bytes = init_pb.as_bytes();
             let init_len = u32::try_from(init_pb.as_words().len())
                 .map_err(|_| DriverError::platform_overflow("init pb dwords fits u32"))?;
@@ -829,7 +656,6 @@ impl NvUvmComputeDevice {
                 4096,
             )?;
 
-            // SAFETY: init_cpu is a valid 4096-byte mapping; init_bytes is <= 4096.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     init_bytes.as_ptr(),
@@ -845,10 +671,7 @@ impl NvUvmComputeDevice {
             }
 
             dev.poll_gpfifo_completion()?;
-            tracing::info!(
-                compute_class = format_args!("0x{compute_class:04X}"),
-                "Compute init submitted — SET_OBJECT + memory windows on subchannel 1"
-            );
+            eprintln!("[coral-driver] compute_init OK (SET_OBJECT + SLM)");
 
             dev.client
                 .rm_unmap_memory(h_device, h_init_mem, init_cpu)

@@ -23,6 +23,14 @@ pub(super) fn kepler_load_and_boot_fecs(
     );
 }
 
+/// Direct firmware upload + boot, skipping gr_precursor (for callers that
+/// already performed PGOB + PGRAPH reset + GR MMIO init).
+pub(super) fn kepler_load_and_boot_fecs_direct(
+    guard: &super::hardware_guard::GuardedBar<'_>,
+) {
+    load_boot::kepler_load_and_boot_fecs_direct(guard);
+}
+
 #[expect(dead_code, reason = "WIP: hotspring Kepler boot strategies")]
 pub(super) fn kepler_post_done_boot_fecs(
     guard: &super::hardware_guard::GuardedBar<'_>,

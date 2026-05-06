@@ -47,6 +47,7 @@ const DRM_COMMAND_BASE: u32 = 0x40;
 // CHANNEL_ALLOC=0x02, CHANNEL_FREE=0x03.
 const DRM_NOUVEAU_CHANNEL_ALLOC: u32 = DRM_COMMAND_BASE + 0x02;
 const DRM_NOUVEAU_CHANNEL_FREE: u32 = DRM_COMMAND_BASE + 0x03;
+const DRM_NOUVEAU_NVIF: u32 = DRM_COMMAND_BASE + 0x07;
 const DRM_NOUVEAU_GEM_NEW: u32 = DRM_COMMAND_BASE + 0x40;
 const DRM_NOUVEAU_GEM_PUSHBUF: u32 = DRM_COMMAND_BASE + 0x41;
 const DRM_NOUVEAU_GEM_CPU_PREP: u32 = DRM_COMMAND_BASE + 0x42;
@@ -339,6 +340,238 @@ pub fn destroy_channel(fd: RawFd, channel: u32) -> DriverResult<()> {
         size_of_u32::<NouveauChannelFree>(),
     );
     drm::drm_ioctl_named(fd, ioctl_nr, &mut free, "nouveau_channel_free")
+}
+
+// ---------------------------------------------------------------------------
+// NVIF (NV InterFace) — engine object allocation via DRM_NOUVEAU_NVIF.
+//
+// NVK (Mesa 25.1+) uses NVIF to allocate engine objects (compute, 2D, copy)
+// on a bare channel AFTER CHANNEL_ALLOC. This is required on kernel 6.17+
+// where the legacy subchan array in CHANNEL_ALLOC is not sufficient for GR
+// context initialization.
+//
+// Protocol: nvif_ioctl_v0 header (24 bytes) + operation-specific data.
+// ---------------------------------------------------------------------------
+
+const NVIF_IOCTL_V0_SCLASS: u8 = 0x01;
+const NVIF_IOCTL_V0_NEW: u8 = 0x02;
+
+/// NVIF ioctl header (matches kernel `nvif_ioctl_v0`, 24 bytes).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct NvifIoctlV0 {
+    version: u8,
+    r#type: u8,
+    pad02: [u8; 4],
+    owner: u8,
+    route: u8,
+    token: u64,
+    object: u64,
+}
+
+/// NVIF SCLASS query header (follows NvifIoctlV0).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct NvifSclassV0 {
+    version: u8,
+    count: u8,
+    pad02: [u8; 6],
+}
+
+/// Single class entry in SCLASS response.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct NvifSclassOclass {
+    oclass: i32,
+    minver: i16,
+    maxver: i16,
+}
+
+/// NVIF NEW operation (follows NvifIoctlV0).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct NvifNewV0 {
+    version: u8,
+    pad01: [u8; 6],
+    route: u8,
+    token: u64,
+    object: u64,
+    handle: u32,
+    oclass: i32,
+}
+
+const MAX_NVIF_CLASSES: usize = 16;
+
+/// Query supported engine classes for a channel via NVIF SCLASS.
+///
+/// Returns up to 16 class IDs that the kernel supports for subchannel
+/// allocation on this channel.
+///
+/// # Errors
+///
+/// Returns [`DriverError`] if the kernel rejects the request.
+pub fn nvif_query_classes(fd: RawFd, channel: u32) -> DriverResult<Vec<u32>> {
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct SclassArgs {
+        ioctl: NvifIoctlV0,
+        sclass: NvifSclassV0,
+        list: [NvifSclassOclass; MAX_NVIF_CLASSES],
+    }
+
+    let mut args = SclassArgs {
+        ioctl: NvifIoctlV0 {
+            route: NVIF_ROUTE_HIDDEN,
+            token: u64::from(channel),
+            r#type: NVIF_IOCTL_V0_SCLASS,
+            ..Default::default()
+        },
+        sclass: NvifSclassV0 {
+            count: MAX_NVIF_CLASSES as u8,
+            ..Default::default()
+        },
+        list: [NvifSclassOclass::default(); MAX_NVIF_CLASSES],
+    };
+
+    let ioctl_nr = drm::drm_iowr_pub(DRM_NOUVEAU_NVIF, size_of_u32::<SclassArgs>());
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut args, "nvif_sclass")?;
+
+    let count = usize::from(args.sclass.count).min(MAX_NVIF_CLASSES);
+    #[expect(clippy::cast_sign_loss, reason = "kernel returns non-negative class IDs")]
+    let classes: Vec<u32> = args.list[..count]
+        .iter()
+        .map(|e| e.oclass as u32)
+        .collect();
+    Ok(classes)
+}
+
+/// Allocate an engine object on a channel via NVIF NEW.
+///
+/// Binds the engine identified by `oclass` to the channel with the given
+/// `handle`. This is the NVK-style replacement for the subchan array in
+/// `CHANNEL_ALLOC`.
+///
+/// # Errors
+///
+/// Returns [`DriverError`] if the kernel rejects the request (unsupported
+/// class, channel not found, etc.).
+pub fn nvif_new_object(fd: RawFd, channel: u32, handle: u32, oclass: u32) -> DriverResult<()> {
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NewArgs {
+        ioctl: NvifIoctlV0,
+        new: NvifNewV0,
+    }
+
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "engine class IDs fit in i32 (< 0x10000)"
+    )]
+    let mut args = NewArgs {
+        ioctl: NvifIoctlV0 {
+            route: NVIF_ROUTE_HIDDEN,
+            token: u64::from(channel),
+            r#type: NVIF_IOCTL_V0_NEW,
+            ..Default::default()
+        },
+        new: NvifNewV0 {
+            handle,
+            oclass: oclass as i32,
+            route: NVIF_ROUTE_NVIF,
+            ..Default::default()
+        },
+    };
+
+    let ioctl_nr = drm::drm_iow_pub(DRM_NOUVEAU_NVIF, size_of_u32::<NewArgs>());
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut args, "nvif_new")
+}
+
+/// Create a bare channel and bind a compute engine via NVIF (NVK-style).
+///
+/// This is the modern path used by NVK on kernel 6.17+:
+/// 1. `CHANNEL_ALLOC` with `nr_subchan=0` (bare channel)
+/// 2. `NVIF SCLASS` to query supported engine classes
+/// 3. `NVIF NEW` to bind the compute engine to the channel
+///
+/// Returns `(channel_id, compute_class, nvif_handle)` on success.
+///
+/// # Errors
+///
+/// Returns [`DriverError`] if channel creation or engine binding fails.
+pub fn create_channel_nvk_style(fd: RawFd) -> DriverResult<(u32, u32, u32)> {
+    let mut alloc = NouveauChannelAlloc::default();
+    let ioctl_nr = drm::drm_iowr_pub(
+        DRM_NOUVEAU_CHANNEL_ALLOC,
+        size_of_u32::<NouveauChannelAlloc>(),
+    );
+    drm::drm_ioctl_named(fd, ioctl_nr, &mut alloc, "nouveau_channel_alloc_bare")?;
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "kernel returns non-negative channel id on success"
+    )]
+    let channel = alloc.channel as u32;
+
+    let classes = nvif_query_classes(fd, channel)?;
+    tracing::debug!(channel, ?classes, "NVIF SCLASS: supported classes");
+
+    // Find engine classes by type suffix (NVK convention).
+    let find_class = |suffix: u8| -> Option<u32> {
+        classes
+            .iter()
+            .copied()
+            .filter(|&c| (c & 0xFF) == u32::from(suffix))
+            .max()
+    };
+
+    let compute_class = find_class(0xC0).ok_or_else(|| {
+        DriverError::Unsupported("no compute engine class found via NVIF SCLASS".into())
+    })?;
+    tracing::info!(
+        channel,
+        compute_class = format_args!("0x{compute_class:04X}"),
+        "NVIF: found compute engine class"
+    );
+
+    let base = (0xBEEF_u32.wrapping_add(channel)) << 16;
+
+    // NVK creates all engine objects for GR context initialization.
+    // The 3D engine is required: the kernel initializes the shared GR
+    // context when the 3D object is bound to the channel.
+    if let Some(eng3d_class) = find_class(0x97) {
+        let handle_3d = base | 0x003D;
+        match nvif_new_object(fd, channel, handle_3d, eng3d_class) {
+            Ok(()) => tracing::info!(
+                channel,
+                handle = format_args!("0x{handle_3d:08X}"),
+                class = format_args!("0x{eng3d_class:04X}"),
+                "NVIF NEW: 3D engine bound"
+            ),
+            Err(e) => tracing::warn!(
+                channel,
+                class = format_args!("0x{eng3d_class:04X}"),
+                error = %e,
+                "NVIF NEW: 3D engine bind failed (GR context may be incomplete)"
+            ),
+        }
+    }
+
+    // Bind copy engine (handle 0, matching NVK).
+    if let Some(copy_class) = find_class(0xB5) {
+        let _ = nvif_new_object(fd, channel, 0, copy_class);
+        tracing::debug!(channel, class = format_args!("0x{copy_class:04X}"), "NVIF NEW: copy engine bound");
+    }
+
+    // Bind compute engine.
+    let compute_handle = base | 0x00C0;
+    nvif_new_object(fd, channel, compute_handle, compute_class)?;
+    tracing::info!(
+        channel,
+        handle = format_args!("0x{compute_handle:08X}"),
+        compute_class = format_args!("0x{compute_class:04X}"),
+        "NVIF NEW: compute engine bound to channel"
+    );
+
+    Ok((channel, compute_class, compute_handle))
 }
 
 /// Result of a GEM buffer creation.

@@ -197,13 +197,10 @@ impl NvUvmComputeDevice {
     /// Submit a semaphore release GPFIFO entry for Blackwell fence tracking.
     ///
     /// Uses the compute engine's `SET_REPORT_SEMAPHORE_A/B/C/D` methods
-    /// (byte offsets 0x1B00–0x1B0C from `clc6c0.h`) on **subchannel 1**
-    /// (compute). This guarantees the semaphore write occurs only after
-    /// all prior compute dispatches on this channel have completed.
-    ///
-    /// The previous implementation used PBDMA semaphore methods on subchannel 0,
-    /// which do NOT wait for compute engine work — the fence would advance
-    /// before the shader finished executing.
+    /// (byte offsets 0x1B00–0x1B0C from `clcec0.h`) on **subchannel 0**
+    /// where the compute class is bound via `SET_OBJECT`. The compute
+    /// engine processes the RELEASE only after all prior dispatches on
+    /// this subchannel have completed, providing a proper execution fence.
     pub(in crate::nv::uvm_compute) fn submit_fence_release(&mut self) -> DriverResult<()> {
         if !self.uses_semaphore_fence || self.fence_pb_cpu_addr == 0 {
             return Ok(());
@@ -221,15 +218,14 @@ impl NvUvmComputeDevice {
         //
         // D encoding: OPERATION[1:0]=0 (RELEASE), FLUSH_DISABLE[2]=0,
         //             STRUCTURE_SIZE[28]=1 (ONE_WORD) → 0x10000000
-        const SUBCHAN_COMPUTE: u32 = 1;
+        let subchan = self.compute_subchannel;
         const REPORT_SEM_A: u32 = 0x1B00;
         const SEM_D_RELEASE_ONE_WORD: u32 = 1 << 28;
 
         // 5-dword push buffer: 1 header + 4 data words.
         // SAFETY: fence_pb_cpu_addr is a valid 4096-byte mmap. We write 20 bytes.
         unsafe {
-            // INC_METHOD header: count=4, subchan=COMPUTE, method=0x1B00>>2
-            let header = (1_u32 << 29) | (4 << 16) | (SUBCHAN_COMPUTE << 13) | (REPORT_SEM_A >> 2);
+            let header = (1_u32 << 29) | (4 << 16) | (subchan << 13) | (REPORT_SEM_A >> 2);
             VolatilePtr::new(pb).write(header);
             {
                 VolatilePtr::new(pb.add(1)).write((fva >> 32) as u32);
@@ -243,7 +239,7 @@ impl NvUvmComputeDevice {
         self.submit_gpfifo(self.fence_pb_gpu_va, 5)?;
         tracing::debug!(
             fence_value = fv,
-            "Blackwell fence release submitted (compute engine)"
+            "Blackwell fence release submitted (subchan 0, compute engine)"
         );
         Ok(())
     }
