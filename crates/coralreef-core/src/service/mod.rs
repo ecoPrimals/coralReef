@@ -16,6 +16,7 @@ pub use types::{
     MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse, TarpcCompileError,
 };
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
@@ -52,11 +53,11 @@ pub fn handle_identity_get() -> IdentityGetResponse {
         .unwrap_or_else(IdentityGetResponse::fallback)
 }
 
-/// `capability.list` — Wire Standard L2 method inventory plus domain discovery.
+/// `capability.list` — Wire Standard L3 method inventory plus domain discovery.
 ///
 /// Includes advertised [`crate::capability::Capability`] ids plus JSON-RPC namespaces
 /// exposed by this binary (`health.*`, `identity.get`), and the flat `methods` list
-/// required by `CAPABILITY_WIRE_STANDARD`.
+/// required by `CAPABILITY_WIRE_STANDARD`. L3 adds `protocol` and `transport` fields.
 #[must_use]
 pub fn handle_capability_list() -> CapabilityListResponse {
     let desc = crate::capability::self_description();
@@ -78,9 +79,18 @@ pub fn handle_capability_list() -> CapabilityListResponse {
         "btsp.negotiate".into(),
     ];
 
+    let transport: Vec<Cow<'static, str>> = {
+        let mut t = vec![Cow::Borrowed("tcp"), Cow::Borrowed("tarpc")];
+        #[cfg(unix)]
+        t.insert(0, Cow::Borrowed("uds"));
+        t
+    };
+
     CapabilityListResponse {
         primal: config::PRIMAL_NAME.into(),
         version: config::PRIMAL_VERSION.into(),
+        protocol: "jsonrpc-2.0".into(),
+        transport,
         methods,
         capabilities: domains.into_iter().collect(),
     }

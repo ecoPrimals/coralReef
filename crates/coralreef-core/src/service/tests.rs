@@ -97,7 +97,7 @@ fn test_handle_capability_list() {
 }
 
 #[test]
-fn capability_list_wire_standard_l2() {
+fn capability_list_wire_standard_l3() {
     let resp = handle_capability_list();
     assert_eq!(resp.primal.as_ref(), env!("CARGO_PKG_NAME"));
     assert!(!resp.version.is_empty());
@@ -114,6 +114,10 @@ fn capability_list_wire_standard_l2() {
     assert!(resp.methods.contains(&"health.liveness".to_string()));
     assert!(resp.methods.contains(&"identity.get".to_string()));
     assert!(resp.methods.contains(&"capability.list".to_string()));
+    // Wire Standard L3: protocol and transport fields
+    assert_eq!(resp.protocol.as_ref(), "jsonrpc-2.0");
+    assert!(!resp.transport.is_empty());
+    assert!(resp.transport.iter().any(|t| t.as_ref() == "tcp"));
 }
 
 #[test]

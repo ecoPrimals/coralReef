@@ -136,6 +136,10 @@ pub struct CapabilityListResponse {
     pub primal: Cow<'static, str>,
     /// Primal semantic version.
     pub version: Cow<'static, str>,
+    /// Wire protocol identifier (Wire Standard L3).
+    pub protocol: Cow<'static, str>,
+    /// Supported transport layers (Wire Standard L3).
+    pub transport: Vec<Cow<'static, str>>,
     /// Every callable JSON-RPC method (Wire Standard L2 routing signal).
     pub methods: Vec<String>,
     /// Capability domain strings (backward compat with domain-level discovery).
@@ -412,6 +416,8 @@ mod identity_tests {
         let r = CapabilityListResponse {
             primal: env!("CARGO_PKG_NAME").into(),
             version: env!("CARGO_PKG_VERSION").into(),
+            protocol: "jsonrpc-2.0".into(),
+            transport: vec!["uds".into(), "tcp".into()],
             methods: vec!["health.check".to_owned(), "capability.list".to_owned()],
             capabilities: vec!["health".to_owned(), "shader.compile".to_owned()],
         };

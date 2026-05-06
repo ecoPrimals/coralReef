@@ -4,11 +4,23 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 90
+**Current status**: Phase 10 — Iteration 92
 
 ---
 
 ## [Unreleased]
+
+### Iteration 92 — Wire Standard L3 Alignment (2026-05-06)
+
+#### Wire Standard L3
+- `CapabilityListResponse` now includes `protocol: "jsonrpc-2.0"` and `transport: ["uds", "tcp", "tarpc"]` fields
+- Test `capability_list_wire_standard_l2` upgraded to `capability_list_wire_standard_l3` with L3 field assertions
+- Serde roundtrip test updated to include new fields
+
+#### Cross-Cutting Audit (primalSpring Phase 59)
+- **BufReader post-negotiate**: Verified correct — BufReader is passed through to `process_encrypted_frames`, no `into_inner()` needed. Buffered bytes are correctly consumed by the encrypted frame reader.
+- **Whitespace-tolerant TCP detection**: Assessed — not needed for coralReef's ecosystem. Our BTSP marker classification (`{` = JSON-RPC, other = BTSP) is correct for all ecosystem clients.
+- **Port 9730**: Confirmed operational on ironGate. primalSpring now has `TCP_FALLBACK_CORALREEF_PORT = 9730`.
 
 ### Iteration 91 — Coverage Expansion + Deep Debt Audit (2026-05-04)
 

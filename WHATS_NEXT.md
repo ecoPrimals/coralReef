@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 91.
+**Current position**: Phase 10 — Iteration 92.
 
-**Last completed**: Deep debt pass — coverage expansion (`capture.rs` TrainingRecipe load/save/flat_writes: 7 tests). Full audit confirmed: zero `async_trait`, zero `lazy_static`, zero `Box<dyn Error>` in production, zero `Result<_, String>` in library, all `.clone()` hotspots are necessary SSA IR manipulation, all `Arc<Mutex<>>` are correct short-critical-section patterns, all `#[expect(dead_code)]` carry reason strings, all mocks test-gated, all hardcoded paths env-overridable, all unsafe confined to `coral-driver`.
+**Last completed**: Wire Standard L3 alignment — `capabilities.list` now returns `protocol: "jsonrpc-2.0"` and `transport: ["uds", "tcp", "tarpc"]` fields. BufReader post-negotiate audit confirmed correct (no `into_inner()` needed — BufReader passed through to encrypted frame loop). Whitespace-tolerant TCP detection assessed: not needed for our ecosystem.
 
-**Tests**: 4686 passing, 0 failed, 160 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4686 passing, 0 failed, 177 ignored (hardware-gated). Zero clippy warnings.
 
-**Last updated**: May 4, 2026.
+**Last updated**: May 6, 2026.
 
 **Next focus**: Coverage push toward 90% (coral-glowplug/coral-ember/coral-gpu largest gaps); PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration; `coral-gpu` sovereign path (replacing wgpu).
 
