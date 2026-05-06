@@ -7,10 +7,10 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
 
 use super::constants::{
-    NV_CTL_PATH, NV_ESC_REGISTER_FD, NV_GPU_PATH_PREFIX, NV_OK, NV_UVM_PATH,
-    UVM_CREATE_EXTERNAL_RANGE, UVM_FREE, UVM_INITIALIZE, UVM_MAP_EXTERNAL_ALLOCATION,
-    UVM_MM_INITIALIZE, UVM_PAGEABLE_MEM_ACCESS, UVM_REGISTER_CHANNEL, UVM_REGISTER_GPU_VASPACE,
-    UVM_UNREGISTER_GPU_VASPACE, nv_ioctl_rw,
+    NV_ESC_REGISTER_FD, NV_OK, UVM_CREATE_EXTERNAL_RANGE, UVM_FREE, UVM_INITIALIZE,
+    UVM_MAP_EXTERNAL_ALLOCATION, UVM_MM_INITIALIZE, UVM_PAGEABLE_MEM_ACCESS,
+    UVM_REGISTER_CHANNEL, UVM_REGISTER_GPU_VASPACE, UVM_UNREGISTER_GPU_VASPACE,
+    nv_ctl_path, nv_gpu_path_prefix, nv_ioctl_rw, nv_uvm_path,
 };
 use super::structs::{
     UvmCreateExternalRangeParams, UvmFreeParams, UvmInitializeParams, UvmMapExternalAllocParams,
@@ -30,13 +30,13 @@ impl NvCtlDevice {
     ///
     /// Returns [`DriverError::DeviceNotFound`] if `/dev/nvidiactl` cannot be opened.
     pub fn open() -> DriverResult<Self> {
-        let path = Path::new(NV_CTL_PATH);
+        let path = nv_ctl_path();
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
             .map_err(|e| {
-                DriverError::DeviceNotFound(format!("cannot open {NV_CTL_PATH}: {e}").into())
+                DriverError::DeviceNotFound(format!("cannot open {path}: {e}").into())
             })?;
         Ok(Self { file })
     }
@@ -90,13 +90,13 @@ impl NvUvmDevice {
     ///
     /// Returns [`DriverError::DeviceNotFound`] if `/dev/nvidia-uvm` cannot be opened.
     pub fn open() -> DriverResult<Self> {
-        let path = Path::new(NV_UVM_PATH);
+        let path = nv_uvm_path();
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
             .map_err(|e| {
-                DriverError::DeviceNotFound(format!("cannot open {NV_UVM_PATH}: {e}").into())
+                DriverError::DeviceNotFound(format!("cannot open {path}: {e}").into())
             })?;
         Ok(Self { file, mm_fd: None })
     }
@@ -143,15 +143,14 @@ impl NvUvmDevice {
     /// doesn't need it (`NV_WARN_NOTHING_TO_DO`).
     pub fn mm_initialize(&mut self) -> DriverResult<bool> {
         let primary_fd = self.fd();
-        let path = Path::new(NV_UVM_PATH);
+        let path = nv_uvm_path();
         let mm_file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
             .map_err(|e| {
                 DriverError::DeviceNotFound(
-                    format!("cannot open secondary {NV_UVM_PATH} for UVM_MM_INITIALIZE: {e}")
-                        .into(),
+                    format!("cannot open secondary {path} for UVM_MM_INITIALIZE: {e}").into(),
                 )
             })?;
         let mm_fd = mm_file.as_raw_fd();
@@ -461,7 +460,8 @@ impl NvGpuDevice {
     ///
     /// Returns [`DriverError::DeviceNotFound`] if the device cannot be opened.
     pub fn open(index: u32) -> DriverResult<Self> {
-        let path = format!("{NV_GPU_PATH_PREFIX}{index}");
+        let prefix = nv_gpu_path_prefix();
+        let path = format!("{prefix}{index}");
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -510,5 +510,5 @@ impl NvGpuDevice {
 /// Probe whether the proprietary NVIDIA driver is loaded.
 #[must_use]
 pub fn nvidia_uvm_available() -> bool {
-    Path::new(NV_UVM_PATH).exists() && Path::new(NV_CTL_PATH).exists()
+    Path::new(nv_uvm_path()).exists() && Path::new(nv_ctl_path()).exists()
 }

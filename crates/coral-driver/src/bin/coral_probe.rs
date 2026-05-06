@@ -15,8 +15,40 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
+use thiserror::Error;
+
 const BAR0_SIZE: usize = 16 * 1024 * 1024;
 const MMIO_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Error)]
+enum ProbeError {
+    #[error("open {path}: {source}")]
+    ResourceOpen {
+        path: String,
+        source: std::io::Error,
+    },
+    #[error("mmap {path}: {detail}")]
+    Mmap { path: String, detail: String },
+    #[error("TIMEOUT {op} {offset:#010x} — GPU hung (child killed, system safe)")]
+    Timeout { op: &'static str, offset: u32 },
+    #[error("TIMEOUT during batch read — GPU hung (child killed, system safe)")]
+    BatchTimeout,
+    #[error("child failed {op} {offset:#010x}: status={status}")]
+    ChildFailed {
+        op: &'static str,
+        offset: u32,
+        status: i32,
+    },
+    #[error("child failed batch read: status={status}")]
+    BatchChildFailed { status: i32 },
+    #[error("fork error: {0}")]
+    Fork(std::io::Error),
+    #[error("bad hex '{input}': {source}")]
+    HexParse {
+        input: String,
+        source: std::num::ParseIntError,
+    },
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -60,13 +92,16 @@ struct Bar0Map {
 }
 
 impl Bar0Map {
-    fn open(bdf: &str) -> Result<Self, String> {
+    fn open(bdf: &str) -> Result<Self, ProbeError> {
         let path = format!("/sys/bus/pci/devices/{bdf}/resource0");
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(&path)
-            .map_err(|e| format!("open {path}: {e}"))?;
+            .map_err(|source| ProbeError::ResourceOpen {
+                path: path.clone(),
+                source,
+            })?;
 
         // SAFETY: `file` is an open `resource0` fd for this BDF; BAR0 is mmap'd
         // MAP_SHARED with RW for the first `BAR0_SIZE` bytes (PCI standard window).
@@ -81,10 +116,16 @@ impl Bar0Map {
                 0,
             )
         }
-        .map_err(|e| format!("mmap {path}: {e}"))?;
+        .map_err(|e| ProbeError::Mmap {
+            path: path.clone(),
+            detail: e.to_string(),
+        })?;
 
         if raw.is_null() {
-            return Err(format!("mmap {path}: returned null"));
+            return Err(ProbeError::Mmap {
+                path,
+                detail: "returned null".into(),
+            });
         }
 
         Ok(Self {
@@ -111,19 +152,22 @@ impl Drop for Bar0Map {
 // Fork-isolated read/write using coral-driver's isolation module
 // ---------------------------------------------------------------------------
 
-fn isolated_read(bar0_ptr: *const u8, offset: u32, timeout: Duration) -> Result<u32, String> {
+fn isolated_read(bar0_ptr: *const u8, offset: u32, timeout: Duration) -> Result<u32, ProbeError> {
     use coral_driver::vfio::isolation::{IsolationResult, fork_isolated_mmio_read};
     // SAFETY: `bar0_ptr` is the BAR0 map base from `Bar0Map`; caller offsets are in-range
     // for the 16MiB mapping (see `fork_isolated_mmio_read` safety contract).
     match unsafe { fork_isolated_mmio_read(bar0_ptr, offset, timeout) } {
         IsolationResult::Ok(v) => Ok(v),
-        IsolationResult::Timeout => Err(format!(
-            "TIMEOUT reading {offset:#010x} — GPU hung (child killed, system safe)"
-        )),
-        IsolationResult::ChildFailed { status } => Err(format!(
-            "child failed reading {offset:#010x}: status={status}"
-        )),
-        IsolationResult::ForkError(e) => Err(format!("fork error: {e}")),
+        IsolationResult::Timeout => Err(ProbeError::Timeout {
+            op: "reading",
+            offset,
+        }),
+        IsolationResult::ChildFailed { status } => Err(ProbeError::ChildFailed {
+            op: "reading",
+            offset,
+            status,
+        }),
+        IsolationResult::ForkError(e) => Err(ProbeError::Fork(e)),
     }
 }
 
@@ -132,18 +176,21 @@ fn isolated_write(
     offset: u32,
     value: u32,
     timeout: Duration,
-) -> Result<(), String> {
+) -> Result<(), ProbeError> {
     use coral_driver::vfio::isolation::{IsolationResult, fork_isolated_mmio_write};
     // SAFETY: `bar0_ptr` is the BAR0 map base; `offset + 4` lies within the same mapping.
     match unsafe { fork_isolated_mmio_write(bar0_ptr, offset, value, timeout) } {
         IsolationResult::Ok(()) => Ok(()),
-        IsolationResult::Timeout => Err(format!(
-            "TIMEOUT writing {offset:#010x}={value:#010x} — GPU hung (child killed, system safe)"
-        )),
-        IsolationResult::ChildFailed { status } => Err(format!(
-            "child failed writing {offset:#010x}={value:#010x}: status={status}"
-        )),
-        IsolationResult::ForkError(e) => Err(format!("fork error: {e}")),
+        IsolationResult::Timeout => Err(ProbeError::Timeout {
+            op: "writing",
+            offset,
+        }),
+        IsolationResult::ChildFailed { status } => Err(ProbeError::ChildFailed {
+            op: "writing",
+            offset,
+            status,
+        }),
+        IsolationResult::ForkError(e) => Err(ProbeError::Fork(e)),
     }
 }
 
@@ -151,19 +198,15 @@ fn isolated_batch_read(
     bar0_ptr: *mut u8,
     offsets: &[u32],
     timeout: Duration,
-) -> Result<Vec<u32>, String> {
+) -> Result<Vec<u32>, ProbeError> {
     use coral_driver::vfio::isolation::{IsolationResult, fork_isolated_mmio_batch};
     let ops: Vec<(u32, Option<u32>)> = offsets.iter().map(|&o| (o, None)).collect();
     // SAFETY: `bar0_ptr` is the BAR0 base; every read offset in `ops` is below the map size.
     match unsafe { fork_isolated_mmio_batch(bar0_ptr, &ops, timeout) } {
         IsolationResult::Ok(vals) => Ok(vals),
-        IsolationResult::Timeout => {
-            Err("TIMEOUT during batch read — GPU hung (child killed, system safe)".into())
-        }
-        IsolationResult::ChildFailed { status } => {
-            Err(format!("child failed batch read: status={status}"))
-        }
-        IsolationResult::ForkError(e) => Err(format!("fork error: {e}")),
+        IsolationResult::Timeout => Err(ProbeError::BatchTimeout),
+        IsolationResult::ChildFailed { status } => Err(ProbeError::BatchChildFailed { status }),
+        IsolationResult::ForkError(e) => Err(ProbeError::Fork(e)),
     }
 }
 
@@ -188,9 +231,12 @@ fn fmt_reg(name: &str, val: u32) -> String {
 // Commands
 // ---------------------------------------------------------------------------
 
-fn parse_hex(s: &str) -> Result<u32, String> {
-    let s = s.strip_prefix("0x").unwrap_or(s);
-    u32::from_str_radix(s, 16).map_err(|e| format!("bad hex '{s}': {e}"))
+fn parse_hex(s: &str) -> Result<u32, ProbeError> {
+    let stripped = s.strip_prefix("0x").unwrap_or(s);
+    u32::from_str_radix(stripped, 16).map_err(|source| ProbeError::HexParse {
+        input: s.to_owned(),
+        source,
+    })
 }
 
 fn cmd_read(bdf: &str, args: &[String]) -> ExitCode {

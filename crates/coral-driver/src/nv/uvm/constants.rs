@@ -6,11 +6,31 @@
 // ── Linux kernel ABI device paths ───────────────────────────────────
 
 /// NVIDIA control device — RM client allocation and GPU management.
-pub(crate) const NV_CTL_PATH: &str = "/dev/nvidiactl";
+/// Override with `CORALREEF_NV_CTL_PATH`.
+pub(crate) fn nv_ctl_path() -> &'static str {
+    static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        std::env::var("CORALREEF_NV_CTL_PATH").unwrap_or_else(|_| "/dev/nvidiactl".into())
+    })
+}
+
 /// NVIDIA UVM device — unified virtual memory allocation and dispatch.
-pub(crate) const NV_UVM_PATH: &str = "/dev/nvidia-uvm";
+/// Override with `CORALREEF_NV_UVM_PATH`.
+pub(crate) fn nv_uvm_path() -> &'static str {
+    static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        std::env::var("CORALREEF_NV_UVM_PATH").unwrap_or_else(|_| "/dev/nvidia-uvm".into())
+    })
+}
+
 /// Format prefix for GPU device nodes (`/dev/nvidia0`, `/dev/nvidia1`, ...).
-pub(crate) const NV_GPU_PATH_PREFIX: &str = "/dev/nvidia";
+/// Override with `CORALREEF_NV_GPU_PATH_PREFIX`.
+pub(crate) fn nv_gpu_path_prefix() -> &'static str {
+    static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        std::env::var("CORALREEF_NV_GPU_PATH_PREFIX").unwrap_or_else(|_| "/dev/nvidia".into())
+    })
+}
 
 // ── NVIDIA control device ioctls (/dev/nvidiactl) ───────────────────
 

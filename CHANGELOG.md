@@ -10,7 +10,22 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Iteration 92 — Wire Standard L3 Alignment (2026-05-06)
+### Iteration 92 — Wire Standard L3 + Deep Debt Pass (2026-05-06)
+
+#### Deep Debt — Typed Errors
+- `coral_probe.rs`: All `Result<_, String>` evolved to `ProbeError` enum with `thiserror` (ResourceOpen, Mmap, Timeout, ChildFailed, Fork, HexParse)
+- Zero `Result<_, String>` remaining in any production code (binary or library)
+
+#### Deep Debt — Env-Overridable Paths
+- `coral_kmod.rs`: `CORAL_RM_PATH` → `coral_rm_path()` with `CORALREEF_CORAL_RM_PATH` env override
+- `uvm/constants.rs`: `NV_CTL_PATH`, `NV_UVM_PATH`, `NV_GPU_PATH_PREFIX` → functions with `CORALREEF_NV_*` env overrides
+- `drm.rs`: `DRI_RENDER_PREFIX` → `dri_render_prefix()` with `CORALREEF_DRI_RENDER_PREFIX` env override
+- `handlers_kmod.rs`: `KMOD_SYSFS`, `KMOD_DEV` → `kmod_sysfs_path()`, `kmod_dev_path()` with env overrides
+
+#### Large File Assessment (all under 1000L, cohesive)
+- `error.rs` (893L): 5 domain error enums — cohesive error hierarchy, no split needed
+- `nv/mod.rs` (811L): `NvDevice` + `ComputeDevice` trait impl — single-responsibility
+- `vfio/channel/mod.rs` (896L): `VfioChannel` — already has 12 submodules extracted
 
 #### Wire Standard L3
 - `CapabilityListResponse` now includes `protocol: "jsonrpc-2.0"` and `transport: ["uds", "tcp", "tarpc"]` fields

@@ -29,8 +29,14 @@ pub(crate) const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
 
 const DRM_IOCTL_BASE: u32 = b'd' as u32;
 
-/// Linux DRM render node path prefix.
-const DRI_RENDER_PREFIX: &str = "/dev/dri/renderD";
+/// Linux DRM render node path prefix. Override with `CORALREEF_DRI_RENDER_PREFIX`.
+fn dri_render_prefix() -> &'static str {
+    static PREFIX: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PREFIX.get_or_init(|| {
+        std::env::var("CORALREEF_DRI_RENDER_PREFIX")
+            .unwrap_or_else(|_| "/dev/dri/renderD".into())
+    })
+}
 /// First DRM render node index (Linux ABI).
 const DRI_RENDER_FIRST: u32 = 128;
 /// Last DRM render node index (Linux ABI).
@@ -285,8 +291,9 @@ impl DrmDevice {
     ///
     /// Returns [`DriverError::DeviceNotFound`] if no DRM render node exists.
     pub fn open_default() -> DriverResult<Self> {
+        let prefix = dri_render_prefix();
         for idx in DRI_RENDER_FIRST..=DRI_RENDER_LAST {
-            let path = format!("{DRI_RENDER_PREFIX}{idx}");
+            let path = format!("{prefix}{idx}");
             if let Ok(dev) = Self::open(&path) {
                 return Ok(dev);
             }
@@ -352,9 +359,10 @@ impl DrmDevice {
 /// (permissions, no device) are silently skipped.
 #[must_use]
 pub fn enumerate_render_nodes() -> Vec<DrmDeviceInfo> {
+    let prefix = dri_render_prefix();
     let mut devices = Vec::new();
     for idx in DRI_RENDER_FIRST..=DRI_RENDER_LAST {
-        let path = format!("{DRI_RENDER_PREFIX}{idx}");
+        let path = format!("{prefix}{idx}");
         if let Ok(dev) = DrmDevice::open(&path)
             && let Ok(info) = dev.device_info()
         {
@@ -640,8 +648,9 @@ mod tests {
     fn drm_render_node_index_range_matches_linux_abi() {
         assert_eq!(DRI_RENDER_FIRST, 128);
         assert_eq!(DRI_RENDER_LAST, 191);
-        let first = format!("{DRI_RENDER_PREFIX}{}", DRI_RENDER_FIRST);
-        let last = format!("{DRI_RENDER_PREFIX}{}", DRI_RENDER_LAST);
+        let prefix = dri_render_prefix();
+        let first = format!("{prefix}{}", DRI_RENDER_FIRST);
+        let last = format!("{prefix}{}", DRI_RENDER_LAST);
         assert_eq!(first, "/dev/dri/renderD128");
         assert_eq!(last, "/dev/dri/renderD191");
     }
@@ -692,8 +701,9 @@ mod tests {
 
     #[test]
     fn dri_render_path_format() {
+        let prefix = dri_render_prefix();
         for idx in DRI_RENDER_FIRST..=DRI_RENDER_LAST {
-            let path = format!("{DRI_RENDER_PREFIX}{idx}");
+            let path = format!("{prefix}{idx}");
             assert!(path.starts_with("/dev/dri/renderD"));
             assert_eq!(path, format!("/dev/dri/renderD{idx}"));
         }

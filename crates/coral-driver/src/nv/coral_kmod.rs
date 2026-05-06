@@ -13,7 +13,12 @@ use std::os::unix::io::BorrowedFd;
 
 use crate::error::{DriverError, DriverResult};
 
-const CORAL_RM_PATH: &str = "/dev/coral-rm";
+fn coral_rm_path() -> &'static str {
+    static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        std::env::var("CORALREEF_CORAL_RM_PATH").unwrap_or_else(|_| "/dev/coral-rm".into())
+    })
+}
 const CORAL_IOCTL_MAGIC: u32 = b'C' as u32;
 
 const CORAL_MAX_CTX_BUFFERS: usize = 16;
@@ -283,7 +288,7 @@ impl CoralKmod {
         let fd = std::fs::File::options()
             .read(true)
             .write(true)
-            .open(CORAL_RM_PATH)
+            .open(coral_rm_path())
             .ok()?;
         Some(Self { fd })
     }

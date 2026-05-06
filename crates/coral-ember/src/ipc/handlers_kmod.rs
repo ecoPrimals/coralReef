@@ -13,15 +13,28 @@ use super::jsonrpc::write_jsonrpc_ok;
 use crate::error::EmberIpcError;
 
 const KMOD_NAME: &str = "coral_kmod";
-const KMOD_SYSFS: &str = "/sys/module/coral_kmod";
-const KMOD_DEV: &str = "/dev/coral-rm";
+
+fn kmod_sysfs_path() -> &'static str {
+    static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        std::env::var("CORALREEF_KMOD_SYSFS_PATH")
+            .unwrap_or_else(|_| "/sys/module/coral_kmod".into())
+    })
+}
+
+fn kmod_dev_path() -> &'static str {
+    static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        std::env::var("CORALREEF_CORAL_RM_PATH").unwrap_or_else(|_| "/dev/coral-rm".into())
+    })
+}
 
 fn is_loaded() -> bool {
-    Path::new(KMOD_SYSFS).exists()
+    Path::new(kmod_sysfs_path()).exists()
 }
 
 fn is_device_ready() -> bool {
-    Path::new(KMOD_DEV).exists()
+    Path::new(kmod_dev_path()).exists()
 }
 
 /// `ember.kmod.status` — report kernel module state.
@@ -36,7 +49,7 @@ pub fn status(stream: &mut impl Write, id: serde_json::Value) -> Result<(), Embe
             "loaded": loaded,
             "device_ready": device_ready,
             "module_name": KMOD_NAME,
-            "device_path": KMOD_DEV,
+            "device_path": kmod_dev_path(),
         }),
     )
     .map_err(EmberIpcError::from)
