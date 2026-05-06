@@ -3,13 +3,12 @@
 
 use crate::error::{DriverError, DriverResult};
 use crate::gsp::RegisterAccess;
-use crate::vfio::channel::VfioChannel;
 use crate::vfio::device::VfioDevice;
 use crate::vfio::dma::DmaBuffer;
 
 use super::NvVfioComputeDevice;
 use super::layout::{
-    FENCE_BUF_IOVA, FENCE_PB_IOVA, GPFIFO_IOVA, GUARD_PAGE_IOVA, SLM_IOVA, SLM_SIZE,
+    GPFIFO_IOVA, GUARD_PAGE_IOVA, SLM_IOVA, SLM_SIZE,
     USER_IOVA_BASE, USERD_IOVA, apply_error_to_driver, bar0_reg, gpfifo,
 };
 
@@ -312,10 +311,12 @@ impl NvVfioComputeDevice {
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         let profile = crate::nv::generation::profile_for_sm(sm_version);
+        let seq = super::boot_sequence::boot_sequence_for(profile, sm_version);
         tracing::info!(
             sm_version,
             page_tables = ?profile.page_table_format,
             deferred_busmaster,
+            needs_quiesce = seq.needs_pfifo_quiesce(),
             "warm handoff mode: PLLs preserved, reinitializing PGRAPH"
         );
 
@@ -324,10 +325,8 @@ impl NvVfioComputeDevice {
         // master is on, PFIFO's DMA attempts cause IO_PAGE_FAULT cascades
         // that gate GPCs (0xbadf1100). Writing 0 to PFIFO_ENABLE (0x2504)
         // and PMC_SUBDEV_DISABLE (clearing PFIFO bit) stops stale DMA.
-        if deferred_busmaster
-            && profile.page_table_format == crate::nv::generation::PageTableFormat::V1TwoLevel
-        {
-            tracing::info!("Kepler warm: quiescing PFIFO before bus master enable");
+        if deferred_busmaster && seq.needs_pfifo_quiesce() {
+            tracing::info!("warm: quiescing PFIFO before bus master enable");
             let _ = bar0.write_u32(0x2504, 0x0000_0000); // PFIFO_ENABLE = 0
             let _ = bar0.write_u32(0x2500, 0x0000_0000); // PFIFO_RUNLIST_DISABLE
             let _ = bar0.write_u32(0x3000, 0x0000_0000); // PFIFO_INTR_EN_0 = 0
@@ -361,199 +360,16 @@ impl NvVfioComputeDevice {
             })
             .ok();
 
-        // On Kepler, PGRAPH registers are PRI-faulted after nouveau teardown.
+        // Kepler warm: PGRAPH registers are PRI-faulted after nouveau teardown.
         // Reset PGRAPH, apply GR MMIO init, and boot FECS firmware.
-        let kepler_guard =
-            if profile.page_table_format == crate::nv::generation::PageTableFormat::V1TwoLevel {
-                let guard = super::hardware_guard::GuardedBar::new(&bar0, 32).map_err(|r| {
-                    crate::error::DriverError::HardwareGuardRefusal(r.to_string().into())
-                })?;
-
-                // Diagnostic: probe PFIFO scheduler domain BEFORE any GR init
-                // to determine when 0x2600 first becomes inaccessible.
-                {
-                    let reg_2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
-                    let reg_2100 = bar0.read_u32(0x2100).unwrap_or(0xDEAD);
-                    let reg_2200 = bar0.read_u32(0x2200).unwrap_or(0xDEAD);
-                    let reg_2504 = bar0.read_u32(0x2504).unwrap_or(0xDEAD);
-                    let pmc = bar0.read_u32(0x200).unwrap_or(0xDEAD);
-                    let sched_ok = reg_2600 != 0xDEAD && reg_2600 & 0xBAD0_0000 != 0xBAD0_0000;
-                    tracing::info!(
-                        pmc = format_args!("{pmc:#010x}"),
-                        reg_2100 = format_args!("{reg_2100:#010x}"),
-                        reg_2200 = format_args!("{reg_2200:#010x}"),
-                        reg_2504 = format_args!("{reg_2504:#010x}"),
-                        reg_2600 = format_args!("{reg_2600:#010x}"),
-                        sched_ok,
-                        "PFIFO scheduler probe BEFORE kepler_warm_gr_init"
-                    );
-
-                    // PFIFO scheduler is dead from VFIO FLR aftermath.
-                    // Try: full PMC engine cycle (all off → all on) to force
-                    // re-init the PFIFO scheduler sub-block.
-                    if !sched_ok {
-                        // Probe a range of PFIFO registers to map the dead zone
-                        let mut probe_results = Vec::with_capacity(8);
-                        for off in (0x2000..=0x2700).step_by(0x100) {
-                            let val = bar0.read_u32(off).unwrap_or(0xDEAD);
-                            let is_fault = val & 0xBAD0_0000 == 0xBAD0_0000;
-                            probe_results.push((off, val, is_fault));
-                        }
-                        for &(off, val, fault) in &probe_results {
-                            if fault {
-                                tracing::info!(
-                                    reg = format_args!("{off:#06x}"),
-                                    val = format_args!("{val:#010x}"),
-                                    "PFIFO probe: PRI-FAULTED"
-                                );
-                            }
-                        }
-                        for &(off, val, fault) in &probe_results {
-                            if !fault {
-                                tracing::info!(
-                                    reg = format_args!("{off:#06x}"),
-                                    val = format_args!("{val:#010x}"),
-                                    "PFIFO probe: accessible"
-                                );
-                            }
-                        }
-
-                        // Approach A: PMC PFIFO reset only (toggle bit 8)
-                        {
-                            let pmc_v = bar0.read_u32(0x200).unwrap_or(0);
-                            let _ = bar0.write_u32(0x200, pmc_v & !(1u32 << 8));
-                            let _ = bar0.read_u32(0x200);
-                            std::thread::sleep(std::time::Duration::from_millis(10));
-                            let _ = bar0.write_u32(0x200, pmc_v | (1u32 << 8));
-                            let _ = bar0.read_u32(0x200);
-                            std::thread::sleep(std::time::Duration::from_millis(20));
-
-                            let r2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
-                            let r2504 = bar0.read_u32(0x2504).unwrap_or(0xDEAD);
-                            tracing::info!(
-                                reg_2504 = format_args!("{r2504:#010x}"),
-                                reg_2600 = format_args!("{r2600:#010x}"),
-                                ok = r2600 & 0xBAD0_0000 != 0xBAD0_0000,
-                                "Approach A: PMC PFIFO reset (bit 8 toggle)"
-                            );
-                        }
-
-                        // Approach B: Full PMC cycle (all engines off then on)
-                        {
-                            let pmc_v = bar0.read_u32(0x200).unwrap_or(0);
-                            let _ = bar0.write_u32(0x200, 0);
-                            let _ = bar0.read_u32(0x200);
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-                            let _ = bar0.write_u32(0x200, pmc_v);
-                            let _ = bar0.read_u32(0x200);
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-
-                            // PRI ring re-enumerate after mass reset
-                            let _ = bar0.write_u32(0x12_004C, 0x0000_0002);
-                            std::thread::sleep(std::time::Duration::from_millis(20));
-                            let _ = bar0.write_u32(0x12_004C, 0x0000_0004);
-                            for _ in 0..200 {
-                                std::thread::sleep(std::time::Duration::from_millis(10));
-                                let st = bar0.read_u32(0x12_0058).unwrap_or(0xDEAD);
-                                if st == 0 || (st != 0xDEAD && st & 0x8000_0000 == 0) {
-                                    break;
-                                }
-                            }
-
-                            let r2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
-                            let r2504 = bar0.read_u32(0x2504).unwrap_or(0xDEAD);
-                            tracing::info!(
-                                reg_2504 = format_args!("{r2504:#010x}"),
-                                reg_2600 = format_args!("{r2600:#010x}"),
-                                ok = r2600 & 0xBAD0_0000 != 0xBAD0_0000,
-                                "Approach B: full PMC cycle (all off/on) + PRI enumerate"
-                            );
-                        }
-
-                        // Approach C: PMC glow plug to 0xFFFFFFFF then PFIFO toggle
-                        {
-                            let _ = bar0.write_u32(0x200, 0xFFFF_FFFF);
-                            let _ = bar0.read_u32(0x200);
-                            std::thread::sleep(std::time::Duration::from_millis(20));
-                            let pmc_v = bar0.read_u32(0x200).unwrap_or(0);
-                            // Toggle PFIFO specifically
-                            let _ = bar0.write_u32(0x200, pmc_v & !(1u32 << 8));
-                            let _ = bar0.read_u32(0x200);
-                            std::thread::sleep(std::time::Duration::from_millis(10));
-                            let _ = bar0.write_u32(0x200, pmc_v | (1u32 << 8));
-                            let _ = bar0.read_u32(0x200);
-                            std::thread::sleep(std::time::Duration::from_millis(20));
-
-                            let r2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
-                            let r2504 = bar0.read_u32(0x2504).unwrap_or(0xDEAD);
-                            let r2004 = bar0.read_u32(0x2004).unwrap_or(0xDEAD);
-                            tracing::info!(
-                                reg_2004 = format_args!("{r2004:#010x}"),
-                                reg_2504 = format_args!("{r2504:#010x}"),
-                                reg_2600 = format_args!("{r2600:#010x}"),
-                                ok = r2600 & 0xBAD0_0000 != 0xBAD0_0000,
-                                "Approach C: PMC glow plug + PFIFO toggle"
-                            );
-                        }
-
-                        // Approach D: Fine-grained probe of 0x2200-0x22FF range
-                        // to find which runlist/scheduler registers are accessible.
-                        {
-                            let critical_regs: &[(usize, &str)] = &[
-                                (0x2200, "PFIFO_CACHES"),
-                                (0x2204, "PFIFO_MODE"),
-                                (0x2208, "PFIFO_UNK2208"),
-                                (0x2210, "PFIFO_UNK2210"),
-                                (0x2220, "PFIFO_UNK2220"),
-                                (0x2254, "PFIFO_UNK2254"),
-                                (0x2270, "GK104_RUNLIST_BASE"),
-                                (0x2274, "GK104_RUNLIST_SUBMIT"),
-                                (0x2280, "PFIFO_UNK2280"),
-                                (0x22C0, "PFIFO_UNK22C0"),
-                                (0x2300, "PFIFO_UNK2300"),
-                                (0x2310, "PFIFO_UNK2310"),
-                                (0x2390, "PBDMA_ASSIGN_SEQ0"),
-                                (0x2394, "PBDMA_ASSIGN_SEQ1"),
-                                (0x2398, "PBDMA_ASSIGN_SEQ2"),
-                                (0x2504, "SCHED_EN"),
-                                (0x252C, "BIND_ERROR"),
-                                (0x254C, "SCHED_ERROR"),
-                            ];
-                            for &(reg, name) in critical_regs {
-                                let val = bar0.read_u32(reg).unwrap_or(0xDEAD);
-                                let faulted = val & 0xBAD0_0000 == 0xBAD0_0000;
-                                tracing::info!(
-                                    name,
-                                    reg = format_args!("{reg:#06x}"),
-                                    val = format_args!("{val:#010x}"),
-                                    faulted,
-                                    "PFIFO fine probe"
-                                );
-                            }
-                        }
-                    }
-                }
-
-                super::init::kepler_warm_gr_init(&guard, bdf);
-
-                // Diagnostic: probe PFIFO scheduler domain AFTER GR init
-                {
-                    let reg_2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
-                    let reg_2100 = bar0.read_u32(0x2100).unwrap_or(0xDEAD);
-                    let reg_2200 = bar0.read_u32(0x2200).unwrap_or(0xDEAD);
-                    tracing::info!(
-                        reg_2100 = format_args!("{reg_2100:#010x}"),
-                        reg_2200 = format_args!("{reg_2200:#010x}"),
-                        reg_2600 = format_args!("{reg_2600:#010x}"),
-                        sched_ok = reg_2600 != 0xDEAD && reg_2600 & 0xBAD0_0000 != 0xBAD0_0000,
-                        "PFIFO scheduler probe AFTER kepler_warm_gr_init"
-                    );
-                }
-
-                Some(guard)
-            } else {
-                None
-            };
+        if seq.needs_pfifo_quiesce() {
+            let guard = super::hardware_guard::GuardedBar::new(&bar0, 32).map_err(|r| {
+                crate::error::DriverError::HardwareGuardRefusal(r.to_string().into())
+            })?;
+            kepler_warm_pfifo_diagnostics(&bar0);
+            super::init::kepler_warm_gr_init(&guard, bdf);
+            kepler_warm_pfifo_post_check(&bar0);
+        }
 
         let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
@@ -569,46 +385,18 @@ impl NvVfioComputeDevice {
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
-        let channel = match profile.page_table_format {
-            crate::nv::generation::PageTableFormat::V1TwoLevel => {
-                tracing::info!(sm_version, "warm Kepler: using 2-level page table channel");
-                let guard = kepler_guard.as_ref().ok_or(DriverError::SubmitFailed(
-                    std::borrow::Cow::Borrowed(
-                        "Kepler guard not constructed — V1TwoLevel profile requires GuardedBar",
-                    ),
-                ))?;
-                VfioChannel::create_kepler(
-                    container.clone(),
-                    guard,
-                    GPFIFO_IOVA,
-                    gpfifo::ENTRIES as u32,
-                    USERD_IOVA,
-                    0,
-                )?
-            }
-            crate::nv::generation::PageTableFormat::V2FiveLevel => VfioChannel::create_warm(
-                container.clone(),
-                &bar0,
-                GPFIFO_IOVA,
-                gpfifo::ENTRIES as u32,
-                USERD_IOVA,
-                0,
-            )?,
-        };
+        let channel = seq.create_channel_warm(
+            container.clone(),
+            &bar0,
+            GPFIFO_IOVA,
+            gpfifo::ENTRIES as u32,
+            USERD_IOVA,
+            0,
+        )?;
 
-        let profile = crate::nv::generation::profile_for_sm(sm_version);
         let caps = profile.to_capabilities();
-        let sem_fence = crate::nv::generation::uses_semaphore_fence(profile);
-
-        let (fence_buf, fence_pb_buf) = if sem_fence {
-            let fb = DmaBuffer::new(container.clone(), 4096, FENCE_BUF_IOVA)?;
-            fb.volatile_write_u32(0, 0);
-            let fpb = DmaBuffer::new(container.clone(), 4096, FENCE_PB_IOVA)?;
-            tracing::info!("VFIO: Blackwell semaphore fence buffers allocated (warm)");
-            (Some(fb), Some(fpb))
-        } else {
-            (None, None)
-        };
+        let sem_fence = seq.uses_semaphore_fence();
+        let (fence_buf, fence_pb_buf) = seq.alloc_fence_buffers(container.clone())?;
 
         let mut dev = Self {
             device,
@@ -633,13 +421,9 @@ impl NvVfioComputeDevice {
             guard_page: _guard_page,
         };
 
-        // On Volta, FECS was loaded by nouveau and needs restart + context setup.
-        // On Kepler, kepler_warm_gr_init already restarted FECS from preserved
-        // IMEM — just need GR context setup (golden save, bind pointer).
-        if profile.page_table_format == crate::nv::generation::PageTableFormat::V2FiveLevel {
+        if seq.warm_restarts_falcons() {
             dev.restart_warm_falcons()?;
 
-            // Post-restart verification: confirm FECS survived the warm handoff.
             match Self::probe_fecs_alive(&dev.bar0) {
                 Ok(true) => tracing::info!("warm handoff: FECS alive probe PASSED"),
                 Ok(false) => tracing::warn!(
@@ -653,4 +437,83 @@ impl NvVfioComputeDevice {
 
         Ok(dev)
     }
+}
+
+fn kepler_warm_pfifo_diagnostics(bar0: &crate::vfio::device::MappedBar) {
+    let reg_2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
+    let reg_2100 = bar0.read_u32(0x2100).unwrap_or(0xDEAD);
+    let reg_2200 = bar0.read_u32(0x2200).unwrap_or(0xDEAD);
+    let reg_2504 = bar0.read_u32(0x2504).unwrap_or(0xDEAD);
+    let pmc = bar0.read_u32(0x200).unwrap_or(0xDEAD);
+    let sched_ok = reg_2600 != 0xDEAD && reg_2600 & 0xBAD0_0000 != 0xBAD0_0000;
+    tracing::info!(
+        pmc = format_args!("{pmc:#010x}"),
+        reg_2100 = format_args!("{reg_2100:#010x}"),
+        reg_2200 = format_args!("{reg_2200:#010x}"),
+        reg_2504 = format_args!("{reg_2504:#010x}"),
+        reg_2600 = format_args!("{reg_2600:#010x}"),
+        sched_ok,
+        "PFIFO scheduler probe BEFORE kepler_warm_gr_init"
+    );
+
+    if !sched_ok {
+        kepler_warm_pfifo_recovery(bar0);
+    }
+}
+
+fn kepler_warm_pfifo_recovery(bar0: &crate::vfio::device::MappedBar) {
+    // PMC PFIFO reset (toggle bit 8)
+    let pmc_v = bar0.read_u32(0x200).unwrap_or(0);
+    let _ = bar0.write_u32(0x200, pmc_v & !(1u32 << 8));
+    let _ = bar0.read_u32(0x200);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    let _ = bar0.write_u32(0x200, pmc_v | (1u32 << 8));
+    let _ = bar0.read_u32(0x200);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    let r2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
+    if r2600 & 0xBAD0_0000 != 0xBAD0_0000 {
+        tracing::info!(reg_2600 = format_args!("{r2600:#010x}"), "PFIFO: PMC toggle recovered scheduler");
+        return;
+    }
+
+    // Full PMC cycle (all engines off then on)
+    let _ = bar0.write_u32(0x200, 0);
+    let _ = bar0.read_u32(0x200);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let _ = bar0.write_u32(0x200, pmc_v);
+    let _ = bar0.read_u32(0x200);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    // PRI ring re-enumerate after mass reset
+    let _ = bar0.write_u32(0x12_004C, 0x0000_0002);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let _ = bar0.write_u32(0x12_004C, 0x0000_0004);
+    for _ in 0..200 {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let st = bar0.read_u32(0x12_0058).unwrap_or(0xDEAD);
+        if st == 0 || (st != 0xDEAD && st & 0x8000_0000 == 0) {
+            break;
+        }
+    }
+
+    let r2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
+    tracing::info!(
+        reg_2600 = format_args!("{r2600:#010x}"),
+        ok = r2600 & 0xBAD0_0000 != 0xBAD0_0000,
+        "PFIFO: full PMC cycle + PRI re-enumerate"
+    );
+}
+
+fn kepler_warm_pfifo_post_check(bar0: &crate::vfio::device::MappedBar) {
+    let reg_2600 = bar0.read_u32(0x2600).unwrap_or(0xDEAD);
+    let reg_2100 = bar0.read_u32(0x2100).unwrap_or(0xDEAD);
+    let reg_2200 = bar0.read_u32(0x2200).unwrap_or(0xDEAD);
+    tracing::info!(
+        reg_2100 = format_args!("{reg_2100:#010x}"),
+        reg_2200 = format_args!("{reg_2200:#010x}"),
+        reg_2600 = format_args!("{reg_2600:#010x}"),
+        sched_ok = reg_2600 != 0xDEAD && reg_2600 & 0xBAD0_0000 != 0xBAD0_0000,
+        "PFIFO scheduler probe AFTER kepler_warm_gr_init"
+    );
 }

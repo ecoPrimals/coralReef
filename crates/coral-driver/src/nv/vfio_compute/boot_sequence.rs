@@ -42,6 +42,17 @@ pub(crate) trait SovereignBootSequence {
         runlist_id: u32,
     ) -> DriverResult<VfioChannel>;
 
+    /// Create a warm-handoff channel — preserves firmware state from previous driver.
+    fn create_channel_warm(
+        &self,
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        runlist_id: u32,
+    ) -> DriverResult<VfioChannel>;
+
     /// Allocate semaphore fence buffers if this generation requires them.
     /// Returns `(fence_buf, fence_pb_buf)` — both `None` for pre-Blackwell.
     fn alloc_fence_buffers(
@@ -55,6 +66,13 @@ pub(crate) trait SovereignBootSequence {
     /// The completion strategy for this generation.
     #[expect(dead_code, reason = "part of SovereignBootSequence trait — wired in device_open")]
     fn completion_strategy(&self) -> CompletionStrategy;
+
+    /// Whether this generation needs PFIFO quiescing before bus master enable
+    /// on warm handoff (Kepler: stale DMA from previous driver causes faults).
+    fn needs_pfifo_quiesce(&self) -> bool { false }
+
+    /// Whether warm post-init should restart falcons (Volta+) vs setup GR context (Kepler).
+    fn warm_restarts_falcons(&self) -> bool { false }
 }
 
 /// Kepler (GK110/GK210) — direct PIO falcon boot, 2-level page tables.
@@ -99,6 +117,19 @@ impl SovereignBootSequence for KeplerBoot {
         )
     }
 
+    fn create_channel_warm(
+        &self,
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        runlist_id: u32,
+    ) -> DriverResult<VfioChannel> {
+        tracing::info!("Kepler warm: using 2-level page table channel");
+        self.create_channel(container, bar0, gpfifo_iova, gpfifo_entries, userd_iova, runlist_id)
+    }
+
     fn alloc_fence_buffers(
         &self,
         _container: DmaBackend,
@@ -113,6 +144,8 @@ impl SovereignBootSequence for KeplerBoot {
     fn completion_strategy(&self) -> CompletionStrategy {
         CompletionStrategy::GpGetPoll
     }
+
+    fn needs_pfifo_quiesce(&self) -> bool { true }
 }
 
 impl SovereignBootSequence for VoltaBoot {
@@ -140,6 +173,25 @@ impl SovereignBootSequence for VoltaBoot {
         )
     }
 
+    fn create_channel_warm(
+        &self,
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        runlist_id: u32,
+    ) -> DriverResult<VfioChannel> {
+        VfioChannel::create_warm(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            runlist_id,
+        )
+    }
+
     fn alloc_fence_buffers(
         &self,
         _container: DmaBackend,
@@ -154,6 +206,8 @@ impl SovereignBootSequence for VoltaBoot {
     fn completion_strategy(&self) -> CompletionStrategy {
         CompletionStrategy::GpGetPoll
     }
+
+    fn warm_restarts_falcons(&self) -> bool { true }
 }
 
 impl SovereignBootSequence for BlackwellBoot {
@@ -181,6 +235,25 @@ impl SovereignBootSequence for BlackwellBoot {
         )
     }
 
+    fn create_channel_warm(
+        &self,
+        container: DmaBackend,
+        bar0: &MappedBar,
+        gpfifo_iova: u64,
+        gpfifo_entries: u32,
+        userd_iova: u64,
+        runlist_id: u32,
+    ) -> DriverResult<VfioChannel> {
+        VfioChannel::create_warm(
+            container,
+            bar0,
+            gpfifo_iova,
+            gpfifo_entries,
+            userd_iova,
+            runlist_id,
+        )
+    }
+
     fn alloc_fence_buffers(
         &self,
         container: DmaBackend,
@@ -199,6 +272,8 @@ impl SovereignBootSequence for BlackwellBoot {
     fn completion_strategy(&self) -> CompletionStrategy {
         CompletionStrategy::SemaphoreFence
     }
+
+    fn warm_restarts_falcons(&self) -> bool { true }
 }
 
 /// Select the appropriate boot sequence implementation for a generation profile.

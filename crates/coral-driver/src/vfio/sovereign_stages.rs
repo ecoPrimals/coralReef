@@ -112,10 +112,6 @@ pub(crate) fn run_hbm2_training(
     }
 }
 
-pub(crate) fn is_kepler(sm: u32) -> bool {
-    crate::nv::generation::is_kepler(crate::nv::generation::profile_for_sm(sm))
-}
-
 /// GDDR5 memory training for Kepler GPUs.
 ///
 /// Cold K80s return `0xbad0fb0*` from PRAMIN because GDDR5 hasn't been
@@ -282,7 +278,8 @@ pub(crate) fn falcon_boot(
 ) -> Result<String, SovereignStagesError> {
     use crate::vfio::channel::registers::falcon;
 
-    if is_kepler(sm_version) {
+    let profile = crate::nv::generation::profile_for_sm(sm_version);
+    if crate::nv::generation::is_kepler(profile) {
         tracing::info!(
             sm = sm_version,
             "Kepler GPU detected — using direct PIO falcon boot (no ACR)"
