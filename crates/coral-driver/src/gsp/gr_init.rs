@@ -135,6 +135,35 @@ impl GrInitSequence {
         }
     }
 
+    /// Build a GR init sequence for Kepler (GK110/GK210) from the static
+    /// MMIO table in `kepler_gr_init.rs`.
+    ///
+    /// Kepler doesn't have firmware blobs (`sw_bundle_init.bin` etc.) — its
+    /// register init comes from nouveau's compiled register lists. This method
+    /// provides the same `GrInitSequence` interface so callers can use
+    /// `for_profile` uniformly across all generations.
+    #[cfg(feature = "vfio")]
+    #[must_use]
+    pub fn for_kepler() -> Self {
+        use crate::nv::vfio_compute::kepler_gr_init;
+
+        let table = kepler_gr_init::gk110_gr_mmio_table();
+        let writes = table
+            .iter()
+            .map(|&(offset, value)| GrRegWrite {
+                offset,
+                value,
+                category: RegCategory::GrEngine,
+                delay_us: 0,
+            })
+            .collect();
+
+        Self {
+            chip: "gk210".to_string(),
+            writes,
+        }
+    }
+
     /// Build a generic GR init sequence from firmware blobs.
     ///
     /// Less specialized than `for_gv100` — uses only the bundle/method

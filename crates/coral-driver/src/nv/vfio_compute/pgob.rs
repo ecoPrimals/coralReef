@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! GK110 PGOB (Power Gate Off Block) control — powers GPC compute domains.
 
+/// Post-PGOB state summary returned from each disable variant.
+#[derive(Debug, Clone)]
+pub struct PgobOutcome {
+    /// Whether GPCCS0 reads indicate a powered, non-sentinel falcon.
+    pub gpc_alive: bool,
+    /// Raw GPCCS0 CPUCTL register value after the sequence.
+    pub gpccs0_cpuctl: u32,
+    /// PG_STATUS (0x020008) register value after the sequence.
+    pub pg_status: u32,
+}
+
 pub(super) static PGOB_POWER_STEPS: &[(u32, u32)] = &[
     (0x02_0520, 0xFFFF_FFFC),
     (0x02_0524, 0xFFFF_FFFE),
@@ -20,6 +31,66 @@ pub(super) static PGOB_POWER_STEPS: &[(u32, u32)] = &[
     (0x02_0528, 0xFFFF_FFFC),
 ];
 
+/// Diagnostic: verify preconditions for PGOB disable and report GPC
+/// enrollment status.
+///
+/// Call before and after `gk110_pgob_disable` to bracket the transition.
+pub fn pgob_diagnostic(guard: &super::hardware_guard::GuardedBar<'_>, label: &str) {
+    let bar0 = guard.inner();
+    let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+
+    let pmc_enable = rd(0x000200);
+    let pmc_enable2 = rd(0x000640);
+    let psw_ctrl = rd(0x10_a78c);
+    let pmu_cpuctl = rd(0x10_a100);
+    let pg_elpg = rd(0x02_0000);
+    let pg_ctrl = rd(0x02_0004);
+    let pg_stat = rd(0x02_0008);
+    let top_num_gpcs = rd(0x02_2430);
+    let gpc_count_fecs = rd(0x40_9604);
+    let pri_ring_gpc = rd(0x12_0078);
+
+    let gpc0_cpuctl = rd(0x50_2100);
+    let gpc0_version = rd(0x50_2004);
+    let gpc1_cpuctl = rd(0x52_2100);
+
+    let is_badf = |v: u32| v & 0xBADF_0000 == 0xBADF_0000;
+    let gpc0_alive = gpc0_version != 0
+        && gpc0_version != 0xDEAD_DEAD
+        && !is_badf(gpc0_version);
+
+    tracing::info!(
+        label,
+        pmc_enable = format_args!("{pmc_enable:#010x}"),
+        pmc_enable2 = format_args!("{pmc_enable2:#010x}"),
+        psw_ctrl = format_args!("{psw_ctrl:#010x}"),
+        pmu_cpuctl = format_args!("{pmu_cpuctl:#010x}"),
+        pmu_running = pmu_cpuctl & 0x20 != 0,
+        pgraph_enabled = pmc_enable & (1 << 12) != 0,
+        pmu_enabled = pmc_enable & (1 << 13) != 0,
+        "PGOB preconditions"
+    );
+    tracing::info!(
+        label,
+        pg_elpg = format_args!("{pg_elpg:#010x}"),
+        pg_ctrl = format_args!("{pg_ctrl:#010x}"),
+        pg_stat = format_args!("{pg_stat:#010x}"),
+        top_num_gpcs = format_args!("{top_num_gpcs:#010x}"),
+        gpc_count_fecs = format_args!("{gpc_count_fecs:#010x}"),
+        pri_ring_gpc_stations = pri_ring_gpc,
+        "Power gating state"
+    );
+    tracing::info!(
+        label,
+        gpc0_cpuctl = format_args!("{gpc0_cpuctl:#010x}"),
+        gpc0_version = format_args!("{gpc0_version:#010x}"),
+        gpc1_cpuctl = format_args!("{gpc1_cpuctl:#010x}"),
+        gpc0_alive,
+        gpc0_badf = is_badf(gpc0_version),
+        "GPC enrollment status"
+    );
+}
+
 /// GK110 PGOB disable sequence — powers up GPC compute domains.
 ///
 /// Matches kernel `gk110_pmu_pgob()` from `drivers/gpu/drm/nouveau/nvkm/subdev/pmu/gk110.c`.
@@ -33,7 +104,9 @@ pub(super) static PGOB_POWER_STEPS: &[(u32, u32)] = &[
 ///
 /// Accesses 0x10a78c (PMU PGOB) directly via `MappedBar`, bypassing
 /// `GuardedBar`'s blocklist — this full protocol is the safety boundary.
-pub(crate) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) {
+pub fn gk110_pgob_disable(
+    guard: &super::hardware_guard::GuardedBar<'_>,
+) -> Result<PgobOutcome, crate::error::SovereignStagesError> {
     let bar0 = guard.inner();
     let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
     let wr = |reg: u32, val: u32| {
@@ -44,7 +117,19 @@ pub(crate) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
         wr(reg, (cur & !clr) | set);
     };
 
-    // Match kernel gk110_pmu_pgob exactly (drivers/gpu/drm/nouveau/nvkm/subdev/pmu/gk110.c).
+    // Step 0 (ecoPrimals addition): Force ELPG off BEFORE the PGOB sequence.
+    //
+    // On GK210B, idle ELPG auto-gates GPC power domains. If ELPG is active
+    // during the 0x0205xx power step writes, the domain never ungates (bit 31
+    // stuck high). Nouveau's gk104_pmu_pgob does this via PG_CTRL bit 30;
+    // gk110_pmu_pgob does not — but GK210B needs it.
+    wr(0x02_0000, 0x0000_0000); // PG_ELPG: clear all auto-gating
+    let pg_ctrl = rd(0x02_0004);
+    wr(0x02_0004, (pg_ctrl & !0xC000_0000) | 0x4000_0000); // PG_CTRL: ELPG_DIS=1, PGOB=0
+    rd(0x02_0004); // flush
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    // Match kernel gk110_pmu_pgob (drivers/gpu/drm/nouveau/nvkm/subdev/pmu/gk110.c).
     //
     // Step 1: Disable PGRAPH only (clear bit 12). Kernel does NOT touch bit 27 here.
     mask(0x000200, 0x0000_1000, 0x0000_0000);
@@ -71,6 +156,7 @@ pub(crate) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
     // Step 5: Magic power domain enable sequence — each write followed by
     // polling until bit 31 clears (nouveau uses nvkm_msec(2000)).
     let mut step_log = String::new();
+    let mut timed_out_steps = Vec::new();
     for (i, &(addr, data)) in PGOB_POWER_STEPS.iter().enumerate() {
         let pre = rd(addr);
         wr(addr, data);
@@ -95,6 +181,7 @@ pub(crate) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
                 pre = format_args!("{pre:#010x}"),
                 "gk110 PGOB: power step timed out (bit 31 stuck high)"
             );
+            timed_out_steps.push((i, addr, pre, post));
         }
     }
     tracing::info!(steps = %step_log, "PGOB power steps");
@@ -154,6 +241,19 @@ pub(crate) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
         pd4 = format_args!("{pd4:#010x}"),
         "PGOB power domain state after sequence"
     );
+
+    if let Some(&(step_index, addr, pre, post)) = timed_out_steps.first() {
+        return Err(crate::error::SovereignStagesError::PgobStepTimeout {
+            step_index,
+            addr,
+            pre,
+            post,
+        });
+    }
+
+    let is_badf = |v: u32| v & 0xBADF_0000 == 0xBADF_0000;
+    let gpc_alive = gpccs0_diag != 0xDEAD_DEAD && gpccs0_diag != 0 && !is_badf(gpccs0_diag);
+    Ok(PgobOutcome { gpc_alive, gpccs0_cpuctl: gpccs0_diag, pg_status })
 }
 
 /// Lightweight PGOB power-domain un-gate: runs the magic 0x020520-0x020530
@@ -163,7 +263,9 @@ pub(crate) fn gk110_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
 /// a PMC toggle would put FECS into "hardware reset halt" where STARTCPU
 /// is silently ignored.
 #[expect(dead_code, reason = "WIP: hotspring Kepler boot strategies")]
-pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'_>) {
+pub(super) fn gk110_pgob_ungate_only(
+    guard: &super::hardware_guard::GuardedBar<'_>,
+) -> Result<PgobOutcome, crate::error::SovereignStagesError> {
     let bar0 = guard.inner();
     let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
     let wr = |reg: u32, val: u32| {
@@ -174,6 +276,13 @@ pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'
         wr(reg, (cur & !clr) | set);
     };
 
+    // Force ELPG off before the ungate sequence (same rationale as gk110_pgob_disable).
+    wr(0x02_0000, 0x0000_0000);
+    let pg_ctrl = rd(0x02_0004);
+    wr(0x02_0004, (pg_ctrl & !0xC000_0000) | 0x4000_0000);
+    rd(0x02_0004);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
     // PMU PGOB control: set bit 1, pulse bit 0
     mask(0x10_a78c, 0x0000_0002, 0x0000_0002);
     mask(0x10_a78c, 0x0000_0001, 0x0000_0001);
@@ -183,13 +292,16 @@ pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'
     mask(0x02_06b4, 0x0000_0000, 0x0000_0000);
 
     // Power domain enable sequence (same as gk110_pgob_disable step 5).
-    let mut all_ok = true;
-    for &(addr, data) in PGOB_POWER_STEPS {
+    let mut timed_out_steps = Vec::new();
+    for (i, &(addr, data)) in PGOB_POWER_STEPS.iter().enumerate() {
+        let pre = rd(addr);
         wr(addr, data);
         let mut ok = false;
+        let mut post = 0u32;
         for _ in 0..200 {
             std::thread::sleep(std::time::Duration::from_millis(10));
-            if rd(addr) & 0x8000_0000 == 0 {
+            post = rd(addr);
+            if post & 0x8000_0000 == 0 {
                 ok = true;
                 break;
             }
@@ -199,7 +311,7 @@ pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'
                 addr = format_args!("{addr:#010x}"),
                 "pgob_ungate: step timed out"
             );
-            all_ok = false;
+            timed_out_steps.push((i, addr, pre, post));
         }
     }
 
@@ -208,15 +320,29 @@ pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'
     mask(0x10_a78c, 0x0000_0001, 0x0000_0001);
     mask(0x10_a78c, 0x0000_0001, 0x0000_0000);
 
+    let gpccs0 = rd(0x50_2100);
+    let pg_status = rd(0x02_0008);
     let gr_hub = rd(0x40_0000);
     let fecs = rd(0x40_9100);
+    let is_badf = |v: u32| v & 0xBADF_0000 == 0xBADF_0000;
+    let gpc_alive = gpccs0 != 0xDEAD_DEAD && gpccs0 != 0 && !is_badf(gpccs0);
     tracing::info!(
-        all_ok,
+        gpc_alive,
         gr_hub = format_args!("{gr_hub:#010x}"),
         fecs = format_args!("{fecs:#010x}"),
         gr_hub_ok = gr_hub != 0xDEAD_DEAD && gr_hub & 0xBAD0_0000 != 0xBAD0_0000,
         "pgob_ungate_only complete"
     );
+
+    if let Some(&(step_index, addr, pre, post)) = timed_out_steps.first() {
+        return Err(crate::error::SovereignStagesError::PgobStepTimeout {
+            step_index,
+            addr,
+            pre,
+            post,
+        });
+    }
+    Ok(PgobOutcome { gpc_alive, gpccs0_cpuctl: gpccs0, pg_status })
 }
 
 /// GK104-style PGOB disable using PG_CTRL register (0x020004).
@@ -228,7 +354,9 @@ pub(super) fn gk110_pgob_ungate_only(guard: &super::hardware_guard::GuardedBar<'
 ///
 /// The PSW + PMC bit 27 wrapper sequence is identical to gk110.
 /// Also checks fuse 0x02271c bit 0 — if not set, PGOB is not needed.
-pub(super) fn gk104_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) {
+pub fn gk104_pgob_disable(
+    guard: &super::hardware_guard::GuardedBar<'_>,
+) -> PgobOutcome {
     let bar0 = guard.inner();
     let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
     let wr = |reg: u32, val: u32| {
@@ -238,6 +366,7 @@ pub(super) fn gk104_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
         let cur = rd(reg);
         wr(reg, (cur & !clr) | set);
     };
+    let is_badf = |v: u32| v & 0xBADF_0000 == 0xBADF_0000;
 
     // Fuse check: 0x02271c bit 0 indicates PGOB support.
     // (nvkm_fuse_read at 0x022400 + 0x31c = 0x02271c)
@@ -250,7 +379,12 @@ pub(super) fn gk104_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
     );
     if !pgob_fused {
         tracing::info!("PGOB not fused — skipping gk104_pgob_disable");
-        return;
+        let gpccs0 = rd(0x50_2100);
+        return PgobOutcome {
+            gpc_alive: gpccs0 != 0xDEAD_DEAD && gpccs0 != 0 && !is_badf(gpccs0),
+            gpccs0_cpuctl: gpccs0,
+            pg_status: rd(0x02_0008),
+        };
     }
 
     // Step 1: Disable PGRAPH (clear PMC bit 12)
@@ -291,13 +425,16 @@ pub(super) fn gk104_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
     let gpccs0 = rd(0x50_2100);
     let gr_nr = rd(0x40_9604);
     let fecs = rd(0x40_9100);
+    let pg_status = rd(0x02_0008);
+    let gpc_alive = gpccs0 != 0xDEAD_DEAD && !is_badf(gpccs0) && gpccs0 != 0;
     tracing::info!(
         gpccs0_cpuctl = format_args!("{gpccs0:#010x}"),
         gr_gpc_nr = format_args!("{gr_nr:#010x}"),
         fecs = format_args!("{fecs:#010x}"),
-        gpc_alive = gpccs0 != 0xDEAD_DEAD && gpccs0 & 0xBAD0_0000 != 0xBAD0_0000 && gpccs0 != 0,
+        gpc_alive,
         "gk104 PGOB disable complete"
     );
+    PgobOutcome { gpc_alive, gpccs0_cpuctl: gpccs0, pg_status }
 }
 
 /// nvidia-470 proprietary PGOB disable — PSW-only handshake.
@@ -313,12 +450,15 @@ pub(super) fn gk104_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) 
 ///
 /// Prerequisites: PMU falcon should be powered on (PMC bit 13 set in 0x200).
 /// On a warm-caught K80 after nouveau POST, the PMU is typically running.
-pub(super) fn nvidia470_pgob_disable(guard: &super::hardware_guard::GuardedBar<'_>) {
+pub fn nvidia470_pgob_disable(
+    guard: &super::hardware_guard::GuardedBar<'_>,
+) -> PgobOutcome {
     let bar0 = guard.inner();
     let rd = |reg: u32| -> u32 { bar0.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
     let wr = |reg: u32, val: u32| {
         let _ = bar0.write_u32(reg as usize, val);
     };
+    let is_badf = |v: u32| v & 0xBADF_0000 == 0xBADF_0000;
 
     let pre = rd(0x10_a78c);
     let pmu_cpuctl = rd(0x10_a100);
@@ -349,14 +489,17 @@ pub(super) fn nvidia470_pgob_disable(guard: &super::hardware_guard::GuardedBar<'
     let gpccs0 = rd(0x50_2100);
     let gr_hub = rd(0x40_0000);
     let fecs = rd(0x40_9100);
+    let pg_status = rd(0x02_0008);
+    let gpc_alive = gpccs0 != 0xDEAD_DEAD && gpccs0 != 0 && !is_badf(gpccs0);
     tracing::info!(
         psw_post = format_args!("{post:#010x}"),
         gpccs0_cpuctl = format_args!("{gpccs0:#010x}"),
         gr_hub = format_args!("{gr_hub:#010x}"),
         fecs = format_args!("{fecs:#010x}"),
-        gpc_alive = gpccs0 != 0xDEAD_DEAD && gpccs0 != 0 && gpccs0 & 0xBAD0_0000 != 0xBAD0_0000,
+        gpc_alive,
         "nvidia470 PGOB disable complete"
     );
+    PgobOutcome { gpc_alive, gpccs0_cpuctl: gpccs0, pg_status }
 }
 
 /// nvidia-470 proprietary PGOB enable — re-gates GPCs for power saving.

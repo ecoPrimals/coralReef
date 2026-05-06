@@ -69,7 +69,8 @@ impl NvVfioComputeDevice {
         self.upload(qmd_handle, 0, qmd_bytes)?;
 
         let profile = generation::profile_for_sm(self.sm_version);
-        let mut pb = PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
+        let (slm_base, slm_per_tpc) = self.slm_params();
+        let mut pb = PushBuf::compute_init(self.compute_class, profile.local_mem_window, slm_base, slm_per_tpc);
         let dispatch = PushBuf::compute_dispatch_with_launch(profile.launch_method, qmd_iova);
         pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();
@@ -147,7 +148,8 @@ impl NvVfioComputeDevice {
         self.upload(qmd_handle, 0, qmd_bytes)?;
 
         let profile = generation::profile_for_sm(self.sm_version);
-        let mut pb = PushBuf::compute_init(self.compute_class, profile.local_mem_window, 0, 0);
+        let (slm_base, slm_per_tpc) = self.slm_params();
+        let mut pb = PushBuf::compute_init(self.compute_class, profile.local_mem_window, slm_base, slm_per_tpc);
         let dispatch = PushBuf::compute_dispatch_with_launch(profile.launch_method, qmd_iova);
         pb.append(&dispatch);
         let pb_bytes = pb.as_bytes();

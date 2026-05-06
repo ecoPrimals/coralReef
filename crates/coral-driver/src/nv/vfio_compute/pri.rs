@@ -3,16 +3,40 @@
 
 use crate::vfio::device::MappedBar;
 
+/// GK210B VBIOS DEVINIT hub station register table.
+///
+/// Written BEFORE ring INIT. Extracted from GK210 VBIOS opcode trace;
+/// other Kepler chips (GK104, GK106, GK208) may need different values.
+static GK210_HUB_STATION_PARAMS: &[(u32, u32)] = &[
+    (0x12_2400, 0x0011_CE20), // hub station PRIV_MASTER timeout
+    (0x12_2480, 0xFE00_3000), // hub station PRIV_CG_IDLE_CG
+    (0x12_2600, 0x0000_0800), // hub station PRIV_CG_STATUS
+    (0x12_00A0, 0x0000_0001), // PRI ring master enable
+    (0x12_231C, 0x0000_F000), // hub station timeout value 2
+    (0x12_2204, 0x0000_0001), // hub station config
+    (0x12_0060, 0x0000_0000), // PRI ring master reset
+];
+
 /// K80 VBIOS DEVINIT hub station parameters — must be written BEFORE ring INIT.
 pub(super) fn write_kepler_hub_station_params(w: &dyn Fn(u32, u32)) {
-    w(0x12_2400, 0x0011_CE20);
-    w(0x12_2480, 0xFE00_3000);
-    w(0x12_2600, 0x0000_0800);
-    w(0x12_00A0, 0x0000_0001);
-    w(0x12_231C, 0x0000_F000);
-    w(0x12_2204, 0x0000_0001);
-    w(0x12_0060, 0x0000_0000);
+    for &(reg, val) in GK210_HUB_STATION_PARAMS {
+        w(reg, val);
+    }
 }
+
+/// PRI ring timing mask table — nouveau `gk104_privring_init()`.
+///
+/// Each entry: (register, clear_mask, set_mask). Applied as read-modify-write
+/// to configure station timeouts before ring enumeration.
+static GK104_PRIVRING_TIMING: &[(u32, u32, u32)] = &[
+    (0x12_2318, 0x0003_FFFF, 0x0000_1000),
+    (0x12_231C, 0x0003_FFFF, 0x0000_0200),
+    (0x12_2310, 0x0003_FFFF, 0x0000_0800),
+    (0x12_2348, 0x0003_FFFF, 0x0000_0100),
+    (0x12_23B0, 0x0003_FFFF, 0x0000_0FFF),
+    (0x12_2348, 0x0003_FFFF, 0x0000_0200),
+    (0x12_2358, 0x0003_FFFF, 0x0000_2880),
+];
 
 /// Configure PRI ring hub station timing parameters.
 ///
@@ -20,17 +44,10 @@ pub(super) fn write_kepler_hub_station_params(w: &dyn Fn(u32, u32)) {
 /// ring enumerate commands. Without these, station timeouts may be too
 /// aggressive for GK210B's dual-die topology.
 pub(super) fn gk104_privring_timing(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) {
-    let mask = |reg: u32, clr: u32, set: u32| {
+    for &(reg, clr, set) in GK104_PRIVRING_TIMING {
         let cur = r(reg);
         w(reg, (cur & !clr) | set);
-    };
-    mask(0x12_2318, 0x0003_FFFF, 0x0000_1000);
-    mask(0x12_231C, 0x0003_FFFF, 0x0000_0200);
-    mask(0x12_2310, 0x0003_FFFF, 0x0000_0800);
-    mask(0x12_2348, 0x0003_FFFF, 0x0000_0100);
-    mask(0x12_23B0, 0x0003_FFFF, 0x0000_0FFF);
-    mask(0x12_2348, 0x0003_FFFF, 0x0000_0200);
-    mask(0x12_2358, 0x0003_FFFF, 0x0000_2880);
+    }
 }
 
 /// PRI ring INIT matching nouveau's sequence.
@@ -122,6 +139,7 @@ pub(super) fn vbios_pri_ring_init(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) 
 }
 
 /// Diagnostic dump: probe PRI ring master, GPC topology, PLL lock, and PBUS state.
+#[expect(dead_code, reason = "diagnostic function for Kepler cold-boot debugging")]
 pub(super) fn kepler_pri_ring_diag(_bar0: &MappedBar, r: &dyn Fn(u32) -> u32) {
     // PRI ring master topology (nouveau gk104_privring_intr):
     //   0x120070 = hub station count

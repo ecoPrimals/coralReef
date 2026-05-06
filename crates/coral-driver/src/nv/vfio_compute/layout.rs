@@ -35,8 +35,9 @@ pub mod gpfifo {
     }
 }
 
-/// IOVA base for user DMA allocations — above all fixed allocations.
-pub(super) const USER_IOVA_BASE: u64 = 0x10_0000;
+/// IOVA base for user DMA allocations — above all fixed allocations
+/// (including the 2 MiB SLM pool at `SLM_IOVA`).
+pub(super) const USER_IOVA_BASE: u64 = 0x30_0000;
 
 /// Guard page IOVA — absorbs spurious firmware DMA (e.g. FECS/PMU accessing
 /// IOVA 0x200 during boot on K80). Without this mapping, such DMA causes
@@ -54,6 +55,15 @@ pub(super) const FENCE_BUF_IOVA: u64 = 0x8_0000;
 
 /// Semaphore fence push buffer IOVA (Blackwell+).
 pub(super) const FENCE_PB_IOVA: u64 = 0x9_0000;
+
+/// SLM (shader local memory) pool IOVA — backing for `SET_SHADER_LOCAL_MEMORY`.
+pub(super) const SLM_IOVA: u64 = 0xA_0000;
+
+/// SLM pool size (2 MiB — matches UVM path; supports up to 64 TPCs at 32 KiB each).
+pub(super) const SLM_SIZE: usize = 2 * 1024 * 1024;
+
+/// SLM stride per TPC (32 KiB — standard for all supported generations).
+pub(super) const SLM_PER_TPC: u64 = 0x8000;
 
 /// Local memory window address for Volta+ (SM >= 70).
 #[expect(
@@ -80,7 +90,7 @@ pub const fn sm_to_chip(sm: u32) -> &'static str {
 mod tests {
     use super::{
         FENCE_BUF_IOVA, FENCE_PB_IOVA, GPFIFO_IOVA, LOCAL_MEM_WINDOW_LEGACY,
-        LOCAL_MEM_WINDOW_VOLTA, USER_IOVA_BASE, USERD_IOVA, gpfifo,
+        LOCAL_MEM_WINDOW_VOLTA, SLM_IOVA, SLM_SIZE, USER_IOVA_BASE, USERD_IOVA, gpfifo,
     };
 
     #[test]
@@ -125,7 +135,8 @@ mod tests {
         const { assert!(GPFIFO_IOVA < USERD_IOVA) };
         const { assert!(USERD_IOVA + 4096 <= FENCE_BUF_IOVA) };
         const { assert!(FENCE_BUF_IOVA + 4096 <= FENCE_PB_IOVA) };
-        const { assert!(FENCE_PB_IOVA + 4096 <= USER_IOVA_BASE) };
+        const { assert!(FENCE_PB_IOVA + 4096 <= SLM_IOVA) };
+        const { assert!(SLM_IOVA + SLM_SIZE as u64 <= USER_IOVA_BASE) };
     }
 
     #[test]

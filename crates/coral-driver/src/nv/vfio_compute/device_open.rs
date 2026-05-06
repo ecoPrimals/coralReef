@@ -9,8 +9,8 @@ use crate::vfio::dma::DmaBuffer;
 
 use super::NvVfioComputeDevice;
 use super::layout::{
-    FENCE_BUF_IOVA, FENCE_PB_IOVA, GPFIFO_IOVA, GUARD_PAGE_IOVA, USER_IOVA_BASE, USERD_IOVA,
-    apply_error_to_driver, bar0_reg, gpfifo,
+    FENCE_BUF_IOVA, FENCE_PB_IOVA, GPFIFO_IOVA, GUARD_PAGE_IOVA, SLM_IOVA, SLM_SIZE,
+    USER_IOVA_BASE, USERD_IOVA, apply_error_to_driver, bar0_reg, gpfifo,
 };
 
 impl NvVfioComputeDevice {
@@ -119,66 +119,41 @@ impl NvVfioComputeDevice {
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         let profile = crate::nv::generation::profile_for_sm(sm_version);
+        let seq = super::boot_sequence::boot_sequence_for(profile, sm_version);
 
-        // Kepler cold boot: PRI ring init + clocks + PGRAPH reset + FECS boot.
-        // Must happen BEFORE PFIFO init, otherwise registers are PRI-faulted.
-        //
+        // Cold init: PRI ring + clocks + PGRAPH reset + firmware load.
         // IMPORTANT: We do NOT perform D3→D0 or SBR here. The VFIO subsystem
         // already performed FLR when binding the device, which gives us a clean
         // register state while preserving DRAM controller initialization from
-        // BIOS POST. D3→D0 + SBR would destroy the DRAM training, making VRAM
-        // inaccessible and preventing FECS from booting (it needs VRAM for
-        // context buffers).
-        if profile.page_table_format == crate::nv::generation::PageTableFormat::V1TwoLevel {
-            super::init::kepler_cold_init(&bar0);
-        } else {
-            NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
-        }
+        // BIOS POST.
+        seq.cold_init(&bar0)?;
 
         let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
+
+        let slm_buf = DmaBuffer::new(container.clone(), SLM_SIZE, SLM_IOVA)
+            .map_err(|e| {
+                tracing::warn!("SLM pool allocation failed (non-fatal): {e}");
+                e
+            })
+            .ok();
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
-        let channel = match profile.page_table_format {
-            crate::nv::generation::PageTableFormat::V1TwoLevel => {
-                tracing::info!(sm_version, "using Kepler 2-level page table channel");
-                let guard = super::hardware_guard::GuardedBar::new(&bar0, 32).map_err(|r| {
-                    crate::error::DriverError::HardwareGuardRefusal(r.to_string().into())
-                })?;
-                VfioChannel::create_kepler(
-                    container.clone(),
-                    &guard,
-                    GPFIFO_IOVA,
-                    gpfifo::ENTRIES as u32,
-                    USERD_IOVA,
-                    0,
-                )?
-            }
-            crate::nv::generation::PageTableFormat::V2FiveLevel => VfioChannel::create(
-                container.clone(),
-                &bar0,
-                GPFIFO_IOVA,
-                gpfifo::ENTRIES as u32,
-                USERD_IOVA,
-                0,
-            )?,
-        };
+        let channel = seq.create_channel(
+            container.clone(),
+            &bar0,
+            GPFIFO_IOVA,
+            gpfifo::ENTRIES as u32,
+            USERD_IOVA,
+            0,
+        )?;
 
         let caps = profile.to_capabilities();
-        let sem_fence = crate::nv::generation::uses_semaphore_fence(profile);
-
-        let (fence_buf, fence_pb_buf) = if sem_fence {
-            let fb = DmaBuffer::new(container.clone(), 4096, FENCE_BUF_IOVA)?;
-            fb.volatile_write_u32(0, 0);
-            let fpb = DmaBuffer::new(container.clone(), 4096, FENCE_PB_IOVA)?;
-            tracing::info!("VFIO: Blackwell semaphore fence buffers allocated");
-            (Some(fb), Some(fpb))
-        } else {
-            (None, None)
-        };
+        let sem_fence = seq.uses_semaphore_fence();
+        let (fence_buf, fence_pb_buf) = seq.alloc_fence_buffers(container.clone())?;
 
         let mut dev = Self {
             device,
@@ -199,6 +174,7 @@ impl NvVfioComputeDevice {
             fence_buf,
             fence_pb_buf,
             fence_value: 0,
+            slm_buf,
             guard_page: None,
         };
 
@@ -224,53 +200,37 @@ impl NvVfioComputeDevice {
         let (sm_version, compute_class) = Self::resolve_sm(&bar0, bdf, sm_version, compute_class)?;
 
         let profile = crate::nv::generation::profile_for_sm(sm_version);
+        let seq = super::boot_sequence::boot_sequence_for(profile, sm_version);
 
+        // Ember FD handoff: apply GR init (FECS firmware already loaded by ember).
         NvVfioComputeDevice::apply_gr_bar0_init(&bar0, sm_version);
 
         let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
 
+        let slm_buf = DmaBuffer::new(container.clone(), SLM_SIZE, SLM_IOVA)
+            .map_err(|e| {
+                tracing::warn!("SLM pool allocation failed (non-fatal): {e}");
+                e
+            })
+            .ok();
+
         #[expect(
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
         )]
-        let channel = match profile.page_table_format {
-            crate::nv::generation::PageTableFormat::V1TwoLevel => {
-                tracing::info!(sm_version, "ember FD handoff: using Kepler 2-level page table channel");
-                let guard = super::hardware_guard::GuardedBar::new(&bar0, 32).map_err(|r| {
-                    crate::error::DriverError::HardwareGuardRefusal(r.to_string().into())
-                })?;
-                VfioChannel::create_kepler(
-                    container.clone(),
-                    &guard,
-                    GPFIFO_IOVA,
-                    gpfifo::ENTRIES as u32,
-                    USERD_IOVA,
-                    0,
-                )?
-            }
-            crate::nv::generation::PageTableFormat::V2FiveLevel => VfioChannel::create(
-                container.clone(),
-                &bar0,
-                GPFIFO_IOVA,
-                gpfifo::ENTRIES as u32,
-                USERD_IOVA,
-                0,
-            )?,
-        };
+        let channel = seq.create_channel(
+            container.clone(),
+            &bar0,
+            GPFIFO_IOVA,
+            gpfifo::ENTRIES as u32,
+            USERD_IOVA,
+            0,
+        )?;
 
         let caps = profile.to_capabilities();
-        let sem_fence = crate::nv::generation::uses_semaphore_fence(profile);
-
-        let (fence_buf, fence_pb_buf) = if sem_fence {
-            let fb = DmaBuffer::new(container.clone(), 4096, FENCE_BUF_IOVA)?;
-            fb.volatile_write_u32(0, 0);
-            let fpb = DmaBuffer::new(container.clone(), 4096, FENCE_PB_IOVA)?;
-            tracing::info!("VFIO: Blackwell semaphore fence buffers allocated");
-            (Some(fb), Some(fpb))
-        } else {
-            (None, None)
-        };
+        let sem_fence = seq.uses_semaphore_fence();
+        let (fence_buf, fence_pb_buf) = seq.alloc_fence_buffers(container.clone())?;
 
         let mut dev = Self {
             device,
@@ -291,6 +251,7 @@ impl NvVfioComputeDevice {
             fence_buf,
             fence_pb_buf,
             fence_value: 0,
+            slm_buf,
             guard_page: None,
         };
 
@@ -597,6 +558,13 @@ impl NvVfioComputeDevice {
         let gpfifo_ring = DmaBuffer::new(container.clone(), gpfifo::RING_SIZE, GPFIFO_IOVA)?;
         let userd = DmaBuffer::new(container.clone(), 4096, USERD_IOVA)?;
 
+        let slm_buf = DmaBuffer::new(container.clone(), SLM_SIZE, SLM_IOVA)
+            .map_err(|e| {
+                tracing::warn!("SLM pool allocation failed (non-fatal): {e}");
+                e
+            })
+            .ok();
+
         #[expect(
             clippy::cast_possible_truncation,
             reason = "GPFIFO entries constant always fits u32"
@@ -661,6 +629,7 @@ impl NvVfioComputeDevice {
             fence_buf,
             fence_pb_buf,
             fence_value: 0,
+            slm_buf,
             guard_page: _guard_page,
         };
 
@@ -669,6 +638,15 @@ impl NvVfioComputeDevice {
         // IMEM — just need GR context setup (golden save, bind pointer).
         if profile.page_table_format == crate::nv::generation::PageTableFormat::V2FiveLevel {
             dev.restart_warm_falcons()?;
+
+            // Post-restart verification: confirm FECS survived the warm handoff.
+            match Self::probe_fecs_alive(&dev.bar0) {
+                Ok(true) => tracing::info!("warm handoff: FECS alive probe PASSED"),
+                Ok(false) => tracing::warn!(
+                    "warm handoff: FECS not running after restart — dispatch may fail"
+                ),
+                Err(e) => tracing::error!("warm handoff: FECS probe failed: {e}"),
+            }
         } else {
             dev.setup_gr_context_warm()?;
         }

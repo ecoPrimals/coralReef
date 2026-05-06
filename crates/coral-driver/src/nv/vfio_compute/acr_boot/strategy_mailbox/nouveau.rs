@@ -5,8 +5,10 @@ use crate::vfio::device::MappedBar;
 
 use super::super::boot_result::AcrBootResult;
 use super::super::firmware::AcrFirmwareSet;
+use super::super::instance_block::{self, FALCON_INST_VRAM, build_vram_falcon_inst_block};
 use super::super::sec2_hal::{
-    Sec2Probe, falcon_engine_reset, falcon_prepare_physical_dma, falcon_start_cpu, sec2_emem_write,
+    Sec2Probe, falcon_configure_fbif_all_sysmem, falcon_configure_fbif_with_instance_block,
+    falcon_engine_reset, falcon_prepare_physical_dma, falcon_start_cpu, sec2_emem_write,
 };
 
 /// Attempt nouveau-style SEC2 boot: falcon reset + IMEM code + EMEM descriptor.
@@ -139,8 +141,43 @@ pub fn attempt_nouveau_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRes
         sec2_emem_write(bar0, 0, bl_data);
     }
 
-    // Step 3b: Set up physical DMA mode (Nouveau: gm200_flcn_fw_load non-instance path).
-    falcon_prepare_physical_dma(bar0, base);
+    // Step 3b: DMA configuration — prefer instance-block-backed VIRT DMA for Volta.
+    //
+    // The BL DMEM descriptor on GV100 uses ctx_dma=VIRT (index 1), which must
+    // route through the falcon's bound instance block + page tables. Without a
+    // valid binding, VIRT DMA silently fails and the BL stalls at PC=0.
+    //
+    // Sequence: build VRAM page tables → set all FBIF to physical (for bind
+    // walker) → bind instance block → reconfigure FBIF (index 1 → MMU).
+    let inst_ok = build_vram_falcon_inst_block(bar0);
+    notes.push(format!("VRAM instance block: built={inst_ok}"));
+
+    let mut bind_succeeded = false;
+    if inst_ok {
+        // Set ALL FBIF indices to physical mode so the bind walker can
+        // traverse the page table chain in VRAM without circular dependency.
+        falcon_configure_fbif_all_sysmem(bar0, base, &mut notes);
+
+        let bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
+        let (bind_ok, bind_notes) = instance_block::falcon_bind_context(
+            &|off| bar0.read_u32(base + off).unwrap_or(0xDEAD),
+            &|off, val| { let _ = bar0.write_u32(base + off, val); },
+            bind_val,
+        );
+        notes.extend(bind_notes);
+        notes.push(format!("Instance block bind: ok={bind_ok} val={bind_val:#010x}"));
+
+        if bind_ok {
+            // Reconfigure FBIF: index 1 (VIRT) → MMU, others → physical.
+            falcon_configure_fbif_with_instance_block(bar0, base, &mut notes);
+            bind_succeeded = true;
+        }
+    }
+
+    if !bind_succeeded {
+        notes.push("Falling back to physical DMA (no instance block)".to_string());
+        falcon_prepare_physical_dma(bar0, base);
+    }
 
     // Step 4-6: Boot sequence (nouveau: gm200_flcn_fw_boot).
     w(falcon::MAILBOX0, 0xcafe_beef_u32);

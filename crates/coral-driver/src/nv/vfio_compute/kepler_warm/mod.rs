@@ -21,7 +21,7 @@ mod preflight;
 ///
 /// If FECS IMEM does contain firmware (e.g. a future kernel initializes GR),
 /// the warm path attempts a fast restart first.
-pub(crate) fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>, bdf: &str) {
+pub fn kepler_warm_gr_init(guard: &super::hardware_guard::GuardedBar<'_>, bdf: &str) {
     preflight::warm_preflight(guard, bdf);
     if post_done_firmware::maybe_post_done_early_boot(guard, bdf) {
         return;

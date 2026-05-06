@@ -258,6 +258,14 @@ static GK110_GR_EXCEPTIONS: &[(u32, u32)] = &[
     (0x400054, 0x34ce3464),
 ];
 
+/// Returns the raw GK110 PGRAPH MMIO init table as `(offset, value)` pairs.
+///
+/// Used by `GrInitSequence::for_kepler()` to provide a data-driven interface
+/// to the same register set that `apply_gk110_gr_init` applies via `GuardedBar`.
+pub(crate) fn gk110_gr_mmio_table() -> &'static [(u32, u32)] {
+    GK110_GR_MMIO
+}
+
 /// Apply the GK110 PGRAPH MMIO init table + exception config.
 ///
 /// Returns `(applied, faulted)` counts.

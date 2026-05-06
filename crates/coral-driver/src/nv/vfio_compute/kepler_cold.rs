@@ -19,7 +19,7 @@ use crate::vfio::device::MappedBar;
 /// 5. Set full PMC_ENABLE (all engines)
 /// 6. Re-init ring (stations now have clocks, all respond)
 /// 7. PGRAPH reset + FECS/GPCCS falcon boot
-pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
+pub fn kepler_cold_init(bar0: &MappedBar) {
     use super::hardware_guard::GuardedBar;
     use crate::nv::kepler_falcon;
 
@@ -227,73 +227,17 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
     w(0x640, 0xFEBF_B1E1);
     std::thread::sleep(std::time::Duration::from_millis(10));
 
-    // ── Phase 3.25: Clock tree probe + nouveau 0x137xxx path ──
+    // ── Phase 3.25+3.5: Unified clock probe and apply ──
     //
     // On cold VFIO K80, the nvidia-470 0x130xxx PCLOCK PLLs are in a
-    // power-gated domain and unwritable. Nouveau uses a completely different
-    // clock tree at 0x137xxx that routes through crystal dividers and
-    // optional PLLs. This path works on cold hardware because 0x137xxx
-    // registers are in the always-on PRI domain.
-    {
-        // Test which clock paths are writable
-        let (pll_w, div_w, out_w) =
-            super::kepler_nouveau_clk::test_137xxx_writability(&r, &w);
-
-        // Also test 0x130xxx (nvidia-470 path) for comparison
-        let _pll0_pre = r(0x13_0000);
-        w(0x13_0000, 0x8000_0101);
-        let pll0_rb = r(0x13_0000);
-        w(0x13_0000, 0);
-        let nv470_writable = pll0_rb != 0;
-
-        tracing::info!(
-            nouveau_137_pll = pll_w,
-            nouveau_137_div = div_w,
-            nouveau_137_out = out_w,
-            nv470_130_pll = nv470_writable,
-            "Phase 3.25: Clock path writability test"
-        );
-
-        // Dump current 0x137xxx state for diagnosis
-        super::kepler_nouveau_clk::nouveau_clock_diagnostic(&r);
-
-        if div_w || pll_w {
-            // Nouveau clock path is writable — program crystal clocks first
-            // for a minimal viable clock (27/108 MHz) to all engine domains.
-            super::kepler_nouveau_clk::program_crystal_clocks(&r, &w);
-            std::thread::sleep(std::time::Duration::from_millis(20));
-
-            // Now try PLL-based clocks for higher frequency (405 MHz target)
-            super::kepler_nouveau_clk::program_engine_plls(&r, &w);
-            std::thread::sleep(std::time::Duration::from_millis(20));
-
-            // Verify GPC state after nouveau clocks
-            let gpc0_ver = r(0x50_2004);
-            let gpc0_cpuctl = r(0x50_2100);
-            tracing::info!(
-                gpc0_ver = format_args!("{gpc0_ver:#010x}"),
-                gpc0_cpuctl = format_args!("{gpc0_cpuctl:#010x}"),
-                gpc_alive = gpc0_ver != 0 && gpc0_ver != 0xDEAD_DEAD
-                    && gpc0_ver & 0xBAD0_0000 != 0xBAD0_0000,
-                "Phase 3.25: GPC probe after nouveau clock programming"
-            );
-        } else {
-            tracing::warn!("Phase 3.25: Neither 0x137xxx nor 0x130xxx writable — GPCs may lack clocks");
-        }
-    }
-
-    // ── Phase 3.5: Apply nvidia-470 clock recipe (0x130xxx + 0x137xxx) ──
-    // The recipe includes both 0x130xxx PLLs (may be dropped on cold K80)
-    // and 0x137xxx routing (should succeed and reinforce the above).
-    let (applied, skipped) = super::kepler_clock::apply_gk110_clock_recipe(&guard);
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    let pll0_final = r(0x13_0000);
+    // power-gated domain and unwritable. Nouveau's 0x137xxx path works
+    // from crystal dividers in the always-on PRI domain. The unified
+    // probe tests both, applies nouveau first (guaranteed writable on cold),
+    // then layers the nvidia-470 recipe on top if reachable.
+    let clock_result = super::kepler_nouveau_clk::probe_and_apply_clocks(&r, &w, &guard);
     tracing::info!(
-        applied,
-        skipped,
-        pll0 = format_args!("{pll0_final:#010x}"),
-        "Phase 3.5: PCLOCK recipe applied (post-PMC)"
+        ?clock_result,
+        "Phase 3: Clock configuration complete"
     );
 
     // Clear any PRI ring faults accumulated during init
@@ -315,14 +259,31 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
 
         let gpc0_ver = r(0x50_2004);
         let gpc0_cpuctl = r(0x50_2100);
+        let gpc_alive = gpc0_ver != 0 && gpc0_ver != 0xDEAD_DEAD
+            && gpc0_ver & 0xBAD0_0000 != 0xBAD0_0000;
         tracing::info!(
             pmu_ok,
             gpc0_ver = format_args!("{gpc0_ver:#010x}"),
             gpc0_cpuctl = format_args!("{gpc0_cpuctl:#010x}"),
-            gpc_alive = gpc0_ver != 0 && gpc0_ver != 0xDEAD_DEAD
-                && gpc0_ver & 0xBAD0_0000 != 0xBAD0_0000,
+            gpc_alive,
             "Phase 3.75: GPC probe after PMU boot (pre-PGOB)"
         );
+
+        // PMU manages power domains; after boot it may have ungated the
+        // clock domain that blocked GPC PLL writes in Phase 3.  Re-test
+        // GPC PLL writability and retry if it was previously stuck.
+        if pmu_ok && !gpc_alive {
+            let (pll_w, _, _) = super::kepler_nouveau_clk::test_137xxx_writability(&r, &w);
+            if pll_w {
+                tracing::info!("Phase 3.75: GPC PLL now writable after PMU — retrying clocks");
+                super::kepler_nouveau_clk::program_crystal_clocks(&r, &w);
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                super::kepler_nouveau_clk::program_engine_plls(&r, &w);
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            } else {
+                tracing::info!("Phase 3.75: GPC PLL still unwritable after PMU boot");
+            }
+        }
 
         super::pri::clear_pri_ring_faults(bar0, &r, &w);
     }
@@ -349,65 +310,146 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
     // PGRAPH reset — no separate Phase 4 toggle needed.
     tracing::info!("Phase 4: PGOB + GR init + FECS boot (tight burst — no gaps)");
 
-    // Try GK110 PGOB disable first (matches GK210B lineage)
-    super::pgob::gk110_pgob_disable(&guard);
+    super::pgob::pgob_diagnostic(&guard, "pre-PGOB");
+
+    // Try GK110 PGOB disable first (matches GK210B lineage).
+    // Log but don't bail on timeout — the GK104/nvidia470 variants below
+    // may succeed where the 0x0205xx domain writes fail on GK210B.
+    match super::pgob::gk110_pgob_disable(&guard) {
+        Ok(out) => tracing::info!(gpc_alive = out.gpc_alive, "gk110 PGOB succeeded"),
+        Err(e) => tracing::warn!(%e, "gk110 PGOB failed (continuing with fallbacks)"),
+    }
 
     // Also try GK104 PGOB variant (uses PG_CTRL directly)
-    super::pgob::gk104_pgob_disable(&guard);
+    let gk104_out = super::pgob::gk104_pgob_disable(&guard);
+    tracing::info!(gpc_alive = gk104_out.gpc_alive, "gk104 PGOB result");
 
     // Also try nvidia470 PSW-only variant
-    super::pgob::nvidia470_pgob_disable(&guard);
+    let nv470_out = super::pgob::nvidia470_pgob_disable(&guard);
+    tracing::info!(gpc_alive = nv470_out.gpc_alive, "nvidia470 PGOB result");
 
-    // ── ELPG disable ──
+    super::pgob::pgob_diagnostic(&guard, "post-PGOB");
+
+    // ELPG verification: gk110_pgob_disable now forces ELPG off (PG_ELPG=0,
+    // PG_CTRL bit 30=1) BEFORE the power domain steps. Confirm it stuck.
+    {
+        let bar0_inner = guard.inner();
+        let rd_raw = |reg: u32| -> u32 { bar0_inner.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
+
+        let elpg = rd_raw(0x02_0000);
+        let ctrl = rd_raw(0x02_0004);
+        let stat = rd_raw(0x02_0008);
+        let gpc0_test = rd_raw(0x50_2004);
+
+        tracing::info!(
+            pg_elpg = format_args!("{elpg:#010x}"),
+            pg_ctrl = format_args!("{ctrl:#010x}"),
+            pg_stat = format_args!("{stat:#010x}"),
+            elpg_dis = ctrl & 0x4000_0000 != 0,
+            gpc0_falcon_ver = format_args!("{gpc0_test:#010x}"),
+            gpc0_alive = gpc0_test != 0 && gpc0_test != 0xDEAD_DEAD && gpc0_test & 0xBAD0_0000 != 0xBAD0_0000,
+            "Post-PGOB ELPG verification"
+        );
+    }
+
+    // ── Phase 4.5: GPC clock diagnostic + THERM ungate ──
     //
-    // The GK110 PGOB sequence ungates power domains (0x0205xx) but does NOT
-    // disable ELPG (Engine Level Power Gating). ELPG auto-gates GPCs when
-    // idle. Without a running PMU to manage ELPG wake, the GPCs remain
-    // power-gated despite PGOB reporting success.
-    //
-    // GK104 nouveau explicitly writes PG_CTRL (0x020004) bit 30 = ELPG_DIS.
-    // We do the same here, plus clear PG_ELPG (0x020000) to disable all
-    // automatic power gating.
+    // GPC PLL (0x137000) refuses writes on cold K80, but FECS can count
+    // 5 GPCs via internal GR interconnect. The problem is that PRI reads
+    // to GPC falcon return all zeros (no clock) while non-falcon GPC regs
+    // PRI-fault (0xBADF). We need to diagnose what's gating GPC clocks
+    // and try THERM-level ungate + engine clock force.
     {
         let bar0_inner = guard.inner();
         let rd_raw = |reg: u32| -> u32 { bar0_inner.read_u32(reg as usize).unwrap_or(0xDEAD_DEAD) };
         let wr_raw = |reg: u32, val: u32| { let _ = bar0_inner.write_u32(reg as usize, val); };
 
-        let elpg_pre  = rd_raw(0x02_0000);
-        let ctrl_pre  = rd_raw(0x02_0004);
-        let stat_pre  = rd_raw(0x02_0008);
-
-        // Disable all ELPG/PGOB auto-gating
-        wr_raw(0x02_0000, 0x0000_0000);              // PG_ELPG: clear all
-        let ctrl_cur = rd_raw(0x02_0004);
-        wr_raw(0x02_0004, (ctrl_cur & !0xC000_0000) | 0x4000_0000); // PG_CTRL: set ELPG_DIS, clear PGOB
-
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        let elpg_post = rd_raw(0x02_0000);
-        let ctrl_post = rd_raw(0x02_0004);
-        let stat_post = rd_raw(0x02_0008);
-        let gpc0_test = rd_raw(0x50_2004); // GPCCS falcon version register
-
+        let therm_gate_ctrl = rd_raw(0x02_0200);
+        let therm_gate_1    = rd_raw(0x02_0204);
+        let therm_gate_2    = rd_raw(0x02_0208);
+        let therm_cg0       = rd_raw(0x02_0240);
+        let therm_cg1       = rd_raw(0x02_0244);
+        let pg_eng_gate     = rd_raw(0x02_0010);
+        let pmc_enable_2    = rd_raw(0x000640);
+        let pmc_subdevice   = rd_raw(0x000604);
         tracing::info!(
-            elpg  = format_args!("{elpg_pre:#010x} → {elpg_post:#010x}"),
-            ctrl  = format_args!("{ctrl_pre:#010x} → {ctrl_post:#010x}"),
-            stat  = format_args!("{stat_pre:#010x} → {stat_post:#010x}"),
-            gpc0_falcon_ver = format_args!("{gpc0_test:#010x}"),
-            gpc0_alive = gpc0_test != 0 && gpc0_test != 0xDEAD_DEAD && gpc0_test & 0xBAD0_0000 != 0xBAD0_0000,
-            "ELPG disable — GPC power state"
+            therm_gate_ctrl = format_args!("{therm_gate_ctrl:#010x}"),
+            therm_gate_1 = format_args!("{therm_gate_1:#010x}"),
+            therm_gate_2 = format_args!("{therm_gate_2:#010x}"),
+            therm_cg0 = format_args!("{therm_cg0:#010x}"),
+            therm_cg1 = format_args!("{therm_cg1:#010x}"),
+            pg_eng_gate = format_args!("{pg_eng_gate:#010x}"),
+            pmc_enable_2 = format_args!("{pmc_enable_2:#010x}"),
+            pmc_subdevice = format_args!("{pmc_subdevice:#010x}"),
+            "Phase 4.5: THERM + PG engine gate diagnostic"
+        );
+
+        // GPC-specific GR idle/status
+        let gr_status  = rd_raw(0x40_0700);
+        let gr_idle    = rd_raw(0x40_04C0);
+        let gr_fecs_fs = rd_raw(0x40_9604);
+        let gr_gpc_nr  = rd_raw(0x40_9880);
+        let gr_zcull_mask = rd_raw(0x40_9B00);
+        tracing::info!(
+            gr_status = format_args!("{gr_status:#010x}"),
+            gr_idle = format_args!("{gr_idle:#010x}"),
+            gr_fecs_fs = format_args!("{gr_fecs_fs:#010x}"),
+            gr_gpc_nr = format_args!("{gr_gpc_nr:#010x}"),
+            gr_zcull_mask = format_args!("{gr_zcull_mask:#010x}"),
+            "Phase 4.5: GR domain status"
+        );
+
+        // Force THERM clock gating OFF for all domains
+        wr_raw(0x02_0200, 0x0000_0000);
+        wr_raw(0x02_0204, 0x0000_0000);
+        wr_raw(0x02_0208, 0x0000_0000);
+        wr_raw(0x02_0240, 0x0000_0000);
+        wr_raw(0x02_0244, 0x0000_0000);
+        wr_raw(0x02_0010, 0x0000_0000);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // GPC clock tree: force source selector to divider mode and
+        // explicitly configure the GPC output divider for pass-through
+        let ssel = rd_raw(0x13_7100);
+        wr_raw(0x13_7100, ssel & !0x0000_0001); // GPC = divider, not PLL
+        wr_raw(0x13_7160, 0x0003_0000); // GPC divider src: 108 MHz crystal
+        wr_raw(0x13_71D0, 0x0000_0000); // GPC divider ctl: pass-through
+        wr_raw(0x13_7250, 0x0000_0000); // GPC output div: no division
+        let _ = rd_raw(0x13_7250); // flush
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        // 0x137xxx clock tree final state for GPC
+        let gpc_src_final = rd_raw(0x13_7160);
+        let gpc_div_final = rd_raw(0x13_71D0);
+        let gpc_out_final = rd_raw(0x13_7250);
+        let ssel_final    = rd_raw(0x13_7100);
+        tracing::info!(
+            ssel = format_args!("{ssel_final:#010x}"),
+            gpc_src = format_args!("{gpc_src_final:#010x}"),
+            gpc_div = format_args!("{gpc_div_final:#010x}"),
+            gpc_out = format_args!("{gpc_out_final:#010x}"),
+            "Phase 4.5: GPC clock tree after THERM ungate"
+        );
+
+        // GPC0 probe after THERM ungate
+        let gpc0_ver  = rd_raw(0x50_2004);
+        let gpc0_cpu  = rd_raw(0x50_2100);
+        let gpc0_hwcfg = rd_raw(0x50_2108);
+        let gpc0_id   = rd_raw(0x50_2000);
+        tracing::info!(
+            gpc0_falcon_id = format_args!("{gpc0_id:#010x}"),
+            gpc0_falcon_ver = format_args!("{gpc0_ver:#010x}"),
+            gpc0_cpuctl = format_args!("{gpc0_cpu:#010x}"),
+            gpc0_hwcfg = format_args!("{gpc0_hwcfg:#010x}"),
+            gpc0_alive = gpc0_ver != 0 && gpc0_ver & 0xBAD0_0000 != 0xBAD0_0000,
+            "Phase 4.5: GPC0 after THERM ungate"
         );
     }
 
     // ── Extra PMC PGRAPH reset ──
     //
-    // The PMC bit 12 toggle inside gk110_pgob_disable ungates the GPC power
-    // domains and re-enables PGRAPH, but GPC falcons don't enter HRESET
-    // because the power domains are still settling at that instant. FECS
-    // (in the GR HUB domain) gets HRESET correctly but GPCCS doesn't.
-    //
-    // With BLCG already at 0 (set by pgob.rs post-Step-7) and GPCs fully
-    // powered, a clean PMC PGRAPH reset cycle propagates HRESET to all
+    // With THERM clock gating now disabled and PGOB power domains ungated,
+    // a clean PMC PGRAPH reset cycle should propagate HRESET to all
     // falcons including per-GPC GPCCS.
     {
         let pmc = r(PMC_ENABLE);
@@ -427,13 +469,23 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
         wr_raw(0x40_98b0, 0); // FECS SLCG
         wr_raw(0x40_0500, 0); // TRAP_EN
 
+        // Also zero THERM gates again (PMC reset may have restored them)
+        wr_raw(0x02_0200, 0);
+        wr_raw(0x02_0204, 0);
+        wr_raw(0x02_0208, 0);
+        wr_raw(0x02_0240, 0);
+        wr_raw(0x02_0244, 0);
+
         let gpccs_cpuctl = r(0x50_2100);
         let fecs_cpuctl = r(kepler_falcon::FECS_BASE + 0x100);
+        let gpc0_ver_post_reset = r(0x50_2004);
         tracing::info!(
             gpccs_cpuctl = format_args!("{gpccs_cpuctl:#010x}"),
             fecs_cpuctl = format_args!("{fecs_cpuctl:#010x}"),
+            gpc0_falcon_ver = format_args!("{gpc0_ver_post_reset:#010x}"),
             gpccs_hreset = gpccs_cpuctl & 0x10 != 0,
             fecs_hreset = fecs_cpuctl & 0x10 != 0,
+            gpc0_alive = gpc0_ver_post_reset != 0 && gpc0_ver_post_reset & 0xBAD0_0000 != 0xBAD0_0000,
             "Extra PGRAPH reset — GPCCS HRESET propagation check"
         );
     }
@@ -453,6 +505,28 @@ pub(crate) fn kepler_cold_init(bar0: &MappedBar) {
             std::thread::sleep(std::time::Duration::from_millis(20));
             super::kepler_nouveau_clk::program_engine_plls(&r, &w);
             std::thread::sleep(std::time::Duration::from_millis(20));
+
+            // Try forcing GPC PLL reference to a working path.
+            // On GK210, PLL index 0 (GPC) is locked. Try routing GPC
+            // through PLL index 1 (ROP) or 2 (HUB) via source selector tricks.
+            let rop_ctrl = r(0x13_7020); // ROP PLL CTRL
+            let rop_locked = rop_ctrl & 0x0002_0000 != 0;
+            if rop_locked {
+                // ROP PLL works. Try copying its coefficients to GPC PLL.
+                let rop_coef = r(0x13_7024);
+                w(0x13_7000, 0); // disable GPC PLL first
+                w(0x13_7004, rop_coef); // same coefficients
+                w(0x13_7000, 0x0000_0001); // enable
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let gpc_ctrl_try = r(0x13_7000);
+                let gpc_locked = gpc_ctrl_try & 0x0002_0000 != 0;
+                tracing::info!(
+                    gpc_ctrl = format_args!("{gpc_ctrl_try:#010x}"),
+                    gpc_locked,
+                    rop_coef = format_args!("{rop_coef:#010x}"),
+                    "Post-PGOB: attempted GPC PLL clone from ROP"
+                );
+            }
         }
     }
 

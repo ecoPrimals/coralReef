@@ -215,7 +215,7 @@ pub(super) fn maybe_post_done_early_boot(guard: &GuardedBar<'_>, _bdf: &str) -> 
                 v != 0xDEAD_DEAD && v != 0 && v & 0xBAD0_0000 != 0xBAD0_0000
             };
 
-            super::super::pgob::gk104_pgob_disable(guard);
+            let _ = super::super::pgob::gk104_pgob_disable(guard);
             super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
             if !check_gpccs0() {
@@ -223,7 +223,7 @@ pub(super) fn maybe_post_done_early_boot(guard: &GuardedBar<'_>, _bdf: &str) -> 
                     gpccs0 = format_args!("{:#010x}", r(0x50_2100)),
                     "gk104 PG_CTRL didn't ungate — trying nvidia-470 PSW"
                 );
-                super::super::pgob::nvidia470_pgob_disable(guard);
+                let _ = super::super::pgob::nvidia470_pgob_disable(guard);
                 super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
             }
 
@@ -232,7 +232,7 @@ pub(super) fn maybe_post_done_early_boot(guard: &GuardedBar<'_>, _bdf: &str) -> 
                     gpccs0 = format_args!("{:#010x}", r(0x50_2100)),
                     "nvidia-470 PSW didn't ungate — full gk110_pmu_pgob magic table"
                 );
-                super::super::pgob::gk110_pgob_disable(guard);
+                let _ = super::super::pgob::gk110_pgob_disable(guard);
                 super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
             }
             let pgob_ok = check_gpccs0();

@@ -128,6 +128,55 @@ impl NvVfioComputeDevice {
         self.setup_gr_context_warm()
     }
 
+    /// Probe whether FECS is alive and executing after a warm handoff.
+    ///
+    /// Returns `Ok(true)` if FECS appears to be running (mailbox non-zero,
+    /// not in HRESET, PC advancing). Returns `Ok(false)` if FECS is halted,
+    /// in HRESET, or stalled. Returns `Err` only if the falcon is completely
+    /// unreachable (PRI error = GPU cold/dead).
+    ///
+    /// Use this after a nouveau → vfio-pci swap to verify that falcon state
+    /// survived the driver transition.
+    pub fn probe_fecs_alive(bar0: &MappedBar) -> DriverResult<bool> {
+        use crate::vfio::channel::registers::falcon;
+        use std::borrow::Cow;
+
+        let r = |off: usize| bar0.read_u32(falcon::FECS_BASE + off).unwrap_or(0xDEAD_DEAD);
+
+        let cpuctl = r(falcon::CPUCTL);
+        let mailbox0 = r(falcon::MAILBOX0);
+        let pc = r(falcon::PC);
+        let exci = r(falcon::EXCI);
+
+        let unreachable = cpuctl == 0xDEAD_DEAD || cpuctl & 0xBADF_0000 == 0xBADF_0000;
+        if unreachable {
+            tracing::warn!(
+                fecs_cpuctl = format_args!("{cpuctl:#010x}"),
+                "FECS probe: PRI error — GPU unreachable"
+            );
+            return Err(DriverError::SubmitFailed(Cow::Borrowed(
+                "FECS unreachable (PRI timeout) — falcon domain is cold",
+            )));
+        }
+
+        let hreset = cpuctl & falcon::CPUCTL_HRESET != 0;
+        let halted = cpuctl & falcon::CPUCTL_HALTED != 0;
+        let running = mailbox0 != 0 && !hreset;
+
+        tracing::info!(
+            fecs_cpuctl = format_args!("{cpuctl:#010x}"),
+            fecs_mb0 = format_args!("{mailbox0:#010x}"),
+            fecs_pc = format_args!("{pc:#06x}"),
+            fecs_exci = format_args!("{exci:#010x}"),
+            hreset,
+            halted,
+            running,
+            "FECS alive probe"
+        );
+
+        Ok(running)
+    }
+
     /// Release a falcon from engine reset and issue STARTCPU.
     ///
     /// During nouveau teardown, `gm200_flcn_fw_fini` writes ENGCTL=0x01

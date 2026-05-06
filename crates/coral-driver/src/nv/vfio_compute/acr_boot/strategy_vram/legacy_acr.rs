@@ -7,10 +7,11 @@ use crate::vfio::memory::{MemoryRegion, PraminRegion};
 use super::super::boot_result::{AcrBootResult, make_fail_result};
 use super::super::firmware::{AcrFirmwareSet, ParsedAcrFirmware};
 use super::super::instance_block::{
-    FALCON_INST_VRAM, FALCON_PT0_VRAM, build_vram_falcon_inst_block,
+    self, FALCON_INST_VRAM, FALCON_PT0_VRAM, build_vram_falcon_inst_block,
 };
 use super::super::sec2_hal::{
-    Sec2Probe, falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, sec2_dmem_read,
+    Sec2Probe, falcon_configure_fbif_all_sysmem, falcon_configure_fbif_with_instance_block,
+    falcon_dmem_upload, falcon_imem_upload_nouveau, falcon_start_cpu, sec2_dmem_read,
     sec2_emem_write, sec2_prepare_physical_first,
 };
 use super::super::wpr::{build_bl_dmem_desc, build_wpr, falcon_id, patch_acr_desc};
@@ -213,14 +214,28 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     }
     notes.push(format!("SEC2 engine reset: ok={reset_ok}"));
 
-    // Preserve the hardware-default FBIF_TRANSCFG (post-PMC-reset value
-    // includes bit 8 = 0x100 on GV100). sec2_prepare_physical_first already
-    // ORed PHYS_OVERRIDE (0x80) via falcon_prepare_physical_dma. Verify it
-    // reads 0x190 (VIRT + 0x10 + PHYS_OVERRIDE + 0x100) — matching nouveau.
-    let fbif_after = r(falcon::FBIF_TRANSCFG);
-    notes.push(format!(
-        "FBIF_TRANSCFG: {fbif_after:#010x} (preserved reset default)"
-    ));
+    // Bind the VRAM instance block so VIRT DMA (index 1) routes through
+    // the page tables we built. The bind walker needs physical access to
+    // VRAM, so set all FBIF indices to physical mode first.
+    falcon_configure_fbif_all_sysmem(bar0, base, &mut notes);
+
+    let bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);
+    let (bind_ok, bind_notes) = instance_block::falcon_bind_context(
+        &|off| r(off),
+        &|off, val| w(off, val),
+        bind_val,
+    );
+    notes.extend(bind_notes);
+    notes.push(format!("Instance block bind: ok={bind_ok} val={bind_val:#010x}"));
+
+    let virt_dma_enabled = if bind_ok {
+        falcon_configure_fbif_with_instance_block(bar0, base, &mut notes);
+        true
+    } else {
+        notes.push("Bind failed — staying in physical DMA mode".to_string());
+        false
+    };
+
     for idx in 0u32..5 {
         let fbif_off = 0x604 + (idx as usize) * 0x10;
         let val = r(fbif_off);
@@ -310,13 +325,19 @@ pub fn attempt_vram_acr_boot(bar0: &MappedBar, fw: &AcrFirmwareSet) -> AcrBootRe
     let code_dma_base = vram_base as u64;
     let data_dma_base = vram_base as u64 + parsed.load_header.data_dma_base as u64;
     let mut bl_desc = build_bl_dmem_desc(code_dma_base, data_dma_base, &parsed);
-    // Override ctx_dma from VIRT(4) to PHYS(0) for VRAM physical DMA path.
-    // DMACTL only enables index 0 in LS mode; the BL must DMA through index 0.
-    bl_desc[32..36].copy_from_slice(&0u32.to_le_bytes());
+    let ctx_dma_label = if virt_dma_enabled {
+        // Instance block bound — use VIRT DMA (index 1) as firmware expects.
+        // The BL descriptor's default ctx_dma=VIRT routes through page tables.
+        "VIRT"
+    } else {
+        // No instance block — override ctx_dma to PHYS (index 0) as fallback.
+        bl_desc[32..36].copy_from_slice(&0u32.to_le_bytes());
+        "PHYS"
+    };
     let dmem_load_off = parsed.bl_desc.bl_desc_dmem_load_off;
     falcon_dmem_upload(bar0, base, dmem_load_off, &bl_desc);
     notes.push(format!(
-        "BL desc: {}B → DMEM@{dmem_load_off:#x} (code={code_dma_base:#x} data={data_dma_base:#x} ctx_dma=PHYS)",
+        "BL desc: {}B → DMEM@{dmem_load_off:#x} (code={code_dma_base:#x} data={data_dma_base:#x} ctx_dma={ctx_dma_label})",
         bl_desc.len()
     ));
 

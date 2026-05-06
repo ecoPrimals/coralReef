@@ -256,18 +256,18 @@ pub(super) fn maybe_gr_hub_firmware_prep_and_upload(guard: &GuardedBar<'_>) -> b
             };
 
             tracing::info!("Trying gk104-style PG_CTRL PGOB disable");
-            super::super::pgob::gk104_pgob_disable(guard);
+            let _ = super::super::pgob::gk104_pgob_disable(guard);
             super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
             if !check_gpccs0_alive() {
                 tracing::info!("gk104 PG_CTRL insufficient — trying nvidia-470 PSW");
-                super::super::pgob::nvidia470_pgob_disable(guard);
+                let _ = super::super::pgob::nvidia470_pgob_disable(guard);
                 super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
             }
 
             if !check_gpccs0_alive() {
                 tracing::info!("nvidia-470 PSW insufficient — running full gk110_pmu_pgob");
-                super::super::pgob::gk110_pgob_disable(guard);
+                let _ = super::super::pgob::gk110_pgob_disable(guard);
             }
 
             // Re-enumerate PRI ring after PGOB (GPC stations should appear)
@@ -409,7 +409,7 @@ pub(super) fn maybe_gr_hub_firmware_prep_and_upload(guard: &GuardedBar<'_>) -> b
                     "Pre second PGOB disable (post PMC reset)"
                 );
 
-                super::super::pgob::gk110_pgob_disable(guard);
+                let _ = super::super::pgob::gk110_pgob_disable(guard);
 
                 super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
                 let gpc0_post = r(0x50_2608);
@@ -463,7 +463,7 @@ pub(super) fn maybe_gr_hub_firmware_prep_and_upload(guard: &GuardedBar<'_>) -> b
         // and cooperates with the PGOB disable protocol. No need to halt
         // the PMU — it manages power domains correctly when engine clocks
         // are running.
-        super::super::pgob::gk110_pgob_disable(guard);
+        let _ = super::super::pgob::gk110_pgob_disable(guard);
         super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
 
         {
@@ -508,7 +508,7 @@ pub(super) fn maybe_gr_hub_firmware_prep_and_upload(guard: &GuardedBar<'_>) -> b
 
             if gr_hub_final == 0xDEAD_DEAD || gr_hub_final & 0xBAD0_0000 == 0xBAD0_0000 {
                 tracing::warn!("GR HUB still faulted after PMC reset — extra PGOB disable");
-                super::super::pgob::gk110_pgob_disable(guard);
+                let _ = super::super::pgob::gk110_pgob_disable(guard);
                 super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
                 let gr_hub_extra = r(0x40_0000);
                 tracing::info!(

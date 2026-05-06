@@ -122,22 +122,16 @@ pub fn sec2_prepare_direct_boot(bar0: &MappedBar) -> (bool, Vec<String>) {
     let itfen_after = r(falcon::ITFEN);
     notes.push(format!("ITFEN: {itfen_before:#x} → {itfen_after:#x}"));
 
-    // 7. Configure FBIF BEFORE bind — the bind walker reads page tables
-    //    from VRAM via FBIF. If FBIF is in VIRT mode (0), the walker needs
-    //    the page tables it's trying to bind (circular dependency, stalls at
-    //    state 2). Setting FBIF to PHYS_VID (1) lets the walker access VRAM
-    //    directly to read page tables.
-    let fbif_before = r(falcon::FBIF_TRANSCFG);
-    w(
-        falcon::FBIF_TRANSCFG,
-        (fbif_before & !0x03) | falcon::FBIF_TARGET_PHYS_VID,
-    );
+    // 7. Configure ALL FBIF indices to physical mode BEFORE bind.
+    //    The bind walker reads the page table chain from VRAM. If any FBIF
+    //    index the walker uses is in VIRT mode, it creates a circular
+    //    dependency (stalls at state 2). Setting ALL indices to physical
+    //    VRAM mode ensures the walker can traverse page tables regardless
+    //    of which DMA index it uses internally.
+    super::falcon_cpu::falcon_configure_fbif_all_sysmem(bar0, base, &mut notes);
     w(falcon::DMACTL, 0x01);
-    let fbif_after = r(falcon::FBIF_TRANSCFG);
     let dmactl_after = r(falcon::DMACTL);
-    notes.push(format!(
-        "FBIF→PHYS_VID: FBIF_TRANSCFG={fbif_before:#x}→{fbif_after:#x} DMACTL={dmactl_after:#x}"
-    ));
+    notes.push(format!("DMACTL={dmactl_after:#x} (after FBIF→all-physical)"));
 
     // 8. Full nouveau-style bind sequence (Exp 084 discovery)
     let bind_val = instance_block::encode_bind_inst(FALCON_INST_VRAM as u64, 0);

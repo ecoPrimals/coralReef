@@ -188,7 +188,7 @@ pub(super) fn program_engine_plls(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) 
     // Crystal = 27 MHz, N=15, M=1, P=1 → 27*15/1 = 405 MHz
     let coef: u32 = (1 << 16) | (15 << 8) | 1; // 0x00010F01
 
-    let mut any_locked = false;
+    let mut locked_mask: u32 = 0;
 
     for &(idx, name) in &[(0u32, "GPC"), (1, "ROP"), (2, "HUB")] {
         let addr = 0x13_7000 + idx * 0x20;
@@ -225,7 +225,7 @@ pub(super) fn program_engine_plls(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) 
             w(addr, ctrl | 0x0000_0010);
             let ctrl2 = r(addr);
             w(addr, ctrl2 | 0x0000_0004);
-            any_locked = true;
+            locked_mask |= 1 << idx;
         }
 
         let final_ctrl = r(addr);
@@ -240,20 +240,96 @@ pub(super) fn program_engine_plls(r: &dyn Fn(u32) -> u32, w: &dyn Fn(u32, u32)) 
         );
     }
 
-    if any_locked {
-        // Switch engines from divider to PLL mode
+    if locked_mask != 0 {
+        // Only switch engines whose PLLs actually locked. Forcing an
+        // engine to PLL mode when its PLL never locked produces a dead
+        // clock domain (the K80 GPC-dead symptom).
         let ssel = r(0x13_7100);
-        w(0x13_7100, ssel | 0x0000_0007); // enable PLL for engines 0,1,2
+        w(0x13_7100, (ssel & !0x0000_0007) | locked_mask);
         std::thread::sleep(std::time::Duration::from_millis(5));
 
-        // Verify SSEL took effect
         let ssel_after = r(0x13_7100);
         tracing::info!(
+            locked_mask = format_args!("{locked_mask:#05x}"),
             ssel_before = format_args!("{ssel:#010x}"),
             ssel_after = format_args!("{ssel_after:#010x}"),
-            "Switched to PLL mode for GPC/ROP/HUB"
+            "Switched locked engines to PLL mode (per-engine SSEL)"
         );
     } else {
         tracing::warn!("No PLLs locked — engines remain on crystal divider path");
+    }
+}
+
+/// Probe which clock paths are live, then apply the best available.
+///
+/// Decision matrix:
+/// - Cold VFIO (post-FLR): 0x130xxx unwritable (PMU-gated) → use 0x137xxx
+/// - Warm (post-nouveau POST): both writable → use 0x137xxx + 0x130xxx recipe
+///
+/// Returns `ClockProbeResult` with what was applied.
+#[derive(Debug)]
+#[expect(dead_code, reason = "fields accessed via Debug formatting in tracing")]
+pub(super) struct ClockProbeResult {
+    pub nouveau_137_writable: bool,
+    pub nv470_130_writable: bool,
+    pub nv470_applied: u32,
+    pub gpc_alive_after: bool,
+}
+
+pub(super) fn probe_and_apply_clocks(
+    r: &dyn Fn(u32) -> u32,
+    w: &dyn Fn(u32, u32),
+    guard: &super::hardware_guard::GuardedBar<'_>,
+) -> ClockProbeResult {
+    let (pll_w, div_w, _out_w) = test_137xxx_writability(r, w);
+    let nouveau_writable = div_w || pll_w;
+
+    // Test 0x130xxx writability
+    let pll0_pre = r(0x13_0000);
+    w(0x13_0000, 0x8000_0101);
+    let pll0_rb = r(0x13_0000);
+    w(0x13_0000, pll0_pre); // restore
+    let nv470_writable = pll0_rb != 0 && pll0_rb != pll0_pre;
+
+    tracing::info!(
+        nouveau_137_writable = nouveau_writable,
+        nv470_130_writable = nv470_writable,
+        "Clock path probe"
+    );
+
+    nouveau_clock_diagnostic(r);
+
+    if nouveau_writable {
+        program_crystal_clocks(r, w);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        program_engine_plls(r, w);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let nv470_applied = if nv470_writable || nouveau_writable {
+        let (applied, _skipped) = super::kepler_clock::apply_gk110_clock_recipe(guard);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        applied
+    } else {
+        tracing::warn!("Neither clock path writable — GPCs will lack clocks");
+        0
+    };
+
+    let gpc0_ver = r(0x50_2004);
+    let is_badf = |v: u32| v & 0xBADF_0000 == 0xBADF_0000;
+    let gpc_alive = gpc0_ver != 0 && gpc0_ver != 0xDEAD_DEAD && !is_badf(gpc0_ver);
+
+    tracing::info!(
+        gpc0_ver = format_args!("{gpc0_ver:#010x}"),
+        gpc_alive,
+        nv470_applied,
+        "Clock probe complete"
+    );
+
+    ClockProbeResult {
+        nouveau_137_writable: nouveau_writable,
+        nv470_130_writable: nv470_writable,
+        nv470_applied,
+        gpc_alive_after: gpc_alive,
     }
 }

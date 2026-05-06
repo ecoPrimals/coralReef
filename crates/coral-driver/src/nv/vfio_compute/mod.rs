@@ -26,6 +26,7 @@
 //! ```
 
 pub mod acr_boot;
+pub(crate) mod boot_sequence;
 mod device_open;
 pub mod diagnostics;
 mod dispatch;
@@ -40,12 +41,12 @@ mod kepler_clock;
 mod kepler_cold;
 pub mod kepler_csdata;
 mod kepler_fecs_boot;
-mod kepler_gr_init;
+pub(crate) mod kepler_gr_init;
 mod kepler_nouveau_clk;
 mod kepler_recovery;
 mod kepler_warm;
 mod layout;
-pub(crate) mod pgob;
+pub mod pgob;
 mod pmu;
 mod pri;
 mod quiesce;
@@ -55,9 +56,11 @@ mod vbios_devinit;
 mod warm_channel;
 
 pub use gr_engine_status::GrEngineStatus;
+pub use init::kepler_cold_init;
+pub use init::kepler_warm_gr_init;
 pub use raw_device::RawVfioDevice;
 
-pub(super) use layout::{LOCAL_MEM_WINDOW_LEGACY, LOCAL_MEM_WINDOW_VOLTA, gpfifo, sm_to_chip};
+pub(super) use layout::{gpfifo, sm_to_chip};
 
 use crate::error::{DriverError, DriverResult};
 use crate::vfio::channel::VfioChannel;
@@ -97,12 +100,25 @@ pub struct NvVfioComputeDevice {
     fence_buf: Option<DmaBuffer>,
     fence_pb_buf: Option<DmaBuffer>,
     fence_value: u32,
+    /// Shader local memory pool — backing for SET_SHADER_LOCAL_MEMORY.
+    slm_buf: Option<DmaBuffer>,
     /// Guard page at IOVA 0x0 — absorbs firmware DMA to low addresses.
+    #[expect(dead_code, reason = "DMA allocation held alive for IOMMU mapping lifetime")]
     guard_page: Option<DmaBuffer>,
     device: VfioDevice,
 }
 
 impl NvVfioComputeDevice {
+    /// SLM base IOVA and per-TPC stride for `PushBuf::compute_init`.
+    ///
+    /// Returns `(0, 0)` if no SLM pool was allocated (NOP-only dispatch).
+    fn slm_params(&self) -> (u64, u64) {
+        match &self.slm_buf {
+            Some(buf) => (buf.iova(), layout::SLM_PER_TPC),
+            None => (0, 0),
+        }
+    }
+
     /// The SM architecture version of this device (auto-detected or validated).
     #[must_use]
     pub fn sm_version(&self) -> u32 {

@@ -107,16 +107,8 @@ pub const EMEMC0: usize = 0xAC0;
 /// EMEMD — EMEM data port 0.
 pub const EMEMD0: usize = 0xAC4;
 /// Falcon DMA transfer base (external address, shifted >>8).
-#[expect(
-    dead_code,
-    reason = "hardware register map — used as reference during bring-up"
-)]
 pub const DMATRFBASE: usize = 0x110;
 /// Falcon DMA transfer IMEM/DMEM offset.
-#[expect(
-    dead_code,
-    reason = "hardware register map — used as reference during bring-up"
-)]
 pub const DMATRFMOFFS: usize = 0x114;
 /// Falcon DMA transfer command: bit 1=IMEM(1)/DMEM(0), bit 2=SIZE(0=256B,1=4B), bit 4=direction.
 #[expect(
@@ -190,6 +182,7 @@ pub const FBIF_DMAIDX_PHYS_SYS_NCOH: usize = 4;
 )]
 pub const FBIF_TARGET_VIRT: u32 = 0x00;
 /// FBIF target mode: physical video memory (bypasses MMU).
+#[expect(dead_code, reason = "hardware register map — target mode for reference")]
 pub const FBIF_TARGET_PHYS_VID: u32 = 0x01;
 /// FBIF target mode: physical system memory coherent.
 #[expect(

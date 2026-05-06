@@ -535,7 +535,7 @@ mod tests {
         let p = profile_for_sm(120);
         assert_eq!(p.name, "Blackwell B");
         assert_eq!(p.compute_class, 0xCEC0);
-        assert_eq!(p.channel_class, 0xCA6F);
+        assert_eq!(p.channel_class, 0xC96F); // CUDA R580 trace: Blackwell uses 0xC96F
         assert_eq!(p.qmd_version, QmdVersion::V50);
         assert_eq!(p.qmd_word_count, 96);
         assert_eq!(p.completion, CompletionStrategy::SemaphoreFence);

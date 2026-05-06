@@ -172,7 +172,7 @@ impl VendorLifecycle for NvidiaLifecycle {
             sysfs::sysfs_write_direct(&linux_paths::sysfs_pci_device_file(bdf, "reset_method"), "");
     }
 
-    fn verify_health(&self, bdf: &str, _target_driver: &str) -> Result<(), SwapError> {
+    fn verify_health(&self, bdf: &str, target_driver: &str) -> Result<(), SwapError> {
         let power = sysfs::read_power_state(bdf);
         if power.as_deref() == Some("D3cold") {
             return Err(SwapError::VerifyHealth {
@@ -180,6 +180,25 @@ impl VendorLifecycle for NvidiaLifecycle {
                 detail: "device in D3cold after bind".to_string(),
             });
         }
+
+        // For warm handoff to vfio-pci: verify config space is readable (GPU link alive).
+        // Full FECS-alive verification requires BAR0 MMIO which is done by
+        // coral-driver's open_warm path. Here we do a minimal PCIe link check.
+        if target_driver == "vfio-pci" || target_driver == "vfio" {
+            let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
+            if let Ok(data) = std::fs::read(&config_path) {
+                if data.len() >= 4 {
+                    let vendor = u16::from_le_bytes([data[0], data[1]]);
+                    if vendor == 0xFFFF {
+                        return Err(SwapError::VerifyHealth {
+                            bdf: bdf.to_string(),
+                            detail: "PCIe config space all-FF after swap — link dead".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 }

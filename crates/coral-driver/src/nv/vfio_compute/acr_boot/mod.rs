@@ -27,6 +27,48 @@
 //!             → FECS starts, signals mailbox0
 //!               → GR engine ready for dispatch
 //! ```
+//!
+//! ## GV100 (Titan V) ACR Audit — May 2026
+//!
+//! ### Firmware Status
+//! All required firmware blobs are present at `/lib/firmware/nvidia/gv100/`:
+//! - `acr/bl.bin` (symlink to gp102), `acr/ucode_load.bin`
+//! - `sec2/desc.bin`, `sec2/image.bin`, `sec2/sig.bin`
+//! - `gr/fecs_bl.bin`, `gr/fecs_inst.bin`, `gr/fecs_data.bin`, `gr/fecs_sig.bin`
+//! - `gr/gpccs_bl.bin` (symlink to gp107), `gr/gpccs_inst.bin`, `gr/gpccs_data.bin`, `gr/gpccs_sig.bin`
+//!
+//! ### SEC2 HAL Status
+//! - `Sec2Probe::capture()`: probes `CPUCTL`, `SCTL`, `BOOTVEC`, `HWCFG`, mailboxes
+//! - `reset_sec2()`: PMC bit discovery + engine reset
+//! - `falcon_engine_reset()`: per-falcon ENGCTL-based reset
+//! - `falcon_imem_upload_nouveau()`: PIO IMEM upload with correct BIT(24) format
+//! - `falcon_dmem_upload()`: PIO DMEM upload
+//! - `sec2_emem_write/read/verify`: EMEM (extended memory) access
+//! - `falcon_start_cpu()`: BOOTVEC + STARTCPU with ALIAS_EN awareness
+//!
+//! ### GV100 Key Properties (CPU-RM generation)
+//! - **No hardware WPR barriers**: ACR constructs a "virtual WPR" in sysmem DMA
+//! - **SEC2 in LS mode**: `SCTL` reports `0x3000` (fuse-enforced LS) — PIO works
+//! - **FECS/GPCCS in HS mode**: require SEC2-authenticated boot via ACR chain
+//! - **PMU firmware missing in nouveau**: fundamental limitation for long-running
+//!   PM, but not blocking for FECS boot (SEC2 is the relevant falcon)
+//!
+//! ### Current Strategies Tried (from solver cascade)
+//! 1. Nouveau-style SEC2 boot — STATUS: attempts but SEC2 does not signal completion
+//! 2. Physical-first SEC2 boot — STATUS: attempts, same stall
+//! 3. VRAM-based ACR boot — STATUS: PRAMIN writes land, SEC2 stalls
+//! 4. System-memory ACR boot — STATUS: DMA setup succeeds, SEC2 stalls at PC=0
+//! 5-9. Various fallbacks — STATUS: none succeed
+//!
+//! ### Remaining Investigation
+//! - SEC2 stalls: mailbox0 never transitions, PC stays at 0 or very low offset.
+//!   Likely cause: BL DMEM descriptor mismatch (code/data base addresses may need
+//!   adjustment for the DMA mode and instance block binding).
+//! - The `BootConfig` matrix (12 combinations) has been swept; `pde_upper=true`
+//!   achieves HS mode but ACR exits without loading FECS when `blob_size_zero=true`.
+//!   With `blob_size_zero=false`, the firmware attempts internal DMA but stalls —
+//!   likely needs correct WPR region physical addresses in the ACR blob descriptor.
+//! - Warm handoff (nouveau boots FECS → ember swap) remains the validated interim.
 
 mod boot_diagnostics;
 mod boot_result;
@@ -56,10 +98,10 @@ pub use instance_block::{
     encode_vram_pde, falcon_bind_context,
 };
 pub use sec2_hal::{
-    Sec2Probe, Sec2State, falcon_dmem_upload, falcon_engine_reset, falcon_imem_upload_nouveau,
-    falcon_start_cpu, reset_sec2, sec2_emem_read, sec2_emem_verify, sec2_emem_write,
-    sec2_exit_diagnostics, sec2_prepare_direct_boot, sec2_prepare_physical_first,
-    sec2_tracepc_dump,
+    Sec2Probe, Sec2State, falcon_configure_fbif_with_instance_block, falcon_dmem_upload,
+    falcon_engine_reset, falcon_imem_upload_nouveau, falcon_start_cpu, reset_sec2,
+    sec2_emem_read, sec2_emem_verify, sec2_emem_write, sec2_exit_diagnostics,
+    sec2_prepare_direct_boot, sec2_prepare_physical_first, sec2_tracepc_dump,
 };
 pub use solver::{BootStrategy, FalconBootSolver, FalconProbe, FecsState, GpuGeneration};
 pub use strategy_chain::{attempt_acr_chain, attempt_direct_acr_load};

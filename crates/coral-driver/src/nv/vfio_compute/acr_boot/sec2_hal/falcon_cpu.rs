@@ -144,3 +144,42 @@ pub fn falcon_configure_fbif_all_sysmem(bar0: &MappedBar, base: usize, notes: &m
     }
     let _ = bar0.write_u32(base + falcon::DMACTL, 0);
 }
+
+/// Configure FBIF_TRANSCFG indices for instance-block-backed virtual DMA.
+///
+/// Unlike `falcon_configure_fbif_all_sysmem` (which forces all indices to
+/// physical VRAM mode), this configuration:
+/// - Index 0 (UCODE): physical override for bootloader self-load
+/// - Index 1 (VIRT): NO physical override — routes through the falcon's
+///   bound instance block + page tables (required for ctx_dma=VIRT BL descs)
+/// - Index 2 (PHYS_VID): physical override + VRAM target
+/// - Index 3 (PHYS_SYS_COH): physical override for coherent sysmem
+/// - Index 4 (PHYS_SYS_NCOH): physical override for non-coherent sysmem
+///
+/// The falcon must have an instance block bound (via INST register) before
+/// DMA index 1 will function — without binding, VIRT DMA faults silently.
+pub fn falcon_configure_fbif_with_instance_block(
+    bar0: &MappedBar,
+    base: usize,
+    notes: &mut Vec<String>,
+) {
+    let phys_override = falcon::FBIF_PHYSICAL_OVERRIDE; // 0x80
+    let configs: [(usize, &str, u32); 5] = [
+        (0, "UCODE", phys_override),               // physical for BL self-load
+        (1, "VIRT", 0x00),                          // through instance block MMU
+        (2, "PHYS_VID", phys_override | 0x10),      // physical VRAM
+        (3, "PHYS_SYS_COH", phys_override),         // physical sysmem coherent
+        (4, "PHYS_SYS_NCOH", phys_override),        // physical sysmem non-coherent
+    ];
+
+    for &(idx, name, new_val) in &configs {
+        let off = base + falcon::FBIF_TRANSCFG_IDX_BASE + idx * falcon::FBIF_TRANSCFG_IDX_STRIDE;
+        let before = bar0.read_u32(off).unwrap_or(0xDEAD);
+        let _ = bar0.write_u32(off, new_val);
+        let after = bar0.read_u32(off).unwrap_or(0xDEAD);
+        notes.push(format!(
+            "FBIF[{idx}]({name})@{off:#x}: {before:#x}->{after:#x} (target={new_val:#x})"
+        ));
+    }
+    let _ = bar0.write_u32(base + falcon::DMACTL, 0);
+}

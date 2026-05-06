@@ -36,7 +36,7 @@ pub(super) fn run_gr_boot_precursor(
         w(0x200, pmc_pre | GR_BIT);
         // PGOB ungate runs ~200ms of PRI writes, keeping GR HUB alive.
         // After it returns, immediately slam CG-disable writes — no logging.
-        super::super::pgob::gk110_pgob_disable(guard);
+        let _ = super::super::pgob::gk110_pgob_disable(guard);
         // IMMEDIATE: disable BLCG/SLCG before auto-gating kicks in
         w(0x40_41f0, 0x0000_0000); // BLCG off
         w(0x40_41f4, 0x0000_0000); // SLCG off
@@ -130,7 +130,7 @@ pub(super) fn run_gr_boot_precursor(
                 gr_hub = format_args!("{gr_hub_pre:#010x}"),
                 "GR HUB still gated after MMIO init — running PGOB disable"
             );
-            super::super::pgob::gk110_pgob_disable(guard);
+            let _ = super::super::pgob::gk110_pgob_disable(guard);
             super::super::pri::clear_pri_ring_faults(guard.inner(), &r, &w);
         }
         let gr_hub_post = r(0x40_0000);

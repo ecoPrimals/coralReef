@@ -104,6 +104,7 @@ pub struct NvDevice {
     /// Used as the SET_OBJECT value in push buffers instead of `compute_class`.
     /// On legacy channels (where subchan binding is in CHANNEL_ALLOC), this
     /// equals `compute_class`.
+    #[expect(dead_code, reason = "wired during NVK-style object allocation path")]
     compute_object_handle: u32,
     /// Detected SM architecture version (e.g. 70 for Volta, 86 for Ampere).
     sm_version: u32,
@@ -351,6 +352,7 @@ impl NvDevice {
     /// such entries; the bulk of GR init is BAR0 register writes handled
     /// by [`try_bar0_gr_init`].
     #[cfg(feature = "nouveau")]
+    #[expect(dead_code, reason = "WIP: nouveau FECS channel init for sovereign warm handoff")]
     fn try_fecs_channel_init(&mut self) {
         let chip = probe::sm_to_chip(self.sm_version);
         let blobs = match GrFirmwareBlobs::parse(chip) {

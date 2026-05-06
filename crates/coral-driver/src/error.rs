@@ -450,6 +450,19 @@ pub enum SovereignStagesError {
         detail: String,
     },
 
+    /// PGOB power-domain step timed out (bit 31 stuck high after 2 s).
+    #[error("PGOB power step {step_index} at {addr:#010x} timed out (pre={pre:#010x}, post={post:#010x})")]
+    PgobStepTimeout {
+        /// Zero-based index into the power domain step table.
+        step_index: usize,
+        /// Register address that did not clear bit 31.
+        addr: u32,
+        /// Register value before the write.
+        pre: u32,
+        /// Register value after polling expired.
+        post: u32,
+    },
+
     /// Cold falcon boot did not yield a runnable FECS (detail line for logs).
     #[error("falcon boot did not succeed: {detail}")]
     FalconBootNotRunning {

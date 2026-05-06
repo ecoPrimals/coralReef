@@ -14,5 +14,5 @@
 //! - [`super::quiesce`] — engine quiesce before teardown
 //! - [`super::vbios_devinit`] — VBIOS DEVINIT script interpreter
 
-pub(crate) use super::kepler_cold::kepler_cold_init;
-pub(crate) use super::kepler_warm::kepler_warm_gr_init;
+pub use super::kepler_cold::kepler_cold_init;
+pub use super::kepler_warm::kepler_warm_gr_init;

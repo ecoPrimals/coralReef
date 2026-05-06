@@ -28,7 +28,7 @@ fn gpu_gen_class_via_profile() {
         (89, 0xC9C0, 0xC56F),  // Ada
         (90, 0xCBC0, 0xC56F),  // Hopper
         (100, 0xCDC0, 0xC96F), // Blackwell A
-        (120, 0xCEC0, 0xCA6F), // Blackwell B
+        (120, 0xCEC0, 0xC96F), // Blackwell B (CUDA R580 trace: 0xC96F)
     ];
     for &(sm, compute, channel) in cases {
         let gpu_gen = GpuGen::from_sm(sm);
