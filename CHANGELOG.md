@@ -4,11 +4,38 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 92
+**Current status**: Phase 10 — Iteration 93
 
 ---
 
 ## [Unreleased]
+
+### Iteration 93 — hotSpring Merge Hardening + Coverage Expansion (2026-05-07)
+
+#### Deep Debt — Env-Overridable Paths (hotSpring regression)
+- `open_userspace.rs`: 5 hardcoded `/dev/nvidiactl` and `/dev/nvidia{N}` → `nv_ctl_path()` / `nv_gpu_path_prefix()`
+- `open_kmod.rs`: 3 hardcoded paths → same env-overridable functions
+- `compute_trait.rs`: 2 hardcoded paths → same
+- `channel_setup.rs`: 5 hardcoded paths → `nv_ctl_path()` / `nv_gpu_path_prefix()`
+
+#### Unsafe Code Safety
+- `open_kmod.rs`: 4 missing `// SAFETY:` comments on VolatilePtr writes and ptr::copy_nonoverlapping
+- `open_userspace.rs`: 2 missing `// SAFETY:` comments on fence init and push buffer copy
+
+#### Coverage Expansion
+- `pri.rs`: 4 new tests — hub station params writes, privring timing mask application, VBIOS ring init logic (dead/alive)
+- `pgob.rs`: 6 new tests — power step table validation (count, alignment, range), PgobOutcome clone/debug/data
+
+#### Full Audit (All Clear)
+- `Result<_, String>` in production: zero (all remaining in test helpers)
+- Large files: all under 1000L, cohesive (no splits needed)
+- Unsafe code: all blocks documented with `// SAFETY:`, inherent to GPU driver (ioctl/mmap/MMIO)
+- External deps: all pure Rust; `cudarc` feature-gated opt-in; transitive `libc` is upstream evolution
+- Mocks in production: zero (all `#[cfg(test)]` gated)
+- Hardcoded paths: zero remaining in production (sysfs/VFIO kernel ABI paths are inherent)
+
+#### Tests
+- 4704 passing, 0 failures, 181 ignored (hardware-gated). Zero clippy warnings.
 
 ### Iteration 92 — Wire Standard L3 + Deep Debt Pass (2026-05-06)
 

@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 92.
+**Current position**: Phase 10 — Iteration 93.
 
-**Last completed**: Deep debt pass — `coral_probe.rs` typed errors (zero `Result<_, String>` in any production code), all hardcoded kernel device paths env-overridable (6 new `CORALREEF_*` env vars). Wire Standard L3 alignment (`capabilities.list` returns `protocol` + `transport`). BufReader post-negotiate verified correct. Large file assessment: all cohesive, no splits needed.
+**Last completed**: Deep debt pass — hotSpring merge path hardening: 11 additional hardcoded device paths evolved to env-overridable functions (`open_userspace.rs`, `open_kmod.rs`, `compute_trait.rs`, `channel_setup.rs`). 5 SAFETY comments added to undocumented unsafe blocks. 10 new unit tests for PRI ring management and PGOB validation. Full audit: zero `Result<_, String>` in production, all files under 1000L, all unsafe documented, all mocks test-isolated, all deps pure Rust.
 
-**Tests**: 4686 passing, 0 failed, 177 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4704 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
-**Last updated**: May 6, 2026.
+**Last updated**: May 7, 2026.
 
 **Next focus**: Coverage push toward 90% (coral-glowplug/coral-ember/coral-gpu largest gaps); PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration; `coral-gpu` sovereign path (replacing wgpu).
 
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4686 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4704 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.

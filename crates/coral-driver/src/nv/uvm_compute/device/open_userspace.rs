@@ -6,6 +6,7 @@ use std::os::fd::AsRawFd;
 
 use crate::error::{DriverError, DriverResult};
 use crate::mmio::VolatilePtr;
+use crate::nv::uvm::constants::{nv_ctl_path, nv_gpu_path_prefix};
 use crate::nv::uvm::{NvGpuDevice, NvUvmDevice, RmClient, VOLTA_USERMODE_A};
 
 use super::super::types::{CtxBuffer, GPFIFO_ENTRIES, GPFIFO_SIZE, GpuGen, USERD_SIZE};
@@ -198,21 +199,23 @@ impl NvUvmComputeDevice {
         );
 
         // CPU-map USERD and GPFIFO on dedicated nvidiactl fds.
+        let ctl_path = nv_ctl_path();
         let open_ctl = || -> DriverResult<std::fs::File> {
             std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open("/dev/nvidiactl")
-                .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into()))
+                .open(ctl_path)
+                .map_err(|e| DriverError::DeviceNotFound(format!("{ctl_path} for mmap: {e}").into()))
         };
         // VRAM buffers must be mapped on the GPU device fd (BAR1), not nvidiactl.
+        let gpu_path = format!("{}{gpu_index}", nv_gpu_path_prefix());
         let userd_mmap_fd = if userd_in_vram {
             std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open(format!("/dev/nvidia{gpu_index}"))
+                .open(&gpu_path)
                 .map_err(|e| {
-                    DriverError::DeviceNotFound(format!("nvidia{gpu_index} for USERD: {e}").into())
+                    DriverError::DeviceNotFound(format!("{gpu_path} for USERD: {e}").into())
                 })?
         } else {
             open_ctl()?
@@ -378,12 +381,15 @@ impl NvUvmComputeDevice {
 
         // Map the usermode object to get the doorbell page in CPU space.
         // USERMODE is a BAR-mapped object — must use the GPU device fd.
+        let doorbell_gpu_path = format!("{}{gpu_index}", nv_gpu_path_prefix());
         let usermode_mmap_fd = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/dev/nvidia{gpu_index}"))
+            .open(&doorbell_gpu_path)
             .map_err(|e| {
-                DriverError::DeviceNotFound(format!("nvidia{gpu_index} for doorbell: {e}").into())
+                DriverError::DeviceNotFound(
+                    format!("{doorbell_gpu_path} for doorbell: {e}").into(),
+                )
             })?;
         let doorbell_addr = client.rm_map_memory_on_fd(
             usermode_mmap_fd.as_raw_fd(),
@@ -452,6 +458,8 @@ impl NvUvmComputeDevice {
             let fence_fd = open_ctl()?;
             let fence_cpu =
                 client.rm_map_memory_on_fd(fence_fd.as_raw_fd(), h_device, h_fence_mem, 0, 4096)?;
+            // SAFETY: fence_cpu is a valid mmap'd pointer from rm_map_memory_on_fd,
+            // aligned to page boundary (4096 bytes), writable.
             unsafe { VolatilePtr::new(fence_cpu as *mut u32).write(0) };
 
             let fpb_fd = open_ctl()?;
@@ -541,8 +549,10 @@ impl NvUvmComputeDevice {
         let nop_fd = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .open("/dev/nvidiactl")
-            .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl: {e}").into()))?;
+            .open(nv_ctl_path())
+            .map_err(|e| {
+                DriverError::DeviceNotFound(format!("{}: {e}", nv_ctl_path()).into())
+            })?;
         let nop_cpu =
             dev.client
                 .rm_map_memory_on_fd(nop_fd.as_raw_fd(), h_device, nop_h_mem, 0, 4096)?;
@@ -646,8 +656,10 @@ impl NvUvmComputeDevice {
             let init_fd = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open("/dev/nvidiactl")
-                .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl: {e}").into()))?;
+                .open(nv_ctl_path())
+                .map_err(|e| {
+                    DriverError::DeviceNotFound(format!("{}: {e}", nv_ctl_path()).into())
+                })?;
             let init_cpu = dev.client.rm_map_memory_on_fd(
                 init_fd.as_raw_fd(),
                 h_device,
@@ -656,6 +668,8 @@ impl NvUvmComputeDevice {
                 4096,
             )?;
 
+            // SAFETY: init_cpu is a valid mmap'd pointer (4096 bytes writable),
+            // init_bytes.len() <= 4096, and the regions do not overlap.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     init_bytes.as_ptr(),

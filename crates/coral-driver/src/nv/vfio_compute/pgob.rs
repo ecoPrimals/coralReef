@@ -531,3 +531,66 @@ pub(super) fn nvidia470_pgob_enable(guard: &super::hardware_guard::GuardedBar<'_
         "nvidia470 PGOB enable complete (GPCs power-gated)"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pgob_power_steps_table_has_expected_entries() {
+        assert_eq!(PGOB_POWER_STEPS.len(), 16);
+    }
+
+    #[test]
+    fn pgob_power_steps_addresses_are_aligned() {
+        for &(addr, _) in PGOB_POWER_STEPS {
+            assert_eq!(addr % 4, 0, "register address {addr:#010x} is not dword-aligned");
+        }
+    }
+
+    #[test]
+    fn pgob_power_steps_are_in_expected_range() {
+        for &(addr, _) in PGOB_POWER_STEPS {
+            assert!(
+                (0x02_0520..=0x02_0530).contains(&addr),
+                "unexpected address {addr:#010x} outside 0x020520..0x020530"
+            );
+        }
+    }
+
+    #[test]
+    fn pgob_outcome_gpc_alive_default() {
+        let outcome = PgobOutcome {
+            gpc_alive: true,
+            gpccs0_cpuctl: 0x1234_5678,
+            pg_status: 0x0000_0000,
+        };
+        assert!(outcome.gpc_alive);
+        assert_eq!(outcome.gpccs0_cpuctl, 0x1234_5678);
+    }
+
+    #[test]
+    fn pgob_outcome_clone() {
+        let outcome = PgobOutcome {
+            gpc_alive: false,
+            gpccs0_cpuctl: 0xDEAD_DEAD,
+            pg_status: 0xFF,
+        };
+        let cloned = outcome.clone();
+        assert_eq!(cloned.gpc_alive, outcome.gpc_alive);
+        assert_eq!(cloned.gpccs0_cpuctl, outcome.gpccs0_cpuctl);
+        assert_eq!(cloned.pg_status, outcome.pg_status);
+    }
+
+    #[test]
+    fn pgob_outcome_debug_format() {
+        let outcome = PgobOutcome {
+            gpc_alive: true,
+            gpccs0_cpuctl: 0x20,
+            pg_status: 0,
+        };
+        let debug = format!("{outcome:?}");
+        assert!(debug.contains("gpc_alive: true"));
+        assert!(debug.contains("gpccs0_cpuctl"));
+    }
+}

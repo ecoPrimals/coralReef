@@ -5,6 +5,7 @@ use std::os::fd::AsRawFd;
 
 use crate::error::{DriverError, DriverResult};
 use crate::mmio::VolatilePtr;
+use crate::nv::uvm::constants::{nv_ctl_path, nv_gpu_path_prefix};
 use crate::nv::uvm::{RmClient, VOLTA_USERMODE_A};
 
 use super::device::NvUvmComputeDevice;
@@ -13,11 +14,12 @@ use super::types::{GPFIFO_ENTRIES, GPFIFO_SIZE, GpuGen, USERD_SIZE};
 use super::ctx_buffers::uses_semaphore_fence_for_gen;
 
 fn open_nvidiactl_mmap_fd() -> DriverResult<std::fs::File> {
+    let path = nv_ctl_path();
     std::fs::OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/nvidiactl")
-        .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into()))
+        .open(path)
+        .map_err(|e| DriverError::DeviceNotFound(format!("{path} for mmap: {e}").into()))
 }
 
 /// RM objects and CPU mappings for the GPFIFO channel through compute engine bind.
@@ -75,13 +77,14 @@ pub(super) fn userspace_setup_gpfifo_channel(
 
     // CPU-map USERD and GPFIFO on dedicated nvidiactl fds.
     // VRAM buffers must be mapped on the GPU device fd (BAR1), not nvidiactl.
+    let gpu_path = format!("{}{gpu_index}", nv_gpu_path_prefix());
     let userd_mmap_fd = if userd_in_vram {
         std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/dev/nvidia{gpu_index}"))
+            .open(&gpu_path)
             .map_err(|e| {
-                DriverError::DeviceNotFound(format!("nvidia{gpu_index} for USERD: {e}").into())
+                DriverError::DeviceNotFound(format!("{gpu_path} for USERD: {e}").into())
             })?
     } else {
         open_nvidiactl_mmap_fd()?
@@ -195,12 +198,13 @@ pub(super) fn userspace_schedule_tsg_doorbell_and_fence(
 
     // Map the usermode object to get the doorbell page in CPU space.
     // USERMODE is a BAR-mapped object — must use the GPU device fd.
+    let doorbell_path = format!("{}{gpu_index}", nv_gpu_path_prefix());
     let usermode_mmap_fd = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
-        .open(format!("/dev/nvidia{gpu_index}"))
+        .open(&doorbell_path)
         .map_err(|e| {
-            DriverError::DeviceNotFound(format!("nvidia{gpu_index} for doorbell: {e}").into())
+            DriverError::DeviceNotFound(format!("{doorbell_path} for doorbell: {e}").into())
         })?;
     let doorbell_addr =
         client.rm_map_memory_on_fd(usermode_mmap_fd.as_raw_fd(), h_device, h_usermode, 0, 4096)?;
@@ -286,8 +290,10 @@ pub(super) fn userspace_nop_smoke_slq_compute_init(
     let nop_fd = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/nvidiactl")
-        .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl: {e}").into()))?;
+        .open(nv_ctl_path())
+        .map_err(|e| {
+            DriverError::DeviceNotFound(format!("{}: {e}", nv_ctl_path()).into())
+        })?;
     let nop_cpu =
         dev.client
             .rm_map_memory_on_fd(nop_fd.as_raw_fd(), h_device, nop_h_mem, 0, 4096)?;
@@ -370,8 +376,10 @@ pub(super) fn userspace_nop_smoke_slq_compute_init(
         let init_fd = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .open("/dev/nvidiactl")
-            .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl: {e}").into()))?;
+            .open(nv_ctl_path())
+            .map_err(|e| {
+                DriverError::DeviceNotFound(format!("{}: {e}", nv_ctl_path()).into())
+            })?;
         let init_cpu =
             dev.client
                 .rm_map_memory_on_fd(init_fd.as_raw_fd(), h_device, h_init_mem, 0, 4096)?;

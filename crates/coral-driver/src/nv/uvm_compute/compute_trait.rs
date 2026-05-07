@@ -7,6 +7,7 @@ use crate::error::DriverError;
 use crate::error::DriverResult;
 use crate::nv::pushbuf::PushBuf;
 use crate::nv::qmd;
+use crate::nv::uvm::constants::{nv_ctl_path, nv_gpu_path_prefix};
 use crate::{BufferHandle, ComputeDevice, DispatchDims, MemoryDomain, ShaderInfo};
 
 use super::device::NvUvmComputeDevice;
@@ -24,13 +25,14 @@ impl ComputeDevice for NvUvmComputeDevice {
             let (h_mem, gpu_va) = kmod.alloc_gpu_buffer(self.kmod_h_client, aligned)?;
 
             // CPU mapping via BAR1 (GPU device fd) for VRAM access.
+            let gpu_path = format!("{}{}", nv_gpu_path_prefix(), self.gpu.index());
             let mmap_file = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open(format!("/dev/nvidia{}", self.gpu.index()))
+                .open(&gpu_path)
                 .map_err(|e| {
                     DriverError::DeviceNotFound(
-                        format!("nvidia{} for VRAM mmap: {e}", self.gpu.index()).into(),
+                        format!("{gpu_path} for VRAM mmap: {e}").into(),
                     )
                 })?;
             let cpu_addr = self.client.rm_map_memory_on_fd(
@@ -65,8 +67,10 @@ impl ComputeDevice for NvUvmComputeDevice {
         let mmap_file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .open("/dev/nvidiactl")
-            .map_err(|e| DriverError::DeviceNotFound(format!("nvidiactl for mmap: {e}").into()))?;
+            .open(nv_ctl_path())
+            .map_err(|e| {
+                DriverError::DeviceNotFound(format!("{} for mmap: {e}", nv_ctl_path()).into())
+            })?;
         let cpu_addr = self.client.rm_map_memory_on_fd(
             mmap_file.as_raw_fd(),
             self.h_device,

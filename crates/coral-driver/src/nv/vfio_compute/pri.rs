@@ -389,3 +389,96 @@ pub(super) fn clear_pri_ring_faults(
         "PRI ring faults persist after 5 ACK attempts"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    use super::*;
+
+    struct MockRegs {
+        regs: RefCell<HashMap<u32, u32>>,
+        writes: RefCell<Vec<(u32, u32)>>,
+    }
+
+    impl MockRegs {
+        fn new() -> Self {
+            Self {
+                regs: RefCell::new(HashMap::new()),
+                writes: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn set(&self, addr: u32, val: u32) {
+            self.regs.borrow_mut().insert(addr, val);
+        }
+
+        fn read_fn(&self) -> impl Fn(u32) -> u32 + '_ {
+            |addr| self.regs.borrow().get(&addr).copied().unwrap_or(0xDEAD_DEAD)
+        }
+
+        fn write_fn(&self) -> impl Fn(u32, u32) + '_ {
+            |addr, val| {
+                self.regs.borrow_mut().insert(addr, val);
+                self.writes.borrow_mut().push((addr, val));
+            }
+        }
+
+        fn write_log(&self) -> Vec<(u32, u32)> {
+            self.writes.borrow().clone()
+        }
+    }
+
+    #[test]
+    fn hub_station_params_writes_all_entries() {
+        let mock = MockRegs::new();
+        let w = mock.write_fn();
+        write_kepler_hub_station_params(&w);
+        let log = mock.write_log();
+        assert_eq!(log.len(), GK210_HUB_STATION_PARAMS.len());
+        for (i, &(reg, val)) in GK210_HUB_STATION_PARAMS.iter().enumerate() {
+            assert_eq!(log[i], (reg, val));
+        }
+    }
+
+    #[test]
+    fn privring_timing_applies_masks_correctly() {
+        let mock = MockRegs::new();
+        for &(reg, _, _) in GK104_PRIVRING_TIMING {
+            mock.set(reg, 0xFFFF_FFFF);
+        }
+        let r = mock.read_fn();
+        let w = mock.write_fn();
+        gk104_privring_timing(&r, &w);
+        let log = mock.write_log();
+        assert_eq!(log.len(), GK104_PRIVRING_TIMING.len());
+        for (i, &(reg, clr, set)) in GK104_PRIVRING_TIMING.iter().enumerate() {
+            let expected = (0xFFFF_FFFF & !clr) | set;
+            assert_eq!(log[i], (reg, expected), "mismatch at step {i} reg {reg:#010x}");
+        }
+    }
+
+    #[test]
+    fn vbios_ring_init_returns_false_when_hub_dead() {
+        let mock = MockRegs::new();
+        mock.set(0x12_0058, 0); // no faults
+        mock.set(0x12_0070, 0xDEAD_DEAD); // hub dead
+        let r = mock.read_fn();
+        let w = mock.write_fn();
+        assert!(!vbios_pri_ring_init(&r, &w));
+    }
+
+    #[test]
+    fn vbios_ring_init_returns_true_when_hub_alive() {
+        let mock = MockRegs::new();
+        mock.set(0x12_0058, 0);
+        mock.set(0x12_0070, 3); // 3 hub stations = alive
+        let r = mock.read_fn();
+        let w = mock.write_fn();
+        assert!(vbios_pri_ring_init(&r, &w));
+        let log = mock.write_log();
+        // Should have sent init command 0x03
+        assert!(log.contains(&(0x12_004C, 0x03)));
+    }
+}
