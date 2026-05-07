@@ -186,15 +186,15 @@ impl VendorLifecycle for NvidiaLifecycle {
         // coral-driver's open_warm path. Here we do a minimal PCIe link check.
         if target_driver == "vfio-pci" || target_driver == "vfio" {
             let config_path = linux_paths::sysfs_pci_device_file(bdf, "config");
-            if let Ok(data) = std::fs::read(&config_path) {
-                if data.len() >= 4 {
-                    let vendor = u16::from_le_bytes([data[0], data[1]]);
-                    if vendor == 0xFFFF {
-                        return Err(SwapError::VerifyHealth {
-                            bdf: bdf.to_string(),
-                            detail: "PCIe config space all-FF after swap — link dead".to_string(),
-                        });
-                    }
+            if let Ok(data) = std::fs::read(&config_path)
+                && data.len() >= 4
+            {
+                let vendor = u16::from_le_bytes([data[0], data[1]]);
+                if vendor == 0xFFFF {
+                    return Err(SwapError::VerifyHealth {
+                        bdf: bdf.to_string(),
+                        detail: "PCIe config space all-FF after swap — link dead".to_string(),
+                    });
                 }
             }
         }

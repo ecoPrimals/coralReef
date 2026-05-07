@@ -598,7 +598,7 @@ pub fn kepler_cold_init(bar0: &MappedBar) {
         let wr_raw = |off: u32, val: u32| { let _ = bar0_inner.write_u32(off as usize, val); };
 
         let gpc0 = 0x50_2000u32;
-        let falcon_id  = rd(gpc0 + 0x000);
+        let falcon_id  = rd(gpc0);
         let falcon_ver = rd(gpc0 + 0x004);
         let irqstat    = rd(gpc0 + 0x008);
         let irqmask    = rd(gpc0 + 0x010);
@@ -668,7 +668,7 @@ pub fn kepler_cold_init(bar0: &MappedBar) {
         let gpc0_base = 0x50_0000u32;
         let gpc0_tpc0  = rd(gpc0_base + 0x4000);
         let gpc0_mmu   = rd(gpc0_base + 0x0880);
-        let gpc0_unk   = rd(gpc0_base + 0x0000);
+        let gpc0_unk   = rd(gpc0_base);
         tracing::info!(
             gpc0_root  = format_args!("{gpc0_unk:#010x}"),
             gpc0_mmu   = format_args!("{gpc0_mmu:#010x}"),

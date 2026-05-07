@@ -58,7 +58,7 @@
 //! 2. Physical-first SEC2 boot — STATUS: attempts, same stall
 //! 3. VRAM-based ACR boot — STATUS: PRAMIN writes land, SEC2 stalls
 //! 4. System-memory ACR boot — STATUS: DMA setup succeeds, SEC2 stalls at PC=0
-//! 5-9. Various fallbacks — STATUS: none succeed
+//! 5. Various fallbacks (5–9) — STATUS: none succeed
 //!
 //! ### Remaining Investigation
 //! - SEC2 stalls: mailbox0 never transitions, PC stays at 0 or very low offset.

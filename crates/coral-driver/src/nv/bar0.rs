@@ -76,15 +76,15 @@ impl Bar0Access {
     /// or if the device is held by a live ember instance.
     pub fn from_sysfs_device(sysfs_device: &str) -> Result<Self, ApplyError> {
         #[cfg(feature = "vfio")]
-        if let Some(bdf) = bdf_from_sysfs_device(sysfs_device) {
-            if crate::vfio::ember_gate::is_device_held_by_ember(&bdf) {
-                return Err(ApplyError::MmioFailed {
-                    offset: 0,
-                    detail: format!(
-                        "device {bdf} is held by ember — use EmberSession::connect() instead of direct BAR0 open"
-                    ),
-                });
-            }
+        if let Some(bdf) = bdf_from_sysfs_device(sysfs_device)
+            && crate::vfio::ember_gate::is_device_held_by_ember(&bdf)
+        {
+            return Err(ApplyError::MmioFailed {
+                offset: 0,
+                detail: format!(
+                    "device {bdf} is held by ember — use EmberSession::connect() instead of direct BAR0 open"
+                ),
+            });
         }
         let path = format!("{sysfs_device}/resource0");
         Self::open_resource(&path)

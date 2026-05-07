@@ -372,7 +372,7 @@ impl ComputeDevice for NvUvmComputeDevice {
 
         eprintln!(
             "[dispatch] qmd_va=0x{qmd_va:016X} aligned256={} qmd_words={} cbuf_size={desc_cbuf_size}",
-            qmd_va % 256 == 0, qmd_words.len(),
+            qmd_va.is_multiple_of(256), qmd_words.len(),
         );
         for row in 0..qmd_words.len() / 4 {
             let base = row * 4;
@@ -452,13 +452,13 @@ impl ComputeDevice for NvUvmComputeDevice {
             self.gp_put,
         );
 
-        if !buffers.is_empty() {
-            if let Some(buf) = self.buffers.get(&buffers[0].0) {
-                eprintln!(
-                    "[dispatch] buf[0] gpu_va=0x{:016X} size={} cpu_addr=0x{:016X}",
-                    buf.gpu_va, buf.size, buf.cpu_addr,
-                );
-            }
+        if !buffers.is_empty()
+            && let Some(buf) = self.buffers.get(&buffers[0].0)
+        {
+            eprintln!(
+                "[dispatch] buf[0] gpu_va=0x{:016X} size={} cpu_addr=0x{:016X}",
+                buf.gpu_va, buf.size, buf.cpu_addr,
+            );
         }
 
         self.submit_gpfifo(pb_va, pb_dwords)?;

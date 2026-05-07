@@ -256,7 +256,7 @@ pub fn try_kepler_fecs_boot(render_node_path: &str, sm: u32) {
 #[cfg(feature = "nouveau")]
 fn upload_falcon_dmem(bar0: &mut bar0::Bar0Access, base: u32, data: &[u8]) {
     use crate::gsp::RegisterAccess;
-    let words = (data.len() + 3) / 4;
+    let words = data.len().div_ceil(4);
     for i in 0..words {
         let off = i * 4;
         let val = u32::from_le_bytes([
@@ -275,7 +275,7 @@ fn upload_falcon_dmem(bar0: &mut bar0::Bar0Access, base: u32, data: &[u8]) {
 #[cfg(feature = "nouveau")]
 fn upload_falcon_imem(bar0: &mut bar0::Bar0Access, base: u32, data: &[u8]) {
     use crate::gsp::RegisterAccess;
-    let words = (data.len() + 3) / 4;
+    let words = data.len().div_ceil(4);
     for i in 0..words {
         let off = i * 4;
         let val = u32::from_le_bytes([
