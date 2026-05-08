@@ -140,8 +140,7 @@ impl NvUvmComputeDevice {
             match Self::open_via_kmod(kmod, gpu_index, sm) {
                 Ok(dev) => return Ok(dev),
                 Err(e) => {
-                    eprintln!("[coral-driver] kmod init failed (sm={sm}): {e}");
-                    tracing::warn!("coral-kmod init failed ({e}), falling back to userspace RM");
+                    tracing::warn!("coral-kmod init failed (sm={sm}, {e}), falling back to userspace RM");
                 }
             }
         }

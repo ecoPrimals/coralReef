@@ -114,7 +114,6 @@ impl NvDrmDevice {
                     sm,
                     "UVM compute device failed to open — dispatch will fail"
                 );
-                eprintln!("[coral-driver] UVM compute open failed (sm={sm}): {e}");
                 None
             }
         };

@@ -347,11 +347,6 @@ impl ComputeDevice for NvUvmComputeDevice {
             cbufs,
         };
 
-        eprintln!(
-            "[dispatch] shader_va=0x{shader_va:016X} desc_va=0x{desc_va:016X} \
-             grid={dims:?} wg={:?} gpr={} sm={} bufs={}",
-            info.workgroup, info.gpr_count, self.sm_version(), buffers.len()
-        );
         tracing::debug!(
             shader_va = format_args!("0x{shader_va:016X}"),
             desc_va = format_args!("0x{desc_va:016X}"),
@@ -374,20 +369,27 @@ impl ComputeDevice for NvUvmComputeDevice {
         self.upload(qmd_handle, 0, qmd_bytes)?;
         let qmd_va = self.buffers.get(&qmd_handle.0).map_or(0, |b| b.gpu_va);
 
-        eprintln!(
-            "[dispatch] qmd_va=0x{qmd_va:016X} aligned256={} qmd_words={} cbuf_size={desc_cbuf_size}",
-            qmd_va.is_multiple_of(256), qmd_words.len(),
+        tracing::debug!(
+            qmd_va = format_args!("0x{qmd_va:016X}"),
+            aligned256 = qmd_va.is_multiple_of(256),
+            qmd_words = qmd_words.len(),
+            desc_cbuf_size,
+            "dispatch qmd"
         );
         for row in 0..qmd_words.len() / 4 {
             let base = row * 4;
             if qmd_words[base..base + 4].iter().all(|&w| w == 0) {
                 continue;
             }
-            eprintln!(
-                "[qmd] [{:3}..{:3}] bit{:4}: {:08X} {:08X} {:08X} {:08X}",
-                base, base + 3, base * 32,
-                qmd_words[base], qmd_words[base + 1],
-                qmd_words[base + 2], qmd_words[base + 3],
+            tracing::debug!(
+                row_start = base,
+                row_end = base + 3,
+                bit_base = base * 32,
+                w0 = format_args!("{:08X}", qmd_words[base]),
+                w1 = format_args!("{:08X}", qmd_words[base + 1]),
+                w2 = format_args!("{:08X}", qmd_words[base + 2]),
+                w3 = format_args!("{:08X}", qmd_words[base + 3]),
+                "qmd row"
             );
         }
 
@@ -400,19 +402,23 @@ impl ComputeDevice for NvUvmComputeDevice {
         let pb = PushBuf::compute_dispatch_on_subchannel(launch, qmd_va, self.compute_subchannel);
         let pb_bytes = pb.as_bytes();
 
-        eprintln!(
-            "[dispatch] push_buf words ({}):",
-            pb.as_words().len()
-        );
+        tracing::debug!(push_buf_words = pb.as_words().len(), "dispatch push_buf layout");
         for (i, w) in pb.as_words().iter().enumerate() {
             let is_hdr = i % 2 == 0;
             if is_hdr {
                 let subchan = (*w >> 13) & 0x7;
                 let method = (*w & 0x1FFF) << 2;
                 let count = (*w >> 16) & 0x1FFF;
-                eprintln!("  [{i}] hdr: 0x{w:08X} (sub={subchan} method=0x{method:04X} count={count})");
+                tracing::debug!(
+                    i,
+                    word = format_args!("0x{w:08X}"),
+                    subchan,
+                    method = format_args!("0x{method:04X}"),
+                    count,
+                    "push_buf hdr"
+                );
             } else {
-                eprintln!("  [{i}] dat: 0x{w:08X}");
+                tracing::debug!(i, word = format_args!("0x{w:08X}"), "push_buf dat");
             }
         }
 
@@ -451,26 +457,31 @@ impl ComputeDevice for NvUvmComputeDevice {
             std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
         }
 
-        eprintln!(
-            "[dispatch] pb_va=0x{pb_va:016X} pb_dwords={pb_dwords} gp_put_before={}",
-            self.gp_put,
+        tracing::debug!(
+            pb_va = format_args!("0x{pb_va:016X}"),
+            pb_dwords,
+            gp_put_before = self.gp_put,
+            "dispatch submit"
         );
 
         if !buffers.is_empty()
-            && let Some(buf) = self.buffers.get(&buffers[0].0)
+            &&             let Some(buf) = self.buffers.get(&buffers[0].0)
         {
-            eprintln!(
-                "[dispatch] buf[0] gpu_va=0x{:016X} size={} cpu_addr=0x{:016X}",
-                buf.gpu_va, buf.size, buf.cpu_addr,
+            tracing::debug!(
+                gpu_va = format_args!("0x{:016X}", buf.gpu_va),
+                size = buf.size,
+                cpu_addr = format_args!("0x{:016X}", buf.cpu_addr),
+                "dispatch buf[0]"
             );
         }
 
         self.submit_gpfifo(pb_va, pb_dwords)?;
 
         if self.uses_semaphore_fence {
-            eprintln!(
-                "[dispatch] fence_value_before={} fence_gpu_va=0x{:016X}",
-                self.fence_value, self.fence_gpu_va,
+            tracing::debug!(
+                fence_value_before = self.fence_value,
+                fence_gpu_va = format_args!("0x{:016X}", self.fence_gpu_va),
+                "dispatch fence"
             );
             self.submit_fence_release()?;
         }

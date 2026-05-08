@@ -119,7 +119,7 @@ impl NvUvmComputeDevice {
             use crate::nv::uvm::ExternalMapping;
             use super::super::types::page_align;
 
-            eprintln!("[coral-kmod] phase 2: UVM-mapping GPFIFO before COMPLETE_INIT");
+            tracing::debug!("phase 2: UVM-mapping GPFIFO before COMPLETE_INIT");
 
             let gpfifo_size = page_align(info.gpfifo_size.max(512 * 8));
             let gpfifo_gpu_va = uvm_va_next;
@@ -134,7 +134,10 @@ impl NvUvmComputeDevice {
                 gpu_uuid: &info.gpu_uuid,
             })?;
             uvm_va_next = gpfifo_gpu_va + gpfifo_size;
-            eprintln!("[coral-kmod] GPFIFO UVM-mapped at 0x{gpfifo_gpu_va:016X}");
+            tracing::debug!(
+                gpfifo_gpu_va = %format_args!("0x{gpfifo_gpu_va:016X}"),
+                "GPFIFO UVM-mapped"
+            );
 
             // Allocate and UVM-map fence memory NOW, before UVM_REGISTER_CHANNEL.
             // This ensures the fence VAs are in the same pre-channel-registration
@@ -177,8 +180,10 @@ impl NvUvmComputeDevice {
                 early_fence_va = fv_va;
                 early_fpb_va = fp_va;
                 info.h_fence_mem = h_fm;
-                eprintln!(
-                    "[coral-kmod] fence pre-mapped: fence_va=0x{fv_va:016X} fpb_va=0x{fp_va:016X}"
+                tracing::debug!(
+                    fence_va = %format_args!("0x{fv_va:016X}"),
+                    fpb_va = %format_args!("0x{fp_va:016X}"),
+                    "fence pre-mapped"
                 );
             }
 
@@ -202,7 +207,11 @@ impl NvUvmComputeDevice {
             info.userd_is_vram = info2.userd_is_vram;
             info.ctx_bufs = info2.ctx_bufs;
 
-            eprintln!("[coral-kmod] phase 2 complete: h_channel=0x{:08X} hw_ch={}", info.h_channel, info.hw_channel_id);
+            tracing::debug!(
+                h_channel = %format_args!("0x{:08X}", info.h_channel),
+                hw_channel_id = info.hw_channel_id,
+                "phase 2 complete"
+            );
 
             // UVM_REGISTER_CHANNEL — must happen before scheduling
             let chan_resource_range: u64 = 0x1000_0000; // 256 MiB
@@ -218,13 +227,16 @@ impl NvUvmComputeDevice {
                 chan_resource_base,
                 chan_resource_range,
             ) {
-                Ok(()) => eprintln!("[coral-kmod] UVM_REGISTER_CHANNEL OK: base=0x{chan_resource_base:X}"),
-                Err(e) => eprintln!("[coral-kmod] UVM_REGISTER_CHANNEL failed: {e} (continuing)"),
+                Ok(()) => tracing::debug!(
+                    chan_resource_base = %format_args!("0x{chan_resource_base:X}"),
+                    "UVM_REGISTER_CHANNEL OK"
+                ),
+                Err(e) => tracing::warn!("UVM_REGISTER_CHANNEL failed: {e} (continuing)"),
             }
 
             // Schedule the TSG
             client.tsg_gpfifo_schedule(info.h_changrp)?;
-            eprintln!("[coral-kmod] tsg_gpfifo_schedule OK");
+            tracing::debug!("tsg_gpfifo_schedule OK");
         }
 
         // Now map channel memory — all handles and sizes are available.
@@ -335,9 +347,10 @@ impl NvUvmComputeDevice {
                 4096,
             )?;
 
-            eprintln!(
-                "[coral-kmod] fence CPU-mapped: va=0x{:016X} fpb_va=0x{:016X}",
-                early_fence_va, early_fpb_va
+            tracing::debug!(
+                va = %format_args!("0x{:016X}", early_fence_va),
+                fpb_va = %format_args!("0x{:016X}", early_fpb_va),
+                "fence CPU-mapped"
             );
             (
                 fence_cpu,
@@ -394,8 +407,10 @@ impl NvUvmComputeDevice {
             let fpb_va =
                 client.rm_map_memory_dma(info.h_device, info.h_virt_mem, h_fence_pb, 0, 4096)?;
 
-            eprintln!(
-                "[coral-kmod] fence (DMA): va=0x{fence_va:016X} fpb_va=0x{fpb_va:016X}"
+            tracing::debug!(
+                va = %format_args!("0x{fence_va:016X}"),
+                fpb_va = %format_args!("0x{fpb_va:016X}"),
+                "fence (DMA)"
             );
             (
                 fence_cpu,
@@ -462,18 +477,21 @@ impl NvUvmComputeDevice {
                 std::ptr::write_bytes(errnotif_cpu_addr as *mut u8, 0, 48);
                 uvm_cache_line_flush(errnotif_cpu_addr as *const u8);
             }
-            eprintln!("[coral-kmod] errnotif zeroed at 0x{errnotif_cpu_addr:X}");
+            tracing::debug!(
+                errnotif_cpu_addr = %format_args!("0x{errnotif_cpu_addr:X}"),
+                "errnotif zeroed"
+            );
         }
 
         // Test bare fence release before compute_init to validate GPFIFO + fence mechanism.
         if uses_semaphore_fence && dev.fence_pb_cpu_addr != 0 {
-            eprintln!("[coral-kmod] testing bare fence release...");
+            tracing::debug!("testing bare fence release");
             dev.submit_fence_release()?;
             match dev.poll_gpfifo_completion() {
-                Ok(()) => eprintln!("[coral-kmod] bare fence release OK — GPFIFO works!"),
+                Ok(()) => tracing::debug!("bare fence release OK — GPFIFO works"),
                 Err(e) => {
                     let en = dev.read_error_notifier();
-                    eprintln!("[coral-kmod] bare fence release FAILED: {e}  errnotif=[{en}]");
+                    tracing::warn!("bare fence release FAILED: {e}  errnotif=[{en}]");
                 }
             }
         }
@@ -530,8 +548,9 @@ impl NvUvmComputeDevice {
                 );
             }
 
-            eprintln!(
-                "[coral-kmod] compute_init: SET_OBJECT class=0x{compute_class:04X}"
+            tracing::debug!(
+                compute_class = %format_args!("0x{compute_class:04X}"),
+                "compute_init: SET_OBJECT"
             );
             dev.submit_gpfifo(init_gpu_va, init_dwords)?;
             if dev.uses_semaphore_fence {
@@ -539,12 +558,10 @@ impl NvUvmComputeDevice {
             }
             match dev.poll_gpfifo_completion() {
                 Ok(()) => {
-                    eprintln!(
-                        "[coral-kmod] compute_init OK — SET_OBJECT accepted!"
-                    );
+                    tracing::debug!("compute_init OK — SET_OBJECT accepted");
                 }
                 Err(e) => {
-                    eprintln!("[coral-kmod] compute_init FAILED: {e}");
+                    tracing::warn!("compute_init FAILED: {e}");
                 }
             }
 

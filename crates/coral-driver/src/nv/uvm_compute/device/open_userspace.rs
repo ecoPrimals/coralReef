@@ -101,11 +101,11 @@ impl NvUvmComputeDevice {
 
         let h_vaspace = if is_blackwell_plus {
             let h = client.alloc_vaspace_for_uvm(h_device)?;
-            eprintln!("[coral-driver] Blackwell faulting VA space allocated (0x48)");
+            tracing::debug!("Blackwell faulting VA space allocated (0x48)");
             h
         } else {
             let h = client.alloc_vaspace(h_device)?;
-            eprintln!("[coral-driver] VA space allocated (non-faulting)");
+            tracing::debug!("VA space allocated (non-faulting)");
             h
         };
 
@@ -118,9 +118,9 @@ impl NvUvmComputeDevice {
                 client.handle(),
                 h_vaspace,
             ) {
-                Ok(()) => eprintln!("[coral-driver] UVM_REGISTER_GPU_VASPACE OK"),
+                Ok(()) => tracing::debug!("UVM_REGISTER_GPU_VASPACE OK"),
                 Err(e) => {
-                    eprintln!("[coral-driver] UVM_REGISTER_GPU_VASPACE failed: {e} (continuing)");
+                    tracing::warn!("UVM_REGISTER_GPU_VASPACE failed: {e} (continuing)");
                 }
             }
         }
@@ -176,7 +176,7 @@ impl NvUvmComputeDevice {
                 gpu_uuid: &gpu_uuid,
             })?;
             uvm_va_next = va + gpfifo_size;
-            eprintln!("[coral-driver] GPFIFO UVM-mapped at 0x{va:016X}");
+            tracing::debug!(va = %format_args!("0x{va:016X}"), "GPFIFO UVM-mapped");
             va
         } else {
             client.rm_map_memory_dma(h_device, h_virt_mem, h_gpfifo_mem, 0, GPFIFO_SIZE)?
@@ -249,13 +249,21 @@ impl NvUvmComputeDevice {
         tracing::debug!("USERD/GPFIFO CPU mapping done");
         let compute_class = gpu_gen.compute_class();
 
-        eprintln!("[coral-driver] alloc_compute_engine: h_channel=0x{h_channel:08X} class=0x{compute_class:04X}");
+        tracing::debug!(
+            h_channel = %format_args!("0x{h_channel:08X}"),
+            compute_class = %format_args!("0x{compute_class:04X}"),
+            "alloc_compute_engine"
+        );
         let h_compute = client.alloc_compute_engine(h_channel, compute_class)?;
-        eprintln!("[coral-driver] alloc_compute_engine OK: h_compute=0x{h_compute:08X}");
+        tracing::debug!(h_compute = %format_args!("0x{h_compute:08X}"), "alloc_compute_engine OK");
 
-        eprintln!("[coral-driver] channel_bind_engine: h_compute=0x{h_compute:08X} class=0x{compute_class:04X} engine_type=1 (GR0)");
+        tracing::debug!(
+            h_compute = %format_args!("0x{h_compute:08X}"),
+            compute_class = %format_args!("0x{compute_class:04X}"),
+            "channel_bind_engine (GR0)"
+        );
         client.channel_bind_engine(h_channel, h_compute, compute_class, 1)?;
-        eprintln!("[coral-driver] channel_bind_engine OK");
+        tracing::debug!("channel_bind_engine OK");
 
         // ── Blackwell post-bind: work submit token + ctx buffer query ──
         //
@@ -267,12 +275,12 @@ impl NvUvmComputeDevice {
         if is_blackwell_plus {
             let token = 0x4000_0005_u32 + (h_channel & 0xFF);
             match client.set_work_submit_token(h_channel, token) {
-                Ok(()) => eprintln!("[coral-driver] SET_WORK_SUBMIT_TOKEN OK (0x{token:08X})"),
-                Err(e) => eprintln!("[coral-driver] SET_WORK_SUBMIT_TOKEN failed: {e} (non-fatal)"),
+                Ok(()) => tracing::debug!(token = %format_args!("0x{token:08X}"), "SET_WORK_SUBMIT_TOKEN OK"),
+                Err(e) => tracing::warn!("SET_WORK_SUBMIT_TOKEN failed: {e} (non-fatal)"),
             }
             match client.gr_get_ctx_buffer_size(h_subdevice, h_channel) {
-                Ok(sz) => eprintln!("[coral-driver] GR_GET_CTX_BUFFER_SIZE: {sz} bytes (0x{sz:X})"),
-                Err(e) => eprintln!("[coral-driver] GR_GET_CTX_BUFFER_SIZE failed: {e} (non-fatal)"),
+                Ok(sz) => tracing::debug!(sz, sz_hex = %format_args!("0x{sz:X}"), "GR_GET_CTX_BUFFER_SIZE"),
+                Err(e) => tracing::warn!("GR_GET_CTX_BUFFER_SIZE failed: {e} (non-fatal)"),
             }
         }
 
@@ -286,8 +294,8 @@ impl NvUvmComputeDevice {
         // gr_ctxsw_setup_bind_with_mem.
         let ctx_buffers = if is_blackwell_plus {
             match client.gr_ctxsw_setup_bind(h_subdevice, h_channel) {
-                Ok(()) => eprintln!("[coral-driver] gr_ctxsw_setup_bind (demand-paged) OK"),
-                Err(e) => eprintln!("[coral-driver] gr_ctxsw_setup_bind failed: {e} (continuing)"),
+                Ok(()) => tracing::debug!("gr_ctxsw_setup_bind (demand-paged) OK"),
+                Err(e) => tracing::warn!("gr_ctxsw_setup_bind failed: {e} (continuing)"),
             }
             Vec::<CtxBuffer>::new()
         } else {
@@ -297,24 +305,28 @@ impl NvUvmComputeDevice {
                 Ok(_) => {
                     match client.rm_map_memory_dma(h_device, h_virt_mem, h_ctx_mem, 0, ctx_size) {
                         Ok(ctx_va) => {
-                            eprintln!("[coral-driver] GR context buffer: va=0x{ctx_va:X} size=0x{ctx_size:X}");
+                            tracing::debug!(
+                                ctx_va = %format_args!("0x{ctx_va:X}"),
+                                ctx_size = %format_args!("0x{ctx_size:X}"),
+                                "GR context buffer"
+                            );
                             match client.gr_ctxsw_setup_bind_with_mem(h_subdevice, h_channel, ctx_va) {
-                                Ok(()) => eprintln!("[coral-driver] gr_ctxsw_setup_bind_with_mem OK"),
+                                Ok(()) => tracing::debug!("gr_ctxsw_setup_bind_with_mem OK"),
                                 Err(e) => {
-                                    eprintln!("[coral-driver] gr_ctxsw_setup_bind_with_mem failed: {e}");
+                                    tracing::warn!("gr_ctxsw_setup_bind_with_mem failed: {e}");
                                     client.gr_ctxsw_setup_bind(h_subdevice, h_channel).ok();
                                 }
                             }
                         }
                         Err(e) => {
-                            eprintln!("[coral-driver] DMA map GR ctx failed: {e}");
+                            tracing::warn!("DMA map GR ctx failed: {e}");
                             client.free_object(h_device, h_ctx_mem).ok();
                             client.gr_ctxsw_setup_bind(h_subdevice, h_channel).ok();
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("[coral-driver] alloc GR ctx failed: {e}");
+                    tracing::warn!("alloc GR ctx failed: {e}");
                     client.gr_ctxsw_setup_bind(h_subdevice, h_channel).ok();
                 }
             }
@@ -337,22 +349,25 @@ impl NvUvmComputeDevice {
                 chan_resource_base,
                 chan_resource_range,
             ) {
-                Ok(()) => eprintln!("[coral-driver] UVM_REGISTER_CHANNEL OK: base=0x{chan_resource_base:X}"),
-                Err(e) => eprintln!("[coral-driver] UVM_REGISTER_CHANNEL failed: {e} (continuing)"),
+                Ok(()) => tracing::debug!(
+                    chan_resource_base = %format_args!("0x{chan_resource_base:X}"),
+                    "UVM_REGISTER_CHANNEL OK"
+                ),
+                Err(e) => tracing::warn!("UVM_REGISTER_CHANNEL failed: {e} (continuing)"),
             }
         }
 
         client.tsg_gpfifo_schedule(h_changrp).map_err(|e| {
-            eprintln!("[coral-driver] tsg_gpfifo_schedule FAILED: {e}");
+            tracing::error!("tsg_gpfifo_schedule FAILED: {e}");
             e
         })?;
-        eprintln!("[coral-driver] tsg_gpfifo_schedule OK");
+        tracing::debug!("tsg_gpfifo_schedule OK");
 
         // Set context-switch preemption mode (CUDA does this after schedule)
         if is_blackwell_plus {
             match client.gr_set_ctxsw_preemption_mode(h_subdevice, h_changrp) {
-                Ok(()) => eprintln!("[coral-driver] GR_SET_CTXSW_PREEMPTION_MODE OK"),
-                Err(e) => eprintln!("[coral-driver] GR_SET_CTXSW_PREEMPTION_MODE failed: {e} (non-fatal)"),
+                Ok(()) => tracing::debug!("GR_SET_CTXSW_PREEMPTION_MODE OK"),
+                Err(e) => tracing::warn!("GR_SET_CTXSW_PREEMPTION_MODE failed: {e} (non-fatal)"),
             }
         }
 
@@ -447,7 +462,11 @@ impl NvUvmComputeDevice {
                     gpu_uuid: &gpu_uuid,
                 })?;
                 uvm_va_next = fp_va + page_align(4096);
-                eprintln!("[coral-driver] fence UVM-mapped: val=0x{fv_va:016X} pb=0x{fp_va:016X}");
+                tracing::debug!(
+                    fence_val_va = %format_args!("0x{fv_va:016X}"),
+                    fence_pb_va = %format_args!("0x{fp_va:016X}"),
+                    "fence UVM-mapped"
+                );
                 (fv_va, fp_va)
             } else {
                 let fv = client.rm_map_memory_dma(h_device, h_virt_mem, h_fence_mem, 0, 4096)?;
@@ -590,10 +609,14 @@ impl NvUvmComputeDevice {
             1_u32
         };
 
-        eprintln!("[coral-driver] NOP submit: nop_gpu_va=0x{nop_gpu_va:X} fence_gpu_va=0x{:X} pb_dwords={pb_dwords}", dev.fence_gpu_va);
+        tracing::debug!(
+            nop_gpu_va = %format_args!("0x{nop_gpu_va:X}"),
+            fence_gpu_va = %format_args!("0x{:X}", dev.fence_gpu_va),
+            pb_dwords,
+            "NOP submit"
+        );
         dev.submit_gpfifo(nop_gpu_va, pb_dwords)?;
         dev.poll_gpfifo_completion()?;
-        eprintln!("[coral-driver] NOP smoke test passed");
         tracing::info!("NOP smoke test passed — GPFIFO pipeline operational");
 
         // Allocate a Shader Local Memory (SLM) buffer for per-warp scratch
@@ -685,7 +708,7 @@ impl NvUvmComputeDevice {
             }
 
             dev.poll_gpfifo_completion()?;
-            eprintln!("[coral-driver] compute_init OK (SET_OBJECT + SLM)");
+            tracing::debug!("compute_init OK (SET_OBJECT + SLM)");
 
             dev.client
                 .rm_unmap_memory(h_device, h_init_mem, init_cpu)
