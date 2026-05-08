@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 
 use super::btsp;
 use super::error::IpcServiceError;
+use super::method_gate;
 use super::{CoralReefError, IpcError};
 use crate::service;
 
@@ -60,16 +61,51 @@ fn extract_params<T: serde::de::DeserializeOwned>(
 
 /// Route a JSON-RPC method call to the appropriate handler.
 ///
+/// The method gate (JH-0) runs pre-dispatch: public methods pass through,
+/// protected methods are checked against the caller context. In permissive
+/// mode (default), protected methods are logged but allowed.
+///
 /// # Errors
 ///
 /// Returns `IpcServiceError` if the method is unknown, params are
-/// invalid, or the handler itself fails.
+/// invalid, the handler itself fails, or the gate rejects the call.
 #[must_use = "returns the handler result or an error — check the result"]
 pub fn dispatch_jsonrpc(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, IpcServiceError> {
+    let caller = method_gate::CallerContext::loopback();
+    if let Err(denied) = method_gate::gate().check(method, &caller) {
+        return Err(IpcServiceError {
+            phase: super::error::IpcPhase::Handler,
+            message: denied.message,
+            code: Some(denied.code.to_string()),
+        });
+    }
+
     match method {
+        "auth.check" => {
+            let resp = serde_json::json!({
+                "authenticated": false,
+                "origin": "loopback",
+            });
+            Ok(resp)
+        }
+        "auth.mode" => {
+            let gate = method_gate::gate();
+            let resp = serde_json::json!({
+                "mode": gate.mode().as_str(),
+            });
+            Ok(resp)
+        }
+        "auth.peer_info" => {
+            let resp = serde_json::json!({
+                "peer": null,
+                "origin": "loopback",
+                "note": "peer credentials require Unix socket with SO_PEERCRED",
+            });
+            Ok(resp)
+        }
         "shader.compile.status" => {
             let health = service::handle_health();
             serde_json::to_value(health).map_err(|e| IpcServiceError::internal(e.to_string()))

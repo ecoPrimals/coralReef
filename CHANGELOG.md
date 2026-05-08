@@ -4,11 +4,35 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 93
+**Current status**: Phase 10 — Iteration 94
 
 ---
 
 ## [Unreleased]
+
+### Iteration 94 — JH-0 MethodGate Adoption (2026-05-07)
+
+#### Security: Pre-Dispatch Capability Gate (JH-0)
+- New `ipc/method_gate.rs`: ecosystem-standard pre-dispatch authorization per `METHOD_GATE_STANDARD.md` v1.0
+- Method classification: Public (`health.*`, `identity.get`, `capability.list`, `auth.*`, `lifecycle.status`) vs Protected (`shader.compile.*`, `btsp.negotiate`, all other)
+- `EnforcementMode::Permissive` (default): logs unauthenticated calls to protected methods but allows
+- `EnforcementMode::Enforced`: rejects with `-32001 PERMISSION_DENIED` when `CORALREEF_AUTH_MODE=enforced`
+- `CallerContext`: bearer token + peer credentials + connection origin (Unix/Loopback/Remote)
+- Global gate via `OnceLock` — initialized from env on first access
+
+#### New JSON-RPC Methods
+- `auth.check` — returns `{ authenticated: false, origin: "loopback" }` (bearer token presence check)
+- `auth.mode` — returns `{ mode: "permissive" }` (current enforcement mode)
+- `auth.peer_info` — returns `{ peer: null, origin: "loopback" }` (peer credential introspection)
+
+#### Capability Advertisement
+- `capability.list` now includes `auth.check`, `auth.mode`, `auth.peer_info` in methods array
+- `auth` added to capability domains
+
+#### Tests
+- 15 unit tests: method classification (health, identity, capability, auth public; shader, btsp protected; unknown protected), gate behavior (permissive allows, enforced rejects, token passes), enforcement mode, caller context
+- 3 TCP integration tests: `auth.check`, `auth.mode`, `auth.peer_info` roundtrip verification
+- 4742 passing, 0 failures, 181 ignored. Zero clippy warnings.
 
 ### Iteration 93 — hotSpring Merge Hardening + Coverage Expansion (2026-05-07)
 

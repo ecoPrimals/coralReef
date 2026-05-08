@@ -200,6 +200,102 @@ async fn newline_tcp_capability_list_returns_known_domains() {
         "must include identity domain: {:?}",
         parsed.capabilities
     );
+    assert!(
+        parsed.capabilities.iter().any(|d| d == "auth"),
+        "must include auth domain: {:?}",
+        parsed.capabilities
+    );
+    assert!(
+        parsed.methods.contains(&"auth.check".to_owned()),
+        "must list auth.check method: {:?}",
+        parsed.methods
+    );
+    assert!(
+        parsed.methods.contains(&"auth.mode".to_owned()),
+        "must list auth.mode method: {:?}",
+        parsed.methods
+    );
+    assert!(
+        parsed.methods.contains(&"auth.peer_info".to_owned()),
+        "must list auth.peer_info method: {:?}",
+        parsed.methods
+    );
+    let _ = shutdown_tx.send(());
+    handle.abort();
+}
+
+#[tokio::test]
+async fn newline_tcp_auth_check_returns_result() {
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (addr, handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", shutdown_rx)
+        .await
+        .unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let req = json!({
+        "jsonrpc": "2.0",
+        "method": "auth.check",
+        "params": {},
+        "id": 100_u64
+    });
+    let line = format!("{}\n", serde_json::to_string(&req).unwrap());
+    stream.write_all(line.as_bytes()).await.unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut out = String::new();
+    reader.read_line(&mut out).await.unwrap();
+    let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    let result = v.get("result").expect("auth.check must return result");
+    assert_eq!(result.get("authenticated"), Some(&json!(false)));
+    let _ = shutdown_tx.send(());
+    handle.abort();
+}
+
+#[tokio::test]
+async fn newline_tcp_auth_mode_returns_permissive() {
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (addr, handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", shutdown_rx)
+        .await
+        .unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let req = json!({
+        "jsonrpc": "2.0",
+        "method": "auth.mode",
+        "params": {},
+        "id": 101_u64
+    });
+    let line = format!("{}\n", serde_json::to_string(&req).unwrap());
+    stream.write_all(line.as_bytes()).await.unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut out = String::new();
+    reader.read_line(&mut out).await.unwrap();
+    let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    let result = v.get("result").expect("auth.mode must return result");
+    assert_eq!(result.get("mode"), Some(&json!("permissive")));
+    let _ = shutdown_tx.send(());
+    handle.abort();
+}
+
+#[tokio::test]
+async fn newline_tcp_auth_peer_info_returns_null_peer() {
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (addr, handle) = start_newline_tcp_jsonrpc("127.0.0.1:0", shutdown_rx)
+        .await
+        .unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let req = json!({
+        "jsonrpc": "2.0",
+        "method": "auth.peer_info",
+        "params": {},
+        "id": 102_u64
+    });
+    let line = format!("{}\n", serde_json::to_string(&req).unwrap());
+    stream.write_all(line.as_bytes()).await.unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut out = String::new();
+    reader.read_line(&mut out).await.unwrap();
+    let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    let result = v.get("result").expect("auth.peer_info must return result");
+    assert_eq!(result.get("peer"), Some(&json!(null)));
+    assert_eq!(result.get("origin"), Some(&json!("loopback")));
     let _ = shutdown_tx.send(());
     handle.abort();
 }

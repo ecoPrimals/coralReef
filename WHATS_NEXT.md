@@ -2,11 +2,11 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 93.
+**Current position**: Phase 10 — Iteration 94.
 
-**Last completed**: Deep debt pass — hotSpring merge path hardening: 11 additional hardcoded device paths evolved to env-overridable functions (`open_userspace.rs`, `open_kmod.rs`, `compute_trait.rs`, `channel_setup.rs`). 5 SAFETY comments added to undocumented unsafe blocks. 10 new unit tests for PRI ring management and PGOB validation. Full audit: zero `Result<_, String>` in production, all files under 1000L, all unsafe documented, all mocks test-isolated, all deps pure Rust.
+**Last completed**: JH-0 MethodGate adoption — pre-dispatch capability gate per `METHOD_GATE_STANDARD.md` v1.0. Methods classified into Public (health/identity/capability/auth) and Protected (shader.compile/btsp). Gate starts in `Permissive` mode (logs but allows). New `auth.check`, `auth.mode`, `auth.peer_info` methods live. Env override: `CORALREEF_AUTH_MODE=enforced` activates rejection.
 
-**Tests**: 4704 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4742 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 7, 2026.
 
@@ -614,14 +614,14 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4704 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4742 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.
 GPU generation profiles: GenerationProfile dispatch for SM35–SM120 + AmdArch + Intel xe/i915.
 VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
 NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.list` + `capability.register` + `ipc.heartbeat` + `btsp.negotiate` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); BTSP Phase 3 encrypted frame loop (ChaCha20-Poly1305); Songbird ecosystem registration wired (`ecosystem.rs`).
+IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.list` + `capability.register` + `ipc.heartbeat` + `btsp.negotiate` + `auth.*` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); BTSP Phase 3 encrypted frame loop (ChaCha20-Poly1305); MethodGate pre-dispatch authorization (JH-0); Songbird ecosystem registration wired (`ecosystem.rs`).
 Firmware probing: glowPlug mailbox (FECS/GPCCS/SEC2/PMU posted commands) + multi-ring (ordered, timed, fence-based GPU dispatch) — hotSpring integration wired. Ember ring-keeper persists state across glowplug restarts.
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
 Zero `Result<_, String>` in production. Typed errors via thiserror across 4 waves.

@@ -62,6 +62,7 @@ pub fn handle_identity_get() -> IdentityGetResponse {
 pub fn handle_capability_list() -> CapabilityListResponse {
     let desc = crate::capability::self_description();
     let mut domains: BTreeSet<String> = desc.provides.iter().map(|c| c.id.to_string()).collect();
+    domains.insert("auth".into());
     domains.insert("health".into());
     domains.insert("identity".into());
 
@@ -77,6 +78,9 @@ pub fn handle_capability_list() -> CapabilityListResponse {
         "identity.get".into(),
         "capability.list".into(),
         "btsp.negotiate".into(),
+        "auth.check".into(),
+        "auth.mode".into(),
+        "auth.peer_info".into(),
     ];
 
     let transport: Vec<Cow<'static, str>> = {

@@ -24,6 +24,7 @@ use std::net::SocketAddr;
 use crate::config;
 
 pub mod error;
+pub mod method_gate;
 
 mod tarpc_transport;
 pub use tarpc_transport::start_tarpc_server;
