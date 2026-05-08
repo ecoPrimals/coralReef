@@ -100,6 +100,7 @@ pub enum ConnectionOrigin {
 impl CallerContext {
     /// Build a caller context for loopback TCP with no peer credentials.
     #[must_use]
+    #[allow(dead_code, reason = "used in tests and from Unix socket path")]
     pub const fn loopback() -> Self {
         Self {
             bearer_token: None,
@@ -120,6 +121,26 @@ impl CallerContext {
             bearer_token: None,
             peer: None,
             origin: ConnectionOrigin::Unix,
+        }
+    }
+
+    /// Extract caller context from JSON-RPC params.
+    ///
+    /// Looks for a `_bearer_token` field in the params object (per biomeOS
+    /// convention). If present, the token is extracted and the field is
+    /// consumed. If params is not an object or the field is absent, returns
+    /// a loopback context with no token.
+    #[must_use]
+    pub fn from_params(params: &serde_json::Value) -> Self {
+        let token = params
+            .as_object()
+            .and_then(|obj| obj.get("_bearer_token"))
+            .and_then(serde_json::Value::as_str)
+            .map(String::from);
+        Self {
+            bearer_token: token,
+            peer: None,
+            origin: ConnectionOrigin::Loopback,
         }
     }
 }
@@ -161,7 +182,8 @@ impl EnforcementMode {
 /// Result of a gate check — either allowed or denied with a JSON-RPC error.
 #[derive(Debug)]
 pub struct GateDenied {
-    /// JSON-RPC error code.
+    /// JSON-RPC error code (carried for diagnostic/test introspection).
+    #[allow(dead_code, reason = "available for test assertions and future structured logging")]
     pub code: i32,
     /// Human-readable error message.
     pub message: String,
@@ -359,5 +381,36 @@ mod tests {
     fn caller_context_loopback_origin() {
         let ctx = CallerContext::loopback();
         assert_eq!(ctx.origin, ConnectionOrigin::Loopback);
+    }
+
+    #[test]
+    fn from_params_extracts_bearer_token() {
+        let params = serde_json::json!({
+            "source": "fn main() {}",
+            "_bearer_token": "my-ionic-token-abc"
+        });
+        let ctx = CallerContext::from_params(&params);
+        assert_eq!(ctx.bearer_token.as_deref(), Some("my-ionic-token-abc"));
+        assert_eq!(ctx.origin, ConnectionOrigin::Loopback);
+    }
+
+    #[test]
+    fn from_params_no_token_field() {
+        let params = serde_json::json!({ "source": "fn main() {}" });
+        let ctx = CallerContext::from_params(&params);
+        assert!(ctx.bearer_token.is_none());
+    }
+
+    #[test]
+    fn from_params_non_object_params() {
+        let params = serde_json::json!([1, 2, 3]);
+        let ctx = CallerContext::from_params(&params);
+        assert!(ctx.bearer_token.is_none());
+    }
+
+    #[test]
+    fn gate_denied_wire_code_is_permission_denied() {
+        use super::super::error::IpcPhase;
+        assert_eq!(IpcPhase::GateDenied.jsonrpc_code(), -32_001);
     }
 }

@@ -21,6 +21,8 @@ pub enum IpcPhase {
     Dispatch,
     /// Handler-level failure (compilation error, resource unavailable).
     Handler,
+    /// Pre-dispatch gate rejected the call (JH-0 `PERMISSION_DENIED`).
+    GateDenied,
     /// Internal error (bug, assertion, OOM).
     Internal,
 }
@@ -36,9 +38,10 @@ impl IpcPhase {
     #[must_use]
     pub const fn jsonrpc_code(self) -> i32 {
         match self {
-            Self::Transport | Self::Handler => -32000,
-            Self::Dispatch => -32601,
-            Self::Internal => -32603,
+            Self::Transport | Self::Handler => -32_000,
+            Self::GateDenied => -32_001,
+            Self::Dispatch => -32_601,
+            Self::Internal => -32_603,
         }
     }
 }
@@ -84,6 +87,16 @@ impl IpcServiceError {
     pub fn handler(message: impl Into<String>) -> Self {
         Self {
             phase: IpcPhase::Handler,
+            message: message.into(),
+            code: None,
+        }
+    }
+
+    /// Create a gate-denied error (JH-0 `PERMISSION_DENIED` on the wire).
+    #[must_use]
+    pub fn gate_denied(message: impl Into<String>) -> Self {
+        Self {
+            phase: IpcPhase::GateDenied,
             message: message.into(),
             code: None,
         }
@@ -185,5 +198,22 @@ mod tests {
         let err = IpcServiceError::dispatch("bad method");
         let s: String = err.into();
         assert!(s.contains("bad method"));
+    }
+
+    #[test]
+    fn test_gate_denied_error() {
+        let err = IpcServiceError::gate_denied("permission denied: method 'shader.compile.wgsl'");
+        assert_eq!(err.phase, IpcPhase::GateDenied);
+        assert_eq!(err.phase.jsonrpc_code(), -32_001);
+        assert!(!err.phase.retryable());
+    }
+
+    #[test]
+    fn test_gate_denied_serde_roundtrip() {
+        let err = IpcServiceError::gate_denied("rejected");
+        let json = serde_json::to_string(&err).unwrap();
+        let roundtrip: IpcServiceError = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.phase, IpcPhase::GateDenied);
+        assert_eq!(roundtrip.message, "rejected");
     }
 }

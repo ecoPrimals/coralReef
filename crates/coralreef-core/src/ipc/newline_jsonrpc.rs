@@ -74,20 +74,16 @@ pub fn dispatch_jsonrpc(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, IpcServiceError> {
-    let caller = method_gate::CallerContext::loopback();
+    let caller = method_gate::CallerContext::from_params(&params);
     if let Err(denied) = method_gate::gate().check(method, &caller) {
-        return Err(IpcServiceError {
-            phase: super::error::IpcPhase::Handler,
-            message: denied.message,
-            code: Some(denied.code.to_string()),
-        });
+        return Err(IpcServiceError::gate_denied(denied.message));
     }
 
     match method {
         "auth.check" => {
             let resp = serde_json::json!({
-                "authenticated": false,
-                "origin": "loopback",
+                "authenticated": caller.bearer_token.is_some(),
+                "origin": format!("{:?}", caller.origin).to_lowercase(),
             });
             Ok(resp)
         }
@@ -99,10 +95,13 @@ pub fn dispatch_jsonrpc(
             Ok(resp)
         }
         "auth.peer_info" => {
+            let peer_info = caller.peer.as_ref().map(|p| {
+                serde_json::json!({ "uid": p.uid, "pid": p.pid })
+            });
             let resp = serde_json::json!({
-                "peer": null,
-                "origin": "loopback",
-                "note": "peer credentials require Unix socket with SO_PEERCRED",
+                "peer": peer_info,
+                "origin": format!("{:?}", caller.origin).to_lowercase(),
+                "has_token": caller.bearer_token.is_some(),
             });
             Ok(resp)
         }
