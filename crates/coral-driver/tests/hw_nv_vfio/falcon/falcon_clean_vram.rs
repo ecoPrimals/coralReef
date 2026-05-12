@@ -435,7 +435,7 @@ fn vfio_clean_vram_acr_boot() {
             eprintln!(
                 "Strategy 1: sysmem_acr_boot (instance block + page tables in system memory)"
             );
-            let sysmem_result = dev.sysmem_acr_boot();
+            let sysmem_result = dev.sysmem_acr_boot().expect("firmware load");
             eprintln!(
                 "  result: success={} strategy={}",
                 sysmem_result.success, sysmem_result.strategy
@@ -467,7 +467,7 @@ fn vfio_clean_vram_acr_boot() {
             }
 
             eprintln!("Strategy 2: sysmem_physical_boot (PHYS_SYS, no instance block)");
-            let phys_result = dev.sysmem_physical_boot();
+            let phys_result = dev.sysmem_physical_boot().expect("firmware load");
             eprintln!(
                 "  result: success={} strategy={}",
                 phys_result.success, phys_result.strategy

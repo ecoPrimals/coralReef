@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: May 2, 2026 (Iteration 89: 4632 tests, 160 ignored, BTSP Phase 3 AEAD)
+**Last updated**: May 11, 2026 (Iteration 98: 4754 tests, 181 ignored, Compute Trio HOW domain, zero debt)
 
 ---
 

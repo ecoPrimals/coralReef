@@ -19,11 +19,13 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
-## Project status (Iteration 84)
+## Project status (Iteration 98)
 
-- **Tests**: 4541 workspace tests, 0 failed, ~155 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
-- **Compliance (Iter 80)**: Wire contract documented (`SHADER_COMPILE_WIRE_CONTRACT.md`); `CompilationInfo` in IPC responses; crypto socket discovery aligned; ecoBin v3 `deny.toml` C/FFI bans; zero hardcoded primal names; all mocks test-isolated. Details in `CHANGELOG.md` and `STATUS.md`.
-- **ecoBin cross-arch (Iter 84)**: coral-ember, coral-glowplug, and coral-gpu pass `cargo check` on macOS x86_64, macOS aarch64, and Linux aarch64-musl (0 errors across target triples).
+- **Tests**: 4754 workspace tests, 0 failed, 181 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
+- **Debt**: Zero across all categories — no `Result<_, String>`, no `.unwrap()` in library code, no `eprintln!` in production library, no `async_trait`/`lazy_static`, all `#[expect(dead_code)]` verified. `deny.toml` enforced (ecoBin v3 C/FFI bans).
+- **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen (`binary_b64`, `target`, `shader_info`). Gate 1 satisfied. toadStool absorbs hardware modules concurrently.
+- **BTSP Phase 3**: Complete (ChaCha20-Poly1305 AEAD encrypted transport).
+- **JH-0 MethodGate**: Pre-dispatch capability authorization live.
 
 ## Architecture
 

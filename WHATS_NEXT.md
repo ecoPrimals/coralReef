@@ -2,9 +2,9 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 97 (Smart Refactoring + Stub Evolution).
+**Current position**: Phase 10 — Iteration 98 (Firmware Panic Elimination + Deep Audit).
 
-**Last completed**: Smart refactoring of >800L files: GEM buffer ops extracted to `ioctl/gem.rs` (929→655L), Kepler channel creation to `kepler_channel.rs` (896→594L). `IntelDevice::stub()`→`host_emulated()` (stub naming eliminated from production API). Comprehensive audit confirmed zero debt across all categories.
+**Last completed**: Firmware `.expect("firmware load")` → `DriverResult` propagation on all 3 ACR boot entry points (sysmem_acr_boot, sysmem_physical_boot, hybrid_acr_boot). Deep 800L+ file review: 7 files assessed, all cohesive, all under 1000L cap. Zero new debt across all categories.
 
 **Tests**: 4754 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 

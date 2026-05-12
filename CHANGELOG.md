@@ -4,11 +4,29 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 97
+**Current status**: Phase 10 — Iteration 98
 
 ---
 
 ## [Unreleased]
+
+### Iteration 98 — Firmware Panic Elimination + Deep Audit (2026-05-11)
+
+#### Firmware `.expect()` → Result Propagation
+- **`NvVfioComputeDevice::sysmem_acr_boot`**: `AcrFirmwareSet::load().expect("firmware load")` → `DriverResult<AcrBootResult>` with `?` propagation
+- **`NvVfioComputeDevice::sysmem_physical_boot`**: Same evolution — firmware load errors now propagate instead of panicking
+- **`NvVfioComputeDevice::hybrid_acr_boot`**: Same evolution — all three ACR boot entry points are now panic-free on firmware load failure
+- Hardware test callers updated to `.expect("firmware load")` (acceptable in `#[ignore]` hardware-gated tests)
+
+#### Deep Audit Results (Comprehensive 800L+ File Review)
+- 7 production files between 800–928L assessed: `error.rs` (928), `uvm/structs.rs` (907), `pfifo.rs` (882), `nv/mod.rs` (857), `newton.rs` (849), `vbios_devinit.rs` (836), `gpr.rs` (814) — all under 1000L cap, all cohesive (hardware data definitions, algorithmic units, error type hierarchies). No forced splits.
+- `ember.rs` (802L): 649L production + 153L tests. Monitor item only.
+- `btsp_negotiate.rs` `.expect()`: confirmed test-only, not attacker-reachable
+- `Arc<Mutex<>>` / `Arc<RwLock<>>` patterns in ember/glowplug: shared mutable registries, correct use; OnceLock/LazyLock not applicable
+- Zero new debt found across all categories
+
+#### Tests
+- 4754 passing, 0 failures, 181 ignored. Zero clippy warnings.
 
 ### Iteration 97 — Smart Refactoring + Stub Evolution (2026-05-11)
 

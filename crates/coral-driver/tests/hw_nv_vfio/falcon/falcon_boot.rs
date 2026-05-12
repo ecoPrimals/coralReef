@@ -231,11 +231,11 @@ fn vfio_sysmem_acr_boot() {
     eprintln!("Pre-boot falcon state:\n{pre}");
 
     // 083a: Pure system memory (all DMA buffers)
-    let result_a = dev.sysmem_acr_boot();
+    let result_a = dev.sysmem_acr_boot().expect("firmware load for sysmem ACR boot");
     eprintln!("\n── 083a: Pure SysMem ──\n{result_a}");
 
     // 083b: Hybrid (VRAM page tables + sysmem data)
-    let result_b = dev.hybrid_acr_boot();
+    let result_b = dev.hybrid_acr_boot().expect("firmware load for hybrid ACR boot");
     eprintln!("\n── 083b: Hybrid (VRAM PT + SysMem data) ──\n{result_b}");
 
     let post = dev.falcon_probe();

@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 11, 2026  
-**Phase**: 10 — Iteration 97 (Smart refactoring: GEM extraction, Kepler channel split, stub→host_emulated evolution)
+**Phase**: 10 — Iteration 98 (Firmware panic elimination: `.expect("firmware load")`→`DriverResult` propagation on 3 ACR boot entry points; deep 800L+ file audit; zero new debt)
 
 ---
 
@@ -41,17 +41,18 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, E2E verified | **Iteration 90** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 98** |
 
-### Iteration 90: BTSP Phase 3 Transport Verification, GAP-04 Resolved (May 3, 2026)
+### Iteration 98: Firmware Panic Elimination + Deep Audit (May 11, 2026)
 
 | Item | Status | Detail |
 |------|--------|--------|
-| BTSP Phase 3 transport path verified | ✅ | Integration test proves `handle_connection` → `btsp.negotiate` → `take_negotiated_keys` → `process_encrypted_frames` is reachable. Full client-side AEAD roundtrip tested |
-| Marker byte consumption fix | ✅ | Non-JSON first byte (BTSP handshake marker) consumed from `BufReader` before `handle_connection` — previously left in buffer corrupting first line read in production BTSP path |
-| GAP-04 (tarpc health endpoint) | ✅ | **Intentional design, not debt**: tarpc transport has full health triad (`health_check`, `health_liveness`, `health_readiness`) + `identity_get` + `capability_list`. tarpc listens on `-tarpc.sock` suffix; main socket speaks JSON-RPC for primalSpring/biomeOS compatibility. Documented in module doc |
-| TCP marker byte fix | ✅ | TCP accept loop also consumes non-`{` marker byte to prevent corruption on non-JSON-first-byte connections |
-| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (833 passing) |
+| Firmware `.expect()` → Result | ✅ | `sysmem_acr_boot`, `sysmem_physical_boot`, `hybrid_acr_boot` — firmware load errors now propagate via `DriverResult` instead of panicking |
+| 800L+ file audit | ✅ | 7 files (928–814L) assessed: all cohesive, all under 1000L cap. No forced splits warranted |
+| Compute Trio wire contract | ✅ | `binary_b64`, `target`, `shader_info` frozen. Gate 1 (`targets` array) satisfied |
+| BTSP Phase 3 | ✅ | ChaCha20-Poly1305 AEAD encrypted transport complete |
+| JH-0 MethodGate | ✅ | Pre-dispatch capability authorization, bearer token extraction, `-32001 PERMISSION_DENIED` wire code |
+| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (4754 passing, 0 failed) |
 
 ### Iteration 81: Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery (Apr 15, 2026)
 

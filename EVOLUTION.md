@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: May 11, 2026 (Phase 10 — Iteration 97)
-**Phase**: 10 — Deep debt pass. Smart refactoring of >800L files: GEM buffer ops extracted to `ioctl/gem.rs` (929→655), Kepler channel creation to `kepler_channel.rs` (896→594). `IntelDevice::stub`→`host_emulated` (stub naming eliminated from production API). Comprehensive audit: zero `Result<_, String>`, zero `.unwrap()`, zero `eprintln!` in production library code, zero `async_trait`/`lazy_static`, all `#[expect(dead_code)]` verified valid. 4754 tests, zero failures. Compute Trio Evolution (HOW domain). Wire contract aligned to trio specification (Gate 1 satisfied). Extraction boundary documented. BTSP Phase 3 transport verified. Wire Standard L3 complete. JH-0 MethodGate live.
+**Last updated**: May 11, 2026 (Phase 10 — Iteration 98)
+**Phase**: 10 — Firmware panic elimination: 3 ACR boot entry points (`sysmem_acr_boot`, `sysmem_physical_boot`, `hybrid_acr_boot`) evolved from `.expect("firmware load")` to `DriverResult<AcrBootResult>` with `?` propagation. Deep 800L+ file review: 7 files assessed (error.rs 928, uvm/structs.rs 907, pfifo.rs 882, nv/mod.rs 857, newton.rs 849, vbios_devinit.rs 836, gpr.rs 814) — all cohesive, all under 1000L cap. Zero new debt found. 4754 tests, zero failures. Compute Trio Evolution (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 
