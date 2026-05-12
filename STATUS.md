@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 12, 2026  
-**Phase**: 10 — Iteration 101+ (Sprint 6: Ecosystem wave sync — Phase D markers, FECS stability hardened, toadStool Phase C COMPLETE; 4790 tests, zero debt)
+**Phase**: 10 — Iteration 101+ (Sprint 7: FECS/GPCCS cold-silicon stability proof — retry with PMC GR reset, structured GrBootOutcome, all boot paths recovery-aware; toadStool Phase C COMPLETE; 4790 tests, zero debt)
 
 ---
 

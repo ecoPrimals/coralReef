@@ -328,25 +328,23 @@ pub(crate) fn falcon_boot(
         if is_0x12 {
             // (b) Inconsistent: nouveau teardown halted FECS without a clean
             //     freeze.  Firmware may still be in IMEM — try direct PIO kick.
-            tracing::warn!("FECS at cpuctl=0x12 (STARTCPU+HRESET) — attempting PIO re-bootstrap");
+            tracing::warn!("FECS at cpuctl=0x12 (STARTCPU+HRESET) — attempting PIO re-bootstrap with recovery");
             let chip = crate::nv::identity::chip_name(sm_version);
-            match crate::nv::vfio_compute::fecs_boot::boot_gr_falcons(bar0, chip) {
-                Ok(result) if result.running => {
+            match crate::nv::vfio_compute::fecs_boot::boot_gr_falcons_with_recovery(bar0, chip) {
+                crate::nv::vfio_compute::fecs_boot::GrBootOutcome::Running { fecs, attempts } => {
                     return Ok(format!(
-                        "warm re-bootstrap OK: FECS cpuctl=0x{:08x} mb0=0x{:08x}",
-                        result.cpuctl_after, result.mailbox0,
+                        "warm re-bootstrap OK (attempts={attempts}): FECS cpuctl=0x{:08x} mb0=0x{:08x}",
+                        fecs.cpuctl_after, fecs.mailbox0,
                     ));
                 }
-                Ok(result) => {
+                crate::nv::vfio_compute::fecs_boot::GrBootOutcome::Failed { last_error, .. } => {
                     tracing::warn!(
-                        cpuctl = format!("0x{:08x}", result.cpuctl_after),
-                        "PIO re-bootstrap: FECS not running — falling through to cold path"
+                        "PIO re-bootstrap exhausted — falling through to cold path: {last_error}"
                     );
                 }
-                Err(e) => {
+                crate::nv::vfio_compute::fecs_boot::GrBootOutcome::NoFirmware => {
                     tracing::warn!(
-                        error = %e,
-                        "PIO re-bootstrap failed — falling through to cold path"
+                        "PIO re-bootstrap: no firmware — falling through to cold path"
                     );
                 }
             }
@@ -418,22 +416,24 @@ pub(crate) fn falcon_boot(
         Err(e) => format!("solver_err:{e}"),
     };
 
-    tracing::info!(chip, "ACR failed, trying direct PIO upload...");
-    match crate::nv::vfio_compute::fecs_boot::boot_gr_falcons(bar0, chip) {
-        Ok(result) => {
-            let detail = format!(
-                "direct boot: FECS cpuctl=0x{:08x} mb0=0x{:08x} running={} | acr:[{}]",
-                result.cpuctl_after, result.mailbox0, result.running, acr_detail,
-            );
-            if result.running {
-                Ok(detail)
-            } else {
-                Err(SovereignStagesError::FalconBootNotRunning { detail })
-            }
+    tracing::info!(chip, "ACR failed, trying direct PIO upload with recovery...");
+    match crate::nv::vfio_compute::fecs_boot::boot_gr_falcons_with_recovery(bar0, chip) {
+        crate::nv::vfio_compute::fecs_boot::GrBootOutcome::Running { fecs, attempts } => {
+            Ok(format!(
+                "direct boot (attempts={attempts}): FECS cpuctl=0x{:08x} mb0=0x{:08x} | acr:[{acr_detail}]",
+                fecs.cpuctl_after, fecs.mailbox0,
+            ))
         }
-        Err(e) => Err(SovereignStagesError::FalconBootPathsExhausted {
-            detail: format!("{e} | acr:[{acr_detail}]"),
-        }),
+        crate::nv::vfio_compute::fecs_boot::GrBootOutcome::Failed { last_error, .. } => {
+            Err(SovereignStagesError::FalconBootPathsExhausted {
+                detail: format!("{last_error} | acr:[{acr_detail}]"),
+            })
+        }
+        crate::nv::vfio_compute::fecs_boot::GrBootOutcome::NoFirmware => {
+            Err(SovereignStagesError::FalconBootPathsExhausted {
+                detail: format!("no firmware on disk | acr:[{acr_detail}]"),
+            })
+        }
     }
 }
 

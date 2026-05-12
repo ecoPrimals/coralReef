@@ -216,6 +216,15 @@ impl NvVfioComputeDevice {
         fecs_boot::boot_gr_falcons(&self.bar0, chip)
     }
 
+    /// Attempt sovereign FECS + GPCCS boot with cold-silicon recovery.
+    ///
+    /// Unlike [`Self::sovereign_gr_boot`], this retries with PMC GR reset cycles
+    /// to recover from cold-silicon falcon state. Returns a structured outcome.
+    pub fn sovereign_gr_boot_with_recovery(&self) -> fecs_boot::GrBootOutcome {
+        let chip = sm_to_chip(self.sm_version);
+        fecs_boot::boot_gr_falcons_with_recovery(&self.bar0, chip)
+    }
+
     /// Probe all falcon states for boot strategy selection.
     pub fn falcon_probe(&self) -> acr_boot::FalconProbe {
         acr_boot::FalconProbe::capture(&self.bar0)

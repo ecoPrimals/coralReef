@@ -4,11 +4,26 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101+ (Sprint 6)
+**Current status**: Phase 10 — Iteration 101+ (Sprint 7)
 
 ---
 
 ## [Unreleased]
+
+### Post-101 — Sprint 7: FECS/GPCCS Cold-Silicon Stability Proof (2026-05-12)
+
+#### Cold-Silicon Recovery (sentinel blocker — "fully recoverable" proof)
+- `fecs_boot.rs`: New `GrBootOutcome` enum — structured result (`Running`/`Failed`/`NoFirmware`) so callers can pattern-match recovery decisions
+- `fecs_boot.rs`: New `boot_gr_falcons_with_recovery()` — retries boot up to 3× with PMC GR engine reset cycle between attempts (toggle PGRAPH enable bit to clear stale falcon state)
+- `fecs_boot.rs`: New `pmc_gr_reset()` — dedicated PMC GR engine reset (disable→fence→settle→enable→fence→settle pattern)
+- `boot_sequence.rs`: Volta+ and Blackwell `cold_init` now use `boot_gr_falcons_with_recovery` instead of single-attempt `boot_gr_falcons`
+- `sovereign_stages.rs`: PIO re-bootstrap and ACR fallback paths upgraded to recovery-aware boot
+- `mod.rs`: New public `sovereign_gr_boot_with_recovery()` API on `NvVfioComputeDevice`
+
+#### Tests
+- 4790 passing, 0 failed, 181 ignored. Zero clippy warnings. No regressions.
+
+---
 
 ### Post-101 — Sprint 6: Ecosystem Wave Sync — Phase D Markers, FECS Stability (2026-05-12)
 

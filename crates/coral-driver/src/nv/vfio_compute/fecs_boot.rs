@@ -412,6 +412,121 @@ pub fn boot_gr_falcons(bar0: &MappedBar, chip: &str) -> DriverResult<FalconBootR
     Ok(fecs_result)
 }
 
+/// Outcome of a GR falcon boot attempt with cold-silicon recovery.
+#[derive(Debug)]
+pub enum GrBootOutcome {
+    /// FECS started successfully (possibly after retries).
+    Running {
+        /// FECS boot result.
+        fecs: FalconBootResult,
+        /// Number of attempts before success (1 = first try).
+        attempts: u32,
+    },
+    /// All retry attempts exhausted — FECS did not start.
+    Failed {
+        /// Last error from the final attempt.
+        last_error: String,
+        /// Number of attempts made.
+        attempts: u32,
+    },
+    /// No firmware available on disk for this chip.
+    NoFirmware,
+}
+
+impl GrBootOutcome {
+    /// Whether FECS is running after the boot attempt.
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        matches!(self, Self::Running { fecs, .. } if fecs.running)
+    }
+}
+
+const PMC_ENABLE: usize = 0x200;
+const PMC_PGRAPH_BIT: u32 = 1 << 12;
+const MAX_COLD_BOOT_ATTEMPTS: u32 = 3;
+const RESET_SETTLE_MS: u64 = 10;
+
+/// PMC GR engine reset cycle — toggle the PGRAPH enable bit to reset
+/// falcon state between boot attempts.
+fn pmc_gr_reset(bar0: &MappedBar) {
+    let pmc = bar0.read_u32(PMC_ENABLE).unwrap_or(0);
+    let _ = bar0.write_u32(PMC_ENABLE, pmc & !PMC_PGRAPH_BIT);
+    let _ = bar0.read_u32(PMC_ENABLE);
+    std::thread::sleep(std::time::Duration::from_millis(RESET_SETTLE_MS));
+    let _ = bar0.write_u32(PMC_ENABLE, pmc | PMC_PGRAPH_BIT);
+    let _ = bar0.read_u32(PMC_ENABLE);
+    std::thread::sleep(std::time::Duration::from_millis(RESET_SETTLE_MS));
+    tracing::debug!("PMC GR reset cycle complete");
+}
+
+/// GR falcon boot with cold-silicon recovery.
+///
+/// Attempts PIO falcon boot up to [`MAX_COLD_BOOT_ATTEMPTS`] times. Between
+/// failures, performs a PMC GR engine reset cycle to clear stale falcon state.
+/// Returns a [`GrBootOutcome`] that callers can pattern-match for structured
+/// recovery decisions.
+pub fn boot_gr_falcons_with_recovery(
+    bar0: &MappedBar,
+    chip: &str,
+) -> GrBootOutcome {
+    if !firmware_available(chip) {
+        return GrBootOutcome::NoFirmware;
+    }
+
+    let mut last_error = String::new();
+
+    for attempt in 1..=MAX_COLD_BOOT_ATTEMPTS {
+        if attempt > 1 {
+            tracing::info!(
+                chip, attempt,
+                "cold-silicon recovery: PMC GR reset before retry"
+            );
+            pmc_gr_reset(bar0);
+        }
+
+        match boot_gr_falcons(bar0, chip) {
+            Ok(fecs) if fecs.running => {
+                if attempt > 1 {
+                    tracing::info!(
+                        chip, attempt,
+                        "FECS started after {attempt} attempts (cold-silicon recovery succeeded)"
+                    );
+                }
+                return GrBootOutcome::Running { fecs, attempts: attempt };
+            }
+            Ok(fecs) => {
+                last_error = format!(
+                    "FECS not running: cpuctl={:#010x} mb0={:#010x}",
+                    fecs.cpuctl_after, fecs.mailbox0
+                );
+                tracing::warn!(
+                    chip, attempt,
+                    max = MAX_COLD_BOOT_ATTEMPTS,
+                    "FECS boot completed but not running — {last_error}"
+                );
+            }
+            Err(e) => {
+                last_error = format!("{e}");
+                tracing::warn!(
+                    chip, attempt,
+                    max = MAX_COLD_BOOT_ATTEMPTS,
+                    "FECS boot attempt failed: {e}"
+                );
+            }
+        }
+    }
+
+    tracing::error!(
+        chip,
+        attempts = MAX_COLD_BOOT_ATTEMPTS,
+        "all FECS boot attempts exhausted — {last_error}"
+    );
+    GrBootOutcome::Failed {
+        last_error,
+        attempts: MAX_COLD_BOOT_ATTEMPTS,
+    }
+}
+
 /// Check if the GR firmware directory exists for a given chip.
 ///
 /// Respects `CORALREEF_NVIDIA_FIRMWARE_ROOT` (default `/lib/firmware/nvidia`).

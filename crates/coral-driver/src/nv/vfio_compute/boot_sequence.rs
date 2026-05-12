@@ -153,22 +153,25 @@ impl SovereignBootSequence for VoltaBoot {
         super::NvVfioComputeDevice::apply_gr_bar0_init(bar0, self.sm_version);
 
         let chip = super::layout::sm_to_chip(self.sm_version);
-        if super::fecs_boot::firmware_available(chip) {
-            match super::fecs_boot::boot_gr_falcons(bar0, chip) {
-                Ok(result) => tracing::info!(
-                    chip, sm = self.sm_version,
-                    "Volta+ cold init: FECS/GPCCS PIO boot succeeded — {result}"
-                ),
-                Err(e) => tracing::warn!(
-                    chip, sm = self.sm_version,
-                    "Volta+ cold init: FECS/GPCCS PIO boot failed (ACR/SEC2 may be required): {e}"
-                ),
+        match super::fecs_boot::boot_gr_falcons_with_recovery(bar0, chip) {
+            super::fecs_boot::GrBootOutcome::Running { fecs, attempts } => {
+                tracing::info!(
+                    chip, sm = self.sm_version, attempts,
+                    "Volta+ cold init: FECS running — {fecs}"
+                );
             }
-        } else {
-            tracing::info!(
-                chip, sm = self.sm_version,
-                "Volta+ cold init: no firmware on disk — FECS/GPCCS requires sovereign_init or warm handoff"
-            );
+            super::fecs_boot::GrBootOutcome::Failed { last_error, attempts } => {
+                tracing::warn!(
+                    chip, sm = self.sm_version, attempts,
+                    "Volta+ cold init: FECS boot exhausted (ACR/SEC2 may be required): {last_error}"
+                );
+            }
+            super::fecs_boot::GrBootOutcome::NoFirmware => {
+                tracing::info!(
+                    chip, sm = self.sm_version,
+                    "Volta+ cold init: no firmware on disk — FECS/GPCCS requires sovereign_init or warm handoff"
+                );
+            }
         }
 
         Ok(())
@@ -235,22 +238,25 @@ impl SovereignBootSequence for BlackwellBoot {
         super::NvVfioComputeDevice::apply_gr_bar0_init(bar0, self.sm_version);
 
         let chip = super::layout::sm_to_chip(self.sm_version);
-        if super::fecs_boot::firmware_available(chip) {
-            match super::fecs_boot::boot_gr_falcons(bar0, chip) {
-                Ok(result) => tracing::info!(
-                    chip, sm = self.sm_version,
-                    "Blackwell cold init: FECS/GPCCS PIO boot succeeded — {result}"
-                ),
-                Err(e) => tracing::warn!(
-                    chip, sm = self.sm_version,
-                    "Blackwell cold init: FECS/GPCCS PIO boot failed (ACR/SEC2 may be required): {e}"
-                ),
+        match super::fecs_boot::boot_gr_falcons_with_recovery(bar0, chip) {
+            super::fecs_boot::GrBootOutcome::Running { fecs, attempts } => {
+                tracing::info!(
+                    chip, sm = self.sm_version, attempts,
+                    "Blackwell cold init: FECS running — {fecs}"
+                );
             }
-        } else {
-            tracing::info!(
-                chip, sm = self.sm_version,
-                "Blackwell cold init: no firmware on disk — FECS/GPCCS requires sovereign_init or warm handoff"
-            );
+            super::fecs_boot::GrBootOutcome::Failed { last_error, attempts } => {
+                tracing::warn!(
+                    chip, sm = self.sm_version, attempts,
+                    "Blackwell cold init: FECS boot exhausted (ACR/SEC2 may be required): {last_error}"
+                );
+            }
+            super::fecs_boot::GrBootOutcome::NoFirmware => {
+                tracing::info!(
+                    chip, sm = self.sm_version,
+                    "Blackwell cold init: no firmware on disk — FECS/GPCCS requires sovereign_init or warm handoff"
+                );
+            }
         }
 
         Ok(())

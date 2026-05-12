@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 101+ (Sprint 5: Pass 12 sentinel gaps).
+**Current position**: Phase 10 — Iteration 101+ (Sprint 7: FECS/GPCCS cold-silicon stability proof).
 
-**Last completed**: Sprint 5 — primalSpring Pass 12 sentinel escalation items resolved: `naga::Module` direct ingest API (skip text→parse round-trip, `compile_module`/`compile_module_full`), compile deadline on all IPC handlers (120s default, `CORALREEF_COMPILE_TIMEOUT_SECS`), Volta+/Blackwell cold init wired to attempt PIO falcon boot when firmware available, `firmware_available` respects `CORALREEF_NVIDIA_FIRMWARE_ROOT`. Zero remaining actionable debt in production crates.
+**Last completed**: Sprint 7 — FECS/GPCCS cold-silicon stability proof shipped. `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset cycles, structured `GrBootOutcome` enum for callers, all boot paths (VoltaBoot, BlackwellBoot, sovereign_stages warm/ACR fallback) upgraded to recovery-aware boot. Sprint 6 shipped Phase D markers and FECS error hardening.
 
 **Tests**: 4790 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 12, 2026.
 
-**Next focus**: Compute Trio coordination — toadStool absorbs coral-ember/coral-glowplug/coral-driver hardware modules concurrently; coralReef monitors for vestigial removal once toadStool Phase C confirms full coverage. PTX emitter completion for SM120/Blackwell (texture instructions); UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
+**Next focus**: Phase D execution — toadStool `compute.dispatch.execute` IPC validation for dispatch cutover. PTX emitter completion for SM120/Blackwell (texture instructions); UVM hardware validation (RTX 5060); `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
 
 ---
 
@@ -42,7 +42,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 - ACR boot solver tries 5 strategies with increasing aggression
 - HS ROM PC is advancing (0x14b9 → 0x1505) but BL has not yet executed
 - `bind_stat` timeout: **IPC compile deadline resolved** (Sprint 5 — 120s default, `CORALREEF_COMPILE_TIMEOUT_SECS`)
-- FECS/GPCCS cold init: **PIO falcon boot wired** in `VoltaBoot`/`BlackwellBoot` (Sprint 5)
+- FECS/GPCCS cold init: **Stability proof shipped** — retry with PMC GR reset, structured `GrBootOutcome`, all paths recovery-aware (Sprint 7). PIO boot wired (Sprint 5)
 - Three parallel paths: system-memory WPR, hybrid WPR, Nouveau warm handoff
 
 ### Immediate Next Steps
