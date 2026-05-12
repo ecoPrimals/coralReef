@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 11, 2026  
-**Phase**: 10 — Iteration 96 (Compute Trio wire contract alignment + extraction boundary documentation)
+**Phase**: 10 — Iteration 97 (Smart refactoring: GEM extraction, Kepler channel split, stub→host_emulated evolution)
 
 ---
 
@@ -21,7 +21,7 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
+| Code structure | A+ | Smart refactoring: ioctl 929→655 (GEM→gem.rs, Iter 97), channel 896→594 (Kepler→kepler_channel.rs, Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
 | Tests | A+ | 4754 passing, 0 failed, 181 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |

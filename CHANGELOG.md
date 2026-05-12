@@ -4,11 +4,32 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 94
+**Current status**: Phase 10 — Iteration 97
 
 ---
 
 ## [Unreleased]
+
+### Iteration 97 — Smart Refactoring + Stub Evolution (2026-05-11)
+
+#### Smart File Refactoring (>800L)
+- **`nv/ioctl/mod.rs`** (929→655 lines): Extracted GEM buffer management (alloc, mapping, pushbuf submission) to `nv/ioctl/gem.rs` (299 lines). Natural domain boundary — GEM operations vs channel management.
+- **`vfio/channel/mod.rs`** (896→594 lines): Extracted Kepler (GK110/GK210) channel creation to `vfio/channel/kepler_channel.rs` (305 lines). Architecture-specific split — Kepler 2-level page tables vs Volta+ 5-level.
+
+#### Stub Elimination
+- `IntelDevice::stub()` → `IntelDevice::host_emulated()`: Removed "stub" naming from production API. Method now documented as host-memory emulation (buffer ops work in host memory, dispatch builds real batch but returns error until DRM exec is wired).
+
+#### Audit Results (No Action Needed)
+- Zero `Result<_, String>` in production code
+- Zero `.unwrap()` in library code
+- Zero `eprintln!` in production library code (CLI binaries retain idiomatic `eprintln!`)
+- Zero `async_trait` or `lazy_static` direct usage
+- `MockWritesMutexPoisoned` already `#[cfg(test)]` gated
+- All 45+ `#[expect(dead_code)]` annotations verified valid (DMA lifetime, HW register maps, WIP, generated tables)
+- `deny.toml` enforced: no `openssl`, `ring`, `cmake`, `bindgen`, `*-sys` (except `linux-raw-sys` via rustix)
+
+#### Tests
+- 4754 passing, 0 failures, 181 ignored. Zero clippy warnings.
 
 ### Iteration 96 — Compute Trio Wire Contract + Extraction Boundary (2026-05-11)
 

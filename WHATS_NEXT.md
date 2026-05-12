@@ -2,9 +2,9 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 96 (Compute Trio Evolution).
+**Current position**: Phase 10 — Iteration 97 (Smart Refactoring + Stub Evolution).
 
-**Last completed**: Compute Trio wire contract alignment — `shader.compile.wgsl` response now matches the trio specification (`binary_b64`, `target`, `shader_info` with `gprs`, `shared_memory`, `barriers`, `workgroup`, `wave_size`, `local_memory`, `compile_time_ms`). Gate 1 satisfied: `shader.compile.capabilities` returns `targets` array. Extraction boundary documented for toadStool absorption of hardware-domain crates.
+**Last completed**: Smart refactoring of >800L files: GEM buffer ops extracted to `ioctl/gem.rs` (929→655L), Kepler channel creation to `kepler_channel.rs` (896→594L). `IntelDevice::stub()`→`host_emulated()` (stub naming eliminated from production API). Comprehensive audit confirmed zero debt across all categories.
 
 **Tests**: 4754 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 

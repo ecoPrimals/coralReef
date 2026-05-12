@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: May 11, 2026 (Phase 10 — Iteration 96)
-**Phase**: 10 — Compute Trio Evolution (HOW domain). Wire contract aligned to trio specification (Gate 1 satisfied). Extraction boundary documented — toadStool absorbs hardware-domain crates (coral-ember, coral-glowplug, coral-driver hardware) concurrently. coralReef retains compiler domain only (coralreef-core, coral-reef, coral-gpu, coral-driver QMD/cubin/generation). All typed errors; zero `Result<_, String>` in any production code. All hardcoded device paths env-overridable. Smart file splits: zero files >1000L. BTSP Phase 3 transport verified reachable. Wire Standard L3 alignment complete. Full modernization audit: zero `async_trait`, zero `lazy_static`, zero `Box<dyn Error>` in production. 57 `eprintln!` migrated to structured `tracing` (Iter 95). JH-0 MethodGate live (Iter 94).
+**Last updated**: May 11, 2026 (Phase 10 — Iteration 97)
+**Phase**: 10 — Deep debt pass. Smart refactoring of >800L files: GEM buffer ops extracted to `ioctl/gem.rs` (929→655), Kepler channel creation to `kepler_channel.rs` (896→594). `IntelDevice::stub`→`host_emulated` (stub naming eliminated from production API). Comprehensive audit: zero `Result<_, String>`, zero `.unwrap()`, zero `eprintln!` in production library code, zero `async_trait`/`lazy_static`, all `#[expect(dead_code)]` verified valid. 4754 tests, zero failures. Compute Trio Evolution (HOW domain). Wire contract aligned to trio specification (Gate 1 satisfied). Extraction boundary documented. BTSP Phase 3 transport verified. Wire Standard L3 complete. JH-0 MethodGate live.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM35–SM120, including Blackwell) and AMD (GCN5/RDNA2–RDNA4). Pure Rust; transitive
 libc only via tokio/mio (deferred to mio#1735 rustix migration).
-4686 tests (177 ignored), ~65% line coverage (8 crates above 90%),
+4754 tests (181 ignored), ~65% line coverage (8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with

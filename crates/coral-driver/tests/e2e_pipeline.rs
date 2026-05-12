@@ -15,7 +15,7 @@ mod intel_trait_flow {
 
     #[test]
     fn alloc_upload_readback_round_trip() {
-        let mut dev = IntelDevice::stub(12);
+        let mut dev = IntelDevice::host_emulated(12);
 
         let data = vec![42u8; 256];
         let buf = dev.alloc(256, MemoryDomain::Gtt).unwrap();
@@ -29,7 +29,7 @@ mod intel_trait_flow {
 
     #[test]
     fn multi_buffer_alloc_and_free() {
-        let mut dev = IntelDevice::stub(13);
+        let mut dev = IntelDevice::host_emulated(13);
 
         let bufs: Vec<_> = (0..8)
             .map(|i| dev.alloc(1024 * (i + 1), MemoryDomain::Vram).unwrap())
@@ -49,7 +49,7 @@ mod intel_trait_flow {
 
     #[test]
     fn dispatch_returns_skeleton_error() {
-        let mut dev = IntelDevice::stub(12);
+        let mut dev = IntelDevice::host_emulated(12);
         let info = ShaderInfo {
             gpr_count: 32,
             shared_mem_bytes: 0,
@@ -66,7 +66,7 @@ mod intel_trait_flow {
 
     #[test]
     fn capabilities_are_correct() {
-        let dev = IntelDevice::stub(12);
+        let dev = IntelDevice::host_emulated(12);
         let caps = dev.capabilities();
         assert_eq!(caps.vendor, coral_driver::hardware::Vendor::Intel);
         assert!(!caps.has_hardware_f64);

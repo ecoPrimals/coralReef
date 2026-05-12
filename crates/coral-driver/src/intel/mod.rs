@@ -48,10 +48,12 @@ impl std::fmt::Debug for IntelDevice {
 impl IntelDevice {
     /// Create an Intel compute device for a given generation.
     ///
-    /// Currently a host-memory stub — no actual GPU access. Useful for
+    /// Currently a host-memory emulation — no actual GPU access. Useful for
     /// testing the vendor-agnostic dispatch pipeline with Intel capabilities.
+    /// Buffer alloc/upload/readback works in host memory; dispatch builds a
+    /// real command batch but returns an error (DRM exec not yet wired).
     #[must_use]
-    pub fn stub(gfx_ver: u8) -> Self {
+    pub fn host_emulated(gfx_ver: u8) -> Self {
         let profile = generation::profile_for_gen(gfx_ver);
         Self {
             caps: profile.to_capabilities(),
@@ -200,7 +202,7 @@ mod tests {
 
     #[test]
     fn stub_device_alloc_upload_readback() {
-        let mut dev = IntelDevice::stub(12);
+        let mut dev = IntelDevice::host_emulated(12);
         let buf = dev.alloc(64, MemoryDomain::Gtt).unwrap();
         dev.upload(buf, 0, &[1, 2, 3, 4]).unwrap();
         let data = dev.readback(buf, 0, 4).unwrap();
@@ -209,7 +211,7 @@ mod tests {
 
     #[test]
     fn stub_dispatch_returns_error() {
-        let mut dev = IntelDevice::stub(12);
+        let mut dev = IntelDevice::host_emulated(12);
         let info = ShaderInfo::default();
         let result = dev.dispatch(&[], &[], DispatchDims::linear(1), &info);
         assert!(result.is_err());
@@ -217,13 +219,13 @@ mod tests {
 
     #[test]
     fn capabilities_are_intel() {
-        let dev = IntelDevice::stub(12);
+        let dev = IntelDevice::host_emulated(12);
         assert_eq!(dev.capabilities().vendor, crate::hardware::Vendor::Intel);
     }
 
     #[test]
     fn dispatch_builds_batch_before_failing() {
-        let mut dev = IntelDevice::stub(12);
+        let mut dev = IntelDevice::host_emulated(12);
         let info = ShaderInfo {
             workgroup: [64, 1, 1],
             ..ShaderInfo::default()
