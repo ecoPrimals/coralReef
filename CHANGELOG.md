@@ -4,11 +4,60 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 99
+**Current status**: Phase 10 — Iteration 101
 
 ---
 
 ## [Unreleased]
+
+### Iteration 101 — Deep Debt: Smart Refactoring + Unsafe Evolution (2026-05-12)
+
+#### Smart Refactoring (3 files, semantic domain extraction)
+- `error.rs` (928L) → `error/mod.rs` (412L) + `error/vfio.rs` (523L): VFIO-path error enums (`PciDiscoveryError`, `DevinitError`, `ChannelError`, `SovereignStagesError`) extracted to dedicated module; public API preserved via re-exports
+- `nv/mod.rs` (857L) → 747L + `nv/fecs_init.rs` (124L): FECS channel initialization (Phase 3 of nouveau device init) extracted as self-contained method module
+- `pfifo.rs` (882L) → 695L + `vfio/channel/bar2_init.rs` (199L): BAR2 page table setup (virtual memory concern) extracted from PFIFO scheduler module; callers in `glowplug/warm.rs` and `diagnostic/interpreter/probe/domain.rs` updated
+
+#### Unsafe Evolution
+- `mem::zeroed()` eliminated for 3 `#[repr(C)]` ioctl param structs in `coral_kmod.rs`: `CoralInitComputeParams`, `CoralBindChannelParams`, `CoralAllocGpuBufferParams` → `#[derive(Default)]` + safe struct literal initialization with `..Default::default()`
+
+#### ICE Consistency
+- 3 bare `panic!()` calls in PTX emitter (`types.rs`, `emitter.rs`) evolved to `ice!()` macro — consistent with codegen ICE policy; provides source location and bug-report guidance
+
+#### Comprehensive Audits
+- `.unwrap()` sweep: all instances confined to `#[cfg(test)]` modules — zero in production library code
+- `panic!()` sweep: all remaining production `panic!()` are via `ice!()` macro (compiler invariants) — zero bare panics in library code
+- External deps: all pure Rust except optional `cudarc` (cuda feature); transitive `libc` via rustix only
+- Production mocks: zero — all test mocks in `#[cfg(test)]` modules
+- Hardcoded primal names: zero in runtime code (doc comments only)
+- `#[allow]` audit: all annotations have explicit `reason` strings — zero unexplained suppressions
+
+#### Tests
+- 4765 passing, 0 failed, 181 ignored. Zero clippy warnings. Identical counts to pre-refactoring.
+
+### Iteration 100 — PTX Atomics + Warp Primitives + Soft-Deprecation (2026-05-12)
+
+#### PTX Atomics (7 ops + CAS)
+- `atom.{global,shared}.{add,and,or,xor,min,max,exch,cas}` + subtract via negate-then-add
+
+#### PTX Memory Barriers
+- `membar.{cta,gl}` for STORAGE and WORK_GROUP scopes
+
+#### PTX Warp/Subgroup Primitives
+- `shfl.sync.{idx,up,down,bfly}`, `vote.sync.ballot`, `redux.sync.*`
+- `SubgroupInvocationId` / `SubgroupSize` builtins
+
+#### Soft-Deprecation
+- `coral-glowplug`: `#[deprecated(since = "0.2.0")]` on all public modules — toadStool Phase B absorption confirmed
+- `coral-ember`: `#[deprecated(since = "0.2.0")]` on all public modules — toadStool Phase A absorption confirmed
+
+#### Wire Contract Enhancement
+- `math_ops`, `sm_target`, `atomics`, `subgroup_ops` fields added to `shader.compile.capabilities` response
+
+#### RDNA2 Parity
+- Full parity confirmed (25+ ops): all PTX math operations have RDNA2 equivalents via IR decomposition
+
+#### Tests
+- 4765 passing (+4), 0 failed, 181 ignored. Zero clippy warnings.
 
 ### Iteration 99 — PTX Emitter SM120/Blackwell Evolution (2026-05-12)
 

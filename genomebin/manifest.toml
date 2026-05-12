@@ -13,8 +13,8 @@ license = "AGPL-3.0-or-later"
 binary = "coralreef"
 pie_verified = true
 ecobin_grade = "A++"
-iteration = 80
-tests = 4506
+iteration = 101
+tests = 4765
 description = "Sovereign Rust GPU shader compiler. Compiles WGSL/SPIR-V/GLSL compute shaders to native GPU binaries (NVIDIA SM35-SM120, AMD GCN5/RDNA2-4). coralDriver + coralGpu. Zero C dependencies."
 
 [capabilities]
@@ -50,6 +50,6 @@ jsonrpc = ["unix_socket", "tcp"]
 tarpc = ["unix_socket", "tcp"]
 
 [security]
-btsp_phase = 2
+btsp_phase = 3
 forbid_unsafe = ["coralreef-core", "coral-reef", "coral-glowplug", "coral-ember", "primal-rpc-client", "coral-gpu"]
 unsafe_exception = "coral-driver (hardware ioctl/MMIO)"

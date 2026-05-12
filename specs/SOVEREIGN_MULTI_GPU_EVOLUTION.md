@@ -2,10 +2,10 @@
 
 # Sovereign Multi-GPU Evolution — Pure Rust Pipeline
 
-**Version**: 0.3.0
-**Date**: April 15, 2026
-**Status**: Phase 10 — Iteration 81 (Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery)
-**Hardware**: NVIDIA Titan V ×2 (GV100/SM70) + NVIDIA RTX 5060 (AD107/SM89)
+**Version**: 0.4.0
+**Date**: May 12, 2026
+**Status**: Phase 10 — Iteration 101 (Deep Debt Resolved, Smart Refactoring, Unsafe Evolution, 4765 tests)
+**Hardware**: NVIDIA Titan V ×2 (GV100/SM70) + NVIDIA RTX 4070 (AD104/SM89)
 
 ---
 
@@ -332,7 +332,7 @@ Every external dependency has a planned evolution path:
 
 | Test Type | NVIDIA | AMD | Method |
 |-----------|:------:|:---:|--------|
-| Unit (encoder) | ✅ 4318 tests | ✅ 100+ tests | Instruction-level encoding verification |
+| Unit (encoder) | ✅ 4765 tests | ✅ 100+ tests | Instruction-level encoding verification |
 | Integration (pipeline) | ✅ Complete | ✅ Complete | WGSL → binary round-trip |
 | Property (proptest) | ✅ 5 tests | Extend | Random shader fuzzing |
 | Chaos | ✅ 6 tests | Extend | Concurrent, truncated, determinism |

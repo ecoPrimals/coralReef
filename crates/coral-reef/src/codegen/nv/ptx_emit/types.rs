@@ -15,7 +15,7 @@ impl PtxVal {
             Self::R32(id) => format!("%r{id}"),
             Self::Rd64(id) => format!("%rd{id}"),
             Self::Pred(id) => format!("%p{id}"),
-            Self::Vec(_) => panic!("cannot use vector as scalar operand"),
+            Self::Vec(_) => crate::codegen::ice!("cannot use vector as scalar operand"),
         }
     }
 
@@ -23,7 +23,7 @@ impl PtxVal {
         match self {
             Self::Vec(v) => &v[idx],
             _ if idx == 0 => self,
-            _ => panic!("scalar has no component {idx}"),
+            _ => crate::codegen::ice!("scalar has no component {idx}"),
         }
     }
 

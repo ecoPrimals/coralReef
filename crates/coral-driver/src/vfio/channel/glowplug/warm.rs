@@ -7,7 +7,7 @@ use super::super::devinit;
 use super::super::diagnostic::interpreter::memory_probe;
 use super::super::hbm2_training;
 use super::super::oracle::{DigitalPmu, OracleState};
-use super::super::pfifo;
+use super::super::bar2_init;
 use super::super::registers::{cg, misc, pri};
 use super::GlowPlug;
 use super::constants::is_dangerous_register;
@@ -668,7 +668,7 @@ fn run_step_vram_strategies(
 
 fn run_step_bar2(gp: &GlowPlug<'_>, log: &mut Vec<String>) {
     log.push("step 4: Setting up BAR2 page tables in VRAM".into());
-    match pfifo::setup_bar2_page_table(gp.bar0) {
+    match bar2_init::setup_bar2_page_table(gp.bar0) {
         Ok(()) => {
             log.push("  BAR2 page tables configured successfully.".into());
             let bar2 = gp.r(misc::PBUS_BAR2_BLOCK);

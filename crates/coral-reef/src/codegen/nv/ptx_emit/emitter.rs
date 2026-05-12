@@ -122,7 +122,7 @@ impl<'a> PtxEmitter<'a> {
             naga::Expression::ArrayLength(_) => self.scalar_type_handle(naga::Scalar::U32),
             _ => self.module.types.iter().next().map_or_else(
                 || {
-                    panic!("module has no types");
+                    crate::codegen::ice!("module has no types");
                 },
                 |(h, _)| h,
             ),

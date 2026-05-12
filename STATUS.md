@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 12, 2026  
-**Phase**: 10 — Iteration 100 (PTX atomics + warp primitives + memory barriers; coral-glowplug/coral-ember soft-deprecated; RDNA2 parity confirmed; 4765 tests, zero debt)
+**Phase**: 10 — Iteration 101 (Deep debt: smart refactoring 3 files, unsafe→safe evolution, VFIO error domain split; 4765 tests, zero debt)
 
 ---
 
@@ -21,12 +21,12 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
-| Code structure | A+ | Smart refactoring: ioctl 929→655 (GEM→gem.rs, Iter 97), channel 896→594 (Kepler→kepler_channel.rs, Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
+| Code structure | A+ | Smart refactoring: error.rs 928→mod(412)+vfio(523) (Iter 101), nv/mod.rs 857→747+fecs_init(124) (Iter 101), pfifo.rs 882→695+bar2_init(199) (Iter 101), ioctl 929→655 (Iter 97), channel 896→594 (Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
 | Tests | A+ | 4765 passing, 0 failed, 181 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests (atomics, barriers, subgroups) |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps, `mem::zeroed()` eliminated for ioctl param structs (Iter 101) |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, `unreachable!()` → `ice!()` in encoder |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml` (ecoBin v3 C/FFI bans), pure Rust ISA generator |
@@ -41,7 +41,22 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 100** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 101** |
+
+### Iteration 101: Deep Debt — Smart Refactoring + Unsafe Evolution (May 12, 2026)
+
+**Theme**: Structural deep debt elimination across `coral-driver`. Smart refactoring of the 3 largest files (all >800 LOC) by semantic domain extraction rather than arbitrary splitting. Unsafe `mem::zeroed()` evolved to safe `Default::default()` for ioctl param structs. Comprehensive `.unwrap()` sweep confirmed production code is clean. Full audit confirmed: zero production mocks, zero hardcoded primal names, external deps pure Rust.
+
+| Area | Change |
+|------|--------|
+| `error.rs` 928L refactored | → `error/mod.rs` (412L) + `error/vfio.rs` (523L) — VFIO error domain semantically separated |
+| `nv/mod.rs` 857L refactored | → 747L + `nv/fecs_init.rs` (124L) — FECS channel init phase extracted |
+| `pfifo.rs` 882L refactored | → 695L + `vfio/channel/bar2_init.rs` (199L) — BAR2 page table init extracted |
+| `mem::zeroed()` eliminated | 3 ioctl param structs (`CoralInitComputeParams`, `CoralBindChannelParams`, `CoralAllocGpuBufferParams`) → `#[derive(Default)]` + safe struct literal init |
+| `.unwrap()` audit | All instances in `#[cfg(test)]` only — zero in production library code |
+| External deps audit | All pure Rust except optional `cudarc` (cuda feature); transitive `libc` via rustix only |
+| Production mocks | Zero — all test mocks confined to `#[cfg(test)]` modules |
+| Quality gates | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (4765 passing, 0 failed, 181 ignored) |
 
 ### Iteration 100: PTX Atomics + Warp Prims + Soft-Deprecation (May 12, 2026)
 

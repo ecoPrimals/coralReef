@@ -276,7 +276,7 @@ pub fn probe_engines(
             bar2_block = format!("{bar2_block:#010x}"),
             "L3 BAR2 invalid — page table setup needed"
         );
-        if let Err(e) = crate::vfio::channel::pfifo::setup_bar2_page_table(bar0) {
+        if let Err(e) = crate::vfio::channel::bar2_init::setup_bar2_page_table(bar0) {
             tracing::warn!(error = %e, "L3 BAR2 setup failed");
         }
     }

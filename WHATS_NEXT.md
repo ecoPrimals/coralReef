@@ -2,9 +2,9 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 100 (Compiler Hardening + Soft-Deprecation + SM120 Completion).
+**Current position**: Phase 10 — Iteration 101 (Deep Debt: Smart Refactoring + Unsafe Evolution).
 
-**Last completed**: PTX atomics (7 ops + CAS), warp-level primitives (shfl/vote/redux), memory barriers (membar.cta/gl), SubgroupInvocationId/Size builtins. coral-glowplug + coral-ember soft-deprecated (Phase A+B absorption confirmed). RDNA2 full math parity documented. Wire contract enhanced with `math_ops`/`sm_target`/`atomics`/`subgroup_ops`.
+**Last completed**: Smart refactoring of 3 largest files by semantic domain extraction (error.rs→error/, nv/mod.rs→fecs_init.rs, pfifo.rs→bar2_init.rs). `mem::zeroed()` evolved to safe `Default::default()` for ioctl param structs. Comprehensive `.unwrap()` and production mock audits confirmed clean.
 
 **Tests**: 4765 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
@@ -30,7 +30,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 
-**Approaching 1000 (monitor):** `tests_unix_edge.rs` (935, test), `nv_metal.rs` (882), `vfio/memory.rs` (874). Iter 82 extracted tests: `nvidia_headers.rs` (839→460), `firmware_parser.rs` (806→318), `registers.rs` (822→725). `codegen_coverage_saturation.rs` (was 982) split into 572 + 441 (Iter 81). Former monolithic files now directories: `shader_header` → 5 submodules (Iter 77); `personality` → 2 submodules (Iter 77); `sysmem_impl` → orchestrator + 5 submodules (Iter 76); `sec2_hal` → 9-file directory (Iter 76); `identity` → 7-file directory (Iter 76); `uvm_compute` → 5 submodules (Iter 74); `pci_discovery` → 7 submodules (Iter 74).
+**Approaching 1000 (monitor):** `tests_unix_edge.rs` (935, test), `nv_metal.rs` (882), `vfio/memory.rs` (874). Iter 101 refactored: `error.rs` (928→mod 412 + vfio 523), `pfifo.rs` (882→695 + bar2_init 199), `nv/mod.rs` (857→747 + fecs_init 124). Iter 82 extracted tests: `nvidia_headers.rs` (839→460), `firmware_parser.rs` (806→318), `registers.rs` (822→725). `codegen_coverage_saturation.rs` (was 982) split into 572 + 441 (Iter 81). Former monolithic files now directories: `shader_header` → 5 submodules (Iter 77); `personality` → 2 submodules (Iter 77); `sysmem_impl` → orchestrator + 5 submodules (Iter 76); `sec2_hal` → 9-file directory (Iter 76); `identity` → 7-file directory (Iter 76); `uvm_compute` → 5 submodules (Iter 74); `pci_discovery` → 7 submodules (Iter 74).
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio domain split underway — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-4754 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4765 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 Wire contract aligned to Compute Trio specification: `binary_b64`, `target`, `shader_info` (with `gprs`, `shared_memory`, `barriers`, `workgroup`, `wave_size`, `local_memory`), `compile_time_ms`. Gate 1 satisfied: `shader.compile.capabilities` returns `targets` array.

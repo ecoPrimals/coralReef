@@ -120,6 +120,7 @@ struct CoralCtxBufInfo {
 }
 
 #[repr(C)]
+#[derive(Default)]
 struct CoralInitComputeParams {
     gpu_index: u32,
     sm_version: u32,
@@ -223,6 +224,7 @@ struct CoralBindResourceInfo {
 }
 
 #[repr(C)]
+#[derive(Default)]
 struct CoralBindChannelParams {
     gpu_uuid: [u8; 16],
     h_client: u32,
@@ -239,6 +241,7 @@ struct CoralBindChannelParams {
 }
 
 #[repr(C)]
+#[derive(Default)]
 struct CoralAllocGpuBufferParams {
     h_client: u32,
     _pad0: u32,
@@ -314,10 +317,11 @@ impl CoralKmod {
 
     /// Initialize a kernel-privileged compute channel.
     pub fn init_compute(&self, gpu_index: u32, sm_version: u32) -> DriverResult<KmodChannelInfo> {
-        // SAFETY: repr(C) struct, zeroed is valid.
-        let mut params: CoralInitComputeParams = unsafe { std::mem::zeroed() };
-        params.gpu_index = gpu_index;
-        params.sm_version = sm_version;
+        let mut params = CoralInitComputeParams {
+            gpu_index,
+            sm_version,
+            ..Default::default()
+        };
 
         let cmd = coral_iowr(1, std::mem::size_of::<CoralInitComputeParams>());
         coral_ioctl(self.fd.as_raw_fd(), cmd, &mut params, "CORAL_INIT_COMPUTE")?;
@@ -488,11 +492,12 @@ impl CoralKmod {
         h_channel: u32,
         sm_version: u32,
     ) -> DriverResult<KmodBindResult> {
-        // SAFETY: repr(C) struct, zeroed is valid.
-        let mut params: CoralBindChannelParams = unsafe { std::mem::zeroed() };
-        params.gpu_uuid = *gpu_uuid;
-        params.h_client = h_client;
-        params.h_vaspace = h_vaspace;
+        let mut params = CoralBindChannelParams {
+            gpu_uuid: *gpu_uuid,
+            h_client,
+            h_vaspace,
+            ..Default::default()
+        };
         params.h_channel = h_channel;
         params.sm_version = sm_version;
 
@@ -527,10 +532,11 @@ impl CoralKmod {
     /// Allocate a VRAM buffer and map it into the GPU VA space from kernel
     /// context. Returns `(h_memory, gpu_va)`.
     pub fn alloc_gpu_buffer(&self, h_client: u32, size: u64) -> DriverResult<(u32, u64)> {
-        // SAFETY: repr(C) struct, zeroed is valid.
-        let mut params: CoralAllocGpuBufferParams = unsafe { std::mem::zeroed() };
-        params.h_client = h_client;
-        params.size = size;
+        let mut params = CoralAllocGpuBufferParams {
+            h_client,
+            size,
+            ..Default::default()
+        };
 
         let cmd = coral_iowr(6, std::mem::size_of::<CoralAllocGpuBufferParams>());
         coral_ioctl(

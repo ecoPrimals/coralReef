@@ -18,6 +18,7 @@
 pub mod devinit;
 pub mod glowplug;
 pub mod hbm2_training;
+mod bar2_init;
 mod kepler_channel;
 #[expect(
     missing_docs,
