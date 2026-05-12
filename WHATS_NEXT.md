@@ -2,11 +2,11 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 99 (PTX Emitter SM120/Blackwell Evolution).
+**Current position**: Phase 10 — Iteration 100 (Compiler Hardening + Soft-Deprecation + SM120 Completion).
 
-**Last completed**: PTX emitter evolution: Switch statement support + 10 new math functions (pow, exp, log, sign, fract, mix, step, dot, tanh). Unblocks real-world shaders on SM120/Blackwell. 7 new PTX unit tests.
+**Last completed**: PTX atomics (7 ops + CAS), warp-level primitives (shfl/vote/redux), memory barriers (membar.cta/gl), SubgroupInvocationId/Size builtins. coral-glowplug + coral-ember soft-deprecated (Phase A+B absorption confirmed). RDNA2 full math parity documented. Wire contract enhanced with `math_ops`/`sm_target`/`atomics`/`subgroup_ops`.
 
-**Tests**: 4761 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4765 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 12, 2026.
 

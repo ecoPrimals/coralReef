@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
+#![allow(deprecated)]
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
@@ -76,40 +77,61 @@
 //! let _maybe = EmberClient::connect();
 //! ```
 
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 #[cfg(target_os = "linux")]
 pub mod capture;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod config;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 #[cfg(target_os = "linux")]
 pub mod device;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 #[cfg(target_os = "linux")]
 pub mod ember;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod error;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 #[cfg(unix)]
 pub mod group_unix;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 #[cfg(target_os = "linux")]
 pub mod health;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod mailbox;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod observer;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod pci_ids;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod personality;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod power_state;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod ring;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 #[cfg(target_os = "linux")]
 pub mod sec2_bridge;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 #[cfg(target_os = "linux")]
 pub mod sovereign;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod sysfs;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod sysfs_ops;
 
+#[allow(deprecated)]
 pub use sysfs_ops::{RealSysfs, SysfsOps};
 
+#[allow(deprecated)]
 #[cfg(all(test, target_os = "linux"))]
 pub use sysfs_ops::MockSysfs;
 
+#[allow(deprecated)]
 #[cfg(target_os = "linux")]
 #[doc(hidden)]
 pub use ember::test_support_default_ember_socket;
 
+#[allow(deprecated)]
 #[cfg(target_os = "linux")]
 #[doc(hidden)]
 pub use health::test_support_notify_watchdog;

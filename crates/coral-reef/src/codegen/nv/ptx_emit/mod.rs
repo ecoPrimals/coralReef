@@ -322,4 +322,74 @@ fn main() {
         assert!(ptx.contains("$L"));
         assert!(ptx.contains("bra"));
     }
+
+    #[test]
+    fn ptx_atomic_add_global() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<atomic<u32>>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    atomicAdd(&buf[0], 1u);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("atom.global.add.u32"), "Expected atom.global.add.u32 in:\n{ptx}");
+    }
+
+    #[test]
+    fn ptx_atomic_max_shared() {
+        let wgsl = r"
+var<workgroup> shared_max: atomic<u32>;
+
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
+    atomicMax(&shared_max, lid.x);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("atom.shared.max.u32"), "Expected atom.shared.max.u32 in:\n{ptx}");
+    }
+
+    #[test]
+    fn ptx_atomic_cas() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<atomic<u32>>;
+
+@compute @workgroup_size(1)
+fn main() {
+    atomicCompareExchangeWeak(&buf[0], 0u, 42u);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("atom.global.cas.u32"), "Expected atom.global.cas.u32 in:\n{ptx}");
+    }
+
+    #[test]
+    fn ptx_memory_barrier() {
+        let wgsl = r"
+var<workgroup> wg_buf: array<u32, 64>;
+
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
+    wg_buf[lid.x] = lid.x;
+    workgroupBarrier();
+    buf[lid.x] = wg_buf[63u - lid.x];
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("bar.sync"), "Expected bar.sync in:\n{ptx}");
+    }
 }

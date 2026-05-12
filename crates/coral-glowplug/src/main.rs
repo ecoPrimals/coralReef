@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![allow(deprecated)]
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,

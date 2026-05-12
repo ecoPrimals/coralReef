@@ -163,6 +163,18 @@ impl PtxEmitter<'_> {
                 .expect("write to String");
                 Ok(r)
             }
+            naga::BuiltIn::SubgroupInvocationId => {
+                let r = self.alloc_r32();
+                writeln!(self.body, "    mov.u32 {}, %laneid;", r.fmt_operand())
+                    .expect("write to String");
+                Ok(r)
+            }
+            naga::BuiltIn::SubgroupSize => {
+                let r = self.alloc_r32();
+                writeln!(self.body, "    mov.u32 {}, WARP_SZ;", r.fmt_operand())
+                    .expect("write to String");
+                Ok(r)
+            }
             other => Err(CompileError::NotImplemented(
                 format!("PTX builtin: {other:?}").into(),
             )),

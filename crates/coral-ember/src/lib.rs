@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![allow(deprecated)]
 #![allow(
     clippy::redundant_pub_crate,
     clippy::doc_markdown,
@@ -42,17 +43,23 @@
 //! The full daemon and VFIO IPC surface are **Linux-only**. On other platforms this crate
 //! exposes configuration, journal, observation, and ring metadata types for cross-compilation.
 
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase A — use toadstool-ember")]
 #[cfg(target_os = "linux")]
 pub mod adaptive;
 #[cfg(target_os = "linux")]
 mod background;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase A — use toadstool-ember")]
 pub mod drm_isolation;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase A — use toadstool-ember")]
 pub mod error;
 #[cfg(target_os = "linux")]
 mod hold;
 mod ipc;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase A — use toadstool-ember")]
 pub mod journal;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase A — use toadstool-ember")]
 pub mod observation;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase A — use toadstool-ember")]
 pub mod ring_meta;
 #[cfg(target_os = "linux")]
 mod runtime;
@@ -60,6 +67,7 @@ mod runtime;
 mod swap;
 #[cfg(target_os = "linux")]
 mod sysfs;
+#[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase A — use toadstool-ember")]
 #[cfg(target_os = "linux")]
 pub mod trace;
 #[cfg(target_os = "linux")]

@@ -155,7 +155,132 @@ impl PtxEmitter<'_> {
                 writeln!(self.body, "    exit;").expect("write to String");
                 Ok(())
             }
+            naga::Statement::SubgroupBallot { result, predicate } => {
+                self.emit_subgroup_ballot(result, predicate)
+            }
+            naga::Statement::SubgroupCollectiveOperation {
+                op,
+                collective_op,
+                argument,
+                result,
+            } => self.emit_subgroup_collective(op, collective_op, argument, result),
+            naga::Statement::SubgroupGather {
+                mode,
+                argument,
+                result,
+            } => self.emit_subgroup_gather(mode, argument, result),
+            naga::Statement::MemoryBarrier(barrier) => {
+                let scope = if barrier.contains(naga::Barrier::STORAGE) {
+                    "gl"
+                } else {
+                    "cta"
+                };
+                writeln!(self.body, "    membar.{scope};").expect("write to String");
+                Ok(())
+            }
+            naga::Statement::Atomic {
+                pointer,
+                ref fun,
+                value,
+                result,
+            } => self.emit_atomic(pointer, fun, value, result),
             _ => Ok(()),
+        }
+    }
+
+    fn emit_atomic(
+        &mut self,
+        pointer: naga::Handle<naga::Expression>,
+        fun: &naga::AtomicFunction,
+        value: naga::Handle<naga::Expression>,
+        result: Option<naga::Handle<naga::Expression>>,
+    ) -> Result<(), CompileError> {
+        let (addr, mem_space) = self.eval_pointer(pointer)?;
+        let val = self.eval_expr(value)?;
+        let val_scalar = self.scalar_of(value);
+
+        let space = if mem_space == MemSpaceKind::Shared {
+            "shared"
+        } else {
+            "global"
+        };
+
+        let type_suffix = Self::ptx_atom_type(val_scalar);
+
+        let dst = self.alloc_for_scalar(val_scalar);
+
+        match fun {
+            naga::AtomicFunction::Exchange { compare: Some(cmp) } => {
+                let cmp_val = self.eval_expr(*cmp)?;
+                writeln!(
+                    self.body,
+                    "    atom.{space}.cas.{type_suffix} {}, [{}], {}, {};",
+                    dst.fmt_operand(),
+                    addr.fmt_operand(),
+                    cmp_val.fmt_operand(),
+                    val.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::AtomicFunction::Subtract => {
+                let neg = self.alloc_for_scalar(val_scalar);
+                writeln!(
+                    self.body,
+                    "    neg.{type_suffix} {}, {};",
+                    neg.fmt_operand(),
+                    val.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    atom.{space}.add.{type_suffix} {}, [{}], {};",
+                    dst.fmt_operand(),
+                    addr.fmt_operand(),
+                    neg.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            _ => {
+                let op = Self::ptx_atom_op(fun);
+                writeln!(
+                    self.body,
+                    "    atom.{space}.{op}.{type_suffix} {}, [{}], {};",
+                    dst.fmt_operand(),
+                    addr.fmt_operand(),
+                    val.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+        }
+
+        if let Some(res_handle) = result {
+            self.values.insert(res_handle, dst);
+        }
+
+        Ok(())
+    }
+
+    fn ptx_atom_op(fun: &naga::AtomicFunction) -> &'static str {
+        match fun {
+            naga::AtomicFunction::Add | naga::AtomicFunction::Subtract => "add",
+            naga::AtomicFunction::And => "and",
+            naga::AtomicFunction::InclusiveOr => "or",
+            naga::AtomicFunction::ExclusiveOr => "xor",
+            naga::AtomicFunction::Min => "min",
+            naga::AtomicFunction::Max => "max",
+            naga::AtomicFunction::Exchange { .. } => "exch",
+        }
+    }
+
+    fn ptx_atom_type(scalar: naga::Scalar) -> &'static str {
+        match (scalar.kind, scalar.width) {
+            (naga::ScalarKind::Uint, 4) => "u32",
+            (naga::ScalarKind::Sint, 4) => "s32",
+            (naga::ScalarKind::Float, 4) => "f32",
+            (naga::ScalarKind::Uint, 8) => "u64",
+            (naga::ScalarKind::Sint, 8) => "s64",
+            (naga::ScalarKind::Float, 8) => "f64",
+            _ => "u32",
         }
     }
 
@@ -254,5 +379,164 @@ impl PtxEmitter<'_> {
             src.fmt_operand(),
         )
         .expect("write to String");
+    }
+
+    fn emit_subgroup_ballot(
+        &mut self,
+        result: naga::Handle<naga::Expression>,
+        predicate: Option<naga::Handle<naga::Expression>>,
+    ) -> Result<(), CompileError> {
+        let pred_op = if let Some(pred_h) = predicate {
+            let p = self.eval_expr(pred_h)?;
+            self.ensure_pred(&p)?.fmt_operand()
+        } else {
+            "1".to_string()
+        };
+        let dst = self.alloc_r32();
+        writeln!(
+            self.body,
+            "    vote.sync.ballot.b32 {}, {pred_op}, 0xFFFFFFFF;",
+            dst.fmt_operand(),
+        )
+        .expect("write to String");
+        self.values.insert(result, dst);
+        Ok(())
+    }
+
+    fn emit_subgroup_collective(
+        &mut self,
+        op: naga::SubgroupOperation,
+        collective_op: naga::CollectiveOperation,
+        argument: naga::Handle<naga::Expression>,
+        result: naga::Handle<naga::Expression>,
+    ) -> Result<(), CompileError> {
+        let val = self.eval_expr(argument)?;
+        let val_scalar = self.scalar_of(argument);
+        let dst = self.alloc_for_scalar(val_scalar);
+        let type_suffix = Self::ptx_atom_type(val_scalar);
+
+        let reduce_op = match collective_op {
+            naga::CollectiveOperation::Reduce => match op {
+                naga::SubgroupOperation::All => "and",
+                naga::SubgroupOperation::Any => "or",
+                _ => "add",
+            },
+            naga::CollectiveOperation::InclusiveScan | naga::CollectiveOperation::ExclusiveScan => {
+                return Err(CompileError::NotImplemented(
+                    format!("PTX subgroup scan: {collective_op:?} {op:?}").into(),
+                ));
+            }
+        };
+
+        writeln!(
+            self.body,
+            "    redux.sync.{reduce_op}.{type_suffix} {}, {}, 0xFFFFFFFF;",
+            dst.fmt_operand(),
+            val.fmt_operand(),
+        )
+        .expect("write to String");
+        self.values.insert(result, dst);
+        Ok(())
+    }
+
+    fn emit_subgroup_gather(
+        &mut self,
+        mode: naga::GatherMode,
+        argument: naga::Handle<naga::Expression>,
+        result: naga::Handle<naga::Expression>,
+    ) -> Result<(), CompileError> {
+        let val = self.eval_expr(argument)?;
+        let val_scalar = self.scalar_of(argument);
+        let dst = self.alloc_for_scalar(val_scalar);
+
+        match mode {
+            naga::GatherMode::BroadcastFirst => {
+                writeln!(
+                    self.body,
+                    "    shfl.sync.idx.b32 {}, {}, 0, 0x1f1f, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::GatherMode::Broadcast(idx_h) => {
+                let idx = self.eval_expr(idx_h)?;
+                writeln!(
+                    self.body,
+                    "    shfl.sync.idx.b32 {}, {}, {}, 0x1f1f, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                    idx.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::GatherMode::ShuffleDown(offset_h) => {
+                let offset = self.eval_expr(offset_h)?;
+                writeln!(
+                    self.body,
+                    "    shfl.sync.down.b32 {}, {}, {}, 0x1f, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                    offset.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::GatherMode::ShuffleUp(offset_h) => {
+                let offset = self.eval_expr(offset_h)?;
+                writeln!(
+                    self.body,
+                    "    shfl.sync.up.b32 {}, {}, {}, 0, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                    offset.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::GatherMode::ShuffleXor(mask_h) => {
+                let mask = self.eval_expr(mask_h)?;
+                writeln!(
+                    self.body,
+                    "    shfl.sync.bfly.b32 {}, {}, {}, 0x1f, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                    mask.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::GatherMode::Shuffle(idx_h) => {
+                let idx = self.eval_expr(idx_h)?;
+                writeln!(
+                    self.body,
+                    "    shfl.sync.idx.b32 {}, {}, {}, 0x1f1f, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                    idx.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::GatherMode::QuadBroadcast(idx_h) => {
+                let idx = self.eval_expr(idx_h)?;
+                writeln!(
+                    self.body,
+                    "    shfl.sync.idx.b32 {}, {}, {}, 0x0003, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                    idx.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::GatherMode::QuadSwap(_direction) => {
+                writeln!(
+                    self.body,
+                    "    shfl.sync.bfly.b32 {}, {}, 1, 0x03, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+        }
+
+        self.values.insert(result, dst);
+        Ok(())
     }
 }

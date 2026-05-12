@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: May 12, 2026 (Phase 10 — Iteration 99)
-**Phase**: 10 — PTX emitter SM120/Blackwell evolution: Switch statement lowering (setp.eq chain + labeled branches) + 10 new math functions (pow, exp, log, sign, fract, mix, step, dot, tanh). Firmware panic elimination (Iter 98). Smart refactoring (Iter 97). Zero debt across all categories. 4761 tests, zero failures. Compute Trio Evolution (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Last updated**: May 12, 2026 (Phase 10 — Iteration 100)
+**Phase**: 10 — PTX atomics + warp primitives + memory barriers; coral-glowplug/coral-ember soft-deprecated (Phase A+B absorption confirmed). PTX emitter SM120/Blackwell at 25 math ops + switch + atomics + subgroup. RDNA2 parity confirmed. 4765 tests, zero failures. Compute Trio Evolution (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM35–SM120, including Blackwell) and AMD (GCN5/RDNA2–RDNA4). Pure Rust; transitive
 libc only via tokio/mio (deferred to mio#1735 rustix migration).
-4761 tests (181 ignored), ~65% line coverage (8 crates above 90%),
+4765 tests (181 ignored), ~65% line coverage (8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -30,6 +30,39 @@ VFIO PFIFO channel creation via BAR0 — full Volta hardware channel init with
 V2 MMU 5-level page tables, RAMFC population, TSG+channel runlist, PCCSR
 bind/enable. RAMUSERD offsets corrected (GP_GET@0x88, GP_PUT@0x8C).
 USERMODE doorbell at BAR0+0x810090.
+
+---
+
+## PTX vs RDNA2 Math/Feature Parity (Iteration 100)
+
+| Operation | PTX SM120 | RDNA2 (SASS IR) | Notes |
+|-----------|-----------|-----------------|-------|
+| abs | `abs.f32` | V_MOV + source neg | via IR |
+| floor/ceil/round/trunc | `cvt.rmi/rpi/rni/rzi` | V_FLOOR/CEIL/RNDNE/TRUNC | native both |
+| sqrt | `sqrt.rn` | V_SQRT_F32 | native both |
+| inverseSqrt | `rsqrt.approx` | V_RSQ_F32 | native both |
+| sin/cos | `sin.approx/cos.approx` | V_SIN_F32/V_COS_F32 | native both |
+| exp2/log2 | `ex2.approx/lg2.approx` | V_EXP_F32/V_LOG_F32 | native both |
+| exp/log | `mul+ex2 / lg2+mul` | V_EXP_F32+mul / V_LOG_F32+mul | synthesized both |
+| pow | `lg2+mul+ex2` | V_LOG_F32+mul+V_EXP_F32 | synthesized both |
+| sign | `setp+selp` | V_CNDMASK | via IR comparison |
+| fract | `cvt.rmi+sub` | V_FRACT_F32 | PTX synth, AMD native |
+| mix | `sub+fma` | V_FMA_F32 | synthesized both |
+| step | `setp+selp` | VOPC+V_CNDMASK | via IR comparison |
+| dot | `mul+fma chain` | V_FMA_F32 chain | synthesized both |
+| tanh | `mul+ex2+rcp chain` | V_EXP_F32+rcp chain | IR-decomposed (AMD encoder Tanh=dead code) |
+| min/max | `min.f32/max.f32` | V_MIN_F32/V_MAX_F32 | native both |
+| clamp | `min+max` | V_MIN+V_MAX | synthesized both |
+| fma | `fma.rn` | V_FMA_F32 | native both |
+| **Atomics** | `atom.{global,shared}.{add,cas,...}` | FLAT_ATOMIC / DS_* | PTX emitter + SASS IR |
+| **Memory barrier** | `membar.{cta,gl}` | S_WAITCNT + BUFFER_GL* | PTX emitter + SASS IR |
+| **Warp ballot** | `vote.sync.ballot.b32` | V_CMPX / S_AND | PTX emitter (naga subgroups) |
+| **Warp shuffle** | `shfl.sync.{idx,up,down,bfly}` | DS_PERMUTE / DPP | PTX emitter (naga subgroups) |
+| **Warp reduce** | `redux.sync.{add,min,max}` | — | PTX emitter only (SM80+) |
+
+**Summary**: Full math parity confirmed across 25+ operations. PTX emitter now leads on explicit warp/subgroup primitives (via naga Statement handlers). RDNA2 subgroup operations route through the SASS IR path (V_CMPX, DPP, DS_PERMUTE) when the naga_translate emits them. No functional gaps for barraCuda's tensor core or DF64 dispatch paths.
+
+---
 
 **Iteration 63–66**: ACR boot solver (multi-strategy SEC2→ACR→FECS chain),
 falcon diagnostics, comprehensive audit closure, coralctl handler refactor

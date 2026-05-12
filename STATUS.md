@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 12, 2026  
-**Phase**: 10 — Iteration 99 (PTX emitter SM120/Blackwell evolution: Switch statement + 10 math functions; 4761 tests, zero debt)
+**Phase**: 10 — Iteration 100 (PTX atomics + warp primitives + memory barriers; coral-glowplug/coral-ember soft-deprecated; RDNA2 parity confirmed; 4765 tests, zero debt)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: ioctl 929→655 (GEM→gem.rs, Iter 97), channel 896→594 (Kepler→kepler_channel.rs, Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9 files, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4761 passing, 0 failed, 181 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests |
+| Tests | A+ | 4765 passing, 0 failed, 181 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests (atomics, barriers, subgroups) |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -41,18 +41,20 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 99** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 100** |
 
-### Iteration 99: PTX Emitter SM120/Blackwell Evolution (May 12, 2026)
+### Iteration 100: PTX Atomics + Warp Prims + Soft-Deprecation (May 12, 2026)
 
 | Item | Status | Detail |
 |------|--------|--------|
-| PTX Switch statement | ✅ | `setp.eq.s32` comparison chain with labeled branches, default fallthrough, break semantics |
-| PTX math functions (10 new) | ✅ | pow, exp, log, sign, fract, mix, step, dot, tanh + existing 15 = 25 total math operations |
-| Firmware `.expect()` → Result | ✅ | `sysmem_acr_boot`, `sysmem_physical_boot`, `hybrid_acr_boot` (Iter 98) |
-| Compute Trio wire contract | ✅ | `binary_b64`, `target`, `shader_info` frozen. Gate 1 satisfied |
-| Deep debt audit | ✅ | Zero debt across all categories confirmed (Iter 97-99) |
-| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (4761 passing, 0 failed) |
+| PTX atomics (7 ops) | ✅ | `atom.{global,shared}.{add,and,or,xor,min,max,exch,cas}` + subtract via negate |
+| PTX memory barriers | ✅ | `membar.{cta,gl}` for STORAGE and WORK_GROUP scopes |
+| PTX warp/subgroup | ✅ | `shfl.sync.{idx,up,down,bfly}`, `vote.sync.ballot`, `redux.sync.*`, SubgroupInvocationId/Size builtins |
+| coral-glowplug soft-deprecated | ✅ | `#[deprecated(since = "0.2.0")]` on all public modules — toadStool Phase B confirmed |
+| coral-ember soft-deprecated | ✅ | `#[deprecated(since = "0.2.0")]` on all public modules — toadStool Phase A confirmed |
+| RDNA2 math parity | ✅ | Full parity confirmed (25+ ops): all PTX math has RDNA2 equivalent via IR decomposition |
+| Wire contract capabilities | ✅ | `math_ops`, `sm_target`, `atomics`, `subgroup_ops` fields added to `shader.compile.capabilities` |
+| Quality gates | ✅ | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (4765 passing, 0 failed) |
 
 ### Iteration 81: Deep Debt Resolution, Codegen Modernization, Capability-Based Discovery (Apr 15, 2026)
 

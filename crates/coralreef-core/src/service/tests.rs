@@ -818,6 +818,10 @@ fn test_compile_capabilities_response_serde_roundtrip() {
             log: true,
             composite_lowering: true,
         },
+        math_ops: Some(25),
+        sm_target: Some("sm_120".to_owned()),
+        atomics: Some(true),
+        subgroup_ops: Some(true),
     };
     let json = serde_json::to_string(&resp).expect("serialize");
     assert!(json.contains("\"targets\""), "Gate 1: wire field must be targets");

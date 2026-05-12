@@ -222,6 +222,18 @@ pub struct CompileCapabilitiesResponse {
     /// f64 transcendental lowering capabilities — which ops the sovereign
     /// compiler can polyfill into pure f64 arithmetic (DFMA/DMUL/DADD).
     pub f64_transcendentals: F64TranscendentalCapabilities,
+    /// Number of supported math operations in the PTX emitter path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub math_ops: Option<u32>,
+    /// Primary SM target for PTX emission (e.g. `"sm_120"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sm_target: Option<String>,
+    /// Whether atomic operations are supported in the PTX emitter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atomics: Option<bool>,
+    /// Whether subgroup/warp primitives are supported in the PTX emitter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subgroup_ops: Option<bool>,
 }
 
 /// Per-operation f64 transcendental capabilities that the sovereign compiler
