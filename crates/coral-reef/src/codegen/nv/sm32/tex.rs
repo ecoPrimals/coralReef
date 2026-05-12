@@ -425,7 +425,7 @@ impl SM32Op for OpIMadSp {
                         U24 => 1,
                         U16Lo => 2,
                         U16Hi => crate::codegen::ice!("SM32 legalization rejects IMadSp src2 U16Hi"),
-                        _ => unreachable!(
+                        _ => crate::codegen::ice!(
                             "IMadSp src2 unsigned() is U32/U24/U16Lo after legalization"
                         ),
                     },
