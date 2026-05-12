@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 94.
+**Current position**: Phase 10 — Iteration 96 (Compute Trio Evolution).
 
-**Last completed**: JH-0 MethodGate adoption — pre-dispatch capability gate per `METHOD_GATE_STANDARD.md` v1.0. Methods classified into Public (health/identity/capability/auth) and Protected (shader.compile/btsp). Gate starts in `Permissive` mode (logs but allows). New `auth.check`, `auth.mode`, `auth.peer_info` methods live. Env override: `CORALREEF_AUTH_MODE=enforced` activates rejection.
+**Last completed**: Compute Trio wire contract alignment — `shader.compile.wgsl` response now matches the trio specification (`binary_b64`, `target`, `shader_info` with `gprs`, `shared_memory`, `barriers`, `workgroup`, `wave_size`, `local_memory`, `compile_time_ms`). Gate 1 satisfied: `shader.compile.capabilities` returns `targets` array. Extraction boundary documented for toadStool absorption of hardware-domain crates.
 
-**Tests**: 4742 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4754 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
-**Last updated**: May 7, 2026.
+**Last updated**: May 11, 2026.
 
-**Next focus**: Coverage push toward 90% (coral-glowplug/coral-ember/coral-gpu largest gaps); PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; tarpc OpenTelemetry dep trimming; plasmidBin CI Node.js 24 migration; `coral-gpu` sovereign path (replacing wgpu).
+**Next focus**: Compute Trio coordination — toadStool absorbs coral-ember/coral-glowplug/coral-driver hardware modules concurrently; coralReef monitors for vestigial removal once toadStool has full coverage. PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
 
 ---
 
@@ -613,20 +613,12 @@ the full Spring absorption map.
 
 ---
 
-*The compiler evolves. 24/24 cross-spring absorption tests pass on both SM70 and RDNA2.
-4742 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+*The compiler evolves. Compute Trio domain split underway — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
+4754 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
-RTX 4070 (Ada Lovelace SM89) confirmed. PCI identity covers Kepler through Blackwell.
-GPU generation profiles: GenerationProfile dispatch for SM35–SM120 + AmdArch + Intel xe/i915.
-VFIO sovereign dispatch complete — BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
-NVIDIA UVM dispatch pipeline complete — GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.list` + `capability.register` + `ipc.heartbeat` + `btsp.negotiate` + `auth.*` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant); BTSP Phase 3 encrypted frame loop (ChaCha20-Poly1305); MethodGate pre-dispatch authorization (JH-0); Songbird ecosystem registration wired (`ecosystem.rs`).
-Firmware probing: glowPlug mailbox (FECS/GPCCS/SEC2/PMU posted commands) + multi-ring (ordered, timed, fence-based GPU dispatch) — hotSpring integration wired. Ember ring-keeper persists state across glowplug restarts.
+Wire contract aligned to Compute Trio specification: `binary_b64`, `target`, `shader_info` (with `gprs`, `shared_memory`, `barriers`, `workgroup`, `wave_size`, `local_memory`), `compile_time_ms`. Gate 1 satisfied: `shader.compile.capabilities` returns `targets` array.
+IPC: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3 encrypted frame loop; MethodGate pre-dispatch authorization (JH-0).
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
-Zero `Result<_, String>` in production. Typed errors via thiserror across 4 waves.
-Zero bare `#[allow]` without reason. All crate-level lint relaxations carry justification.
-MmioRegion RAII wrapper consolidates unsafe BAR0 ops. MockBar0 + NvidiaFirmwareSource enable hardware-free testing.
-Default builds are vendor-SDK-free (CUDA opt-in via `--features cuda`). Workspace deps centralized.
-ecoBin v3 `deny.toml` bans all C/FFI deps. Compile latency + ML pipeline composition discoverable via `capability.list`.
+Zero `Result<_, String>` in production. Zero `eprintln!` in production library code.
 All pure Rust. Sovereignty is a runtime choice.*

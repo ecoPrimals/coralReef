@@ -86,9 +86,9 @@ fn test_dispatch_valid_method_capabilities() {
     let result = dispatch("shader.compile.capabilities", serde_json::json!({}));
     let val = result.expect("capabilities should succeed");
     let obj = val.as_object().expect("capabilities returns object");
-    let archs = obj["supported_archs"]
+    let archs = obj["targets"]
         .as_array()
-        .expect("supported_archs is array");
+        .expect("targets is array (Gate 1 wire contract)");
     assert!(!archs.is_empty());
     assert_eq!(obj["f64_transcendentals"]["composite_lowering"], true);
 }
@@ -613,7 +613,7 @@ async fn test_unix_jsonrpc_capabilities() {
     assert_eq!(resp["id"], 3);
     assert!(resp["result"].is_object());
     let result = &resp["result"];
-    let archs = result["supported_archs"].as_array().unwrap();
+    let archs = result["targets"].as_array().expect("Gate 1: targets array");
     assert!(!archs.is_empty());
     assert!(archs.iter().any(|a| a.as_str() == Some("sm_70")));
     assert_eq!(result["f64_transcendentals"]["composite_lowering"], true);

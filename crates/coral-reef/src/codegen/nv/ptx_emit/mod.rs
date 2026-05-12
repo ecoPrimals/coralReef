@@ -66,6 +66,7 @@ pub fn emit_compute_ptx(wgsl_source: &str, sm: u8) -> Result<CompiledBinary, Com
             shared_mem_bytes: emitter.shared_mem_bytes,
             barrier_count: emitter.barrier_count,
             local_size: [ws[0], ws[1], ws[2]],
+            local_mem_bytes: 0,
         },
         format: BinaryFormat::Ptx,
     })

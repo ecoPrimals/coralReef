@@ -50,6 +50,8 @@ pub struct CompilationInfo {
     pub barrier_count: u32,
     /// Workgroup dimensions from `@workgroup_size(x, y, z)`.
     pub local_size: [u32; 3],
+    /// Per-thread local (scratch) memory in bytes, from spill analysis.
+    pub local_mem_bytes: u32,
 }
 
 /// A vendor-specific compiler backend.
@@ -117,6 +119,7 @@ impl Backend for NvidiaBackend {
                 shared_mem_bytes,
                 barrier_count,
                 local_size,
+                local_mem_bytes: shader.info.shared_local_mem_size,
             },
             format: BinaryFormat::Sass,
         })
@@ -150,6 +153,7 @@ impl Backend for AmdBackend {
                 shared_mem_bytes,
                 barrier_count,
                 local_size,
+                local_mem_bytes: shader.info.shared_local_mem_size,
             },
             format: BinaryFormat::Sass,
         })

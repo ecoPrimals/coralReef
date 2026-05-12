@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Compilation handlers — SPIR-V, WGSL, and multi-device.
 
+use std::time::Instant;
+
 use bytes::Bytes;
 use coral_reef::{AmdArch, CompileError, CompileOptions, FmaPolicy, GpuTarget, NvArch};
 
@@ -10,6 +12,15 @@ use super::types::{
 };
 
 const STATUS_SUCCESS: &str = "success";
+
+/// Derive the wave/warp size from a compilation target.
+fn wave_size_for(target: GpuTarget) -> u32 {
+    match target {
+        GpuTarget::Amd(amd) => u32::from(amd.default_wave_size()),
+        GpuTarget::Intel(_) => 16,
+        _ => 32,
+    }
+}
 
 /// Parse an architecture string into a [`GpuTarget`].
 ///
@@ -85,7 +96,9 @@ pub fn handle_compile_spirv(
     if words.is_empty() {
         return Err(CompileError::InvalidInput("empty SPIR-V module".into()));
     }
+    let t0 = Instant::now();
     let binary = coral_reef::compile(&words, &options)?;
+    let elapsed = t0.elapsed();
     let size = binary.len();
     Ok(CompileResponse {
         binary: Bytes::from(binary),
@@ -93,6 +106,7 @@ pub fn handle_compile_spirv(
         arch: Some(arch),
         status: Some(STATUS_SUCCESS.to_owned()),
         info: None,
+        compile_time_ms: Some(elapsed.as_secs_f64() * 1000.0),
     })
 }
 
@@ -140,7 +154,10 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
         .map_or(req.fp64_software, |s| s == "software");
     let fma = parse_fma_policy(req.fma_policy.as_deref());
     let options = build_options(&req.arch, req.opt_level, fp64_sw, fma)?;
+    let wave_size = wave_size_for(options.target);
+    let t0 = Instant::now();
     let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
+    let elapsed = t0.elapsed();
     let size = compiled.binary.len();
     Ok(CompileResponse {
         binary: Bytes::from(compiled.binary),
@@ -153,7 +170,10 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
             shared_mem_bytes: compiled.info.shared_mem_bytes,
             barrier_count: compiled.info.barrier_count,
             workgroup_size: compiled.info.local_size,
+            wave_size,
+            local_memory: compiled.info.local_mem_bytes,
         }),
+        compile_time_ms: Some(elapsed.as_secs_f64() * 1000.0),
     })
 }
 
@@ -192,7 +212,7 @@ pub fn handle_compile_wgsl_multi(
     let mut success_count = 0usize;
 
     for target in req.targets {
-        let result = (|| -> Result<coral_reef::CompiledBinary, CompileError> {
+        let result = (|| -> Result<(coral_reef::CompiledBinary, GpuTarget), CompileError> {
             let gpu_target = parse_target(&target.arch)?;
             let options = CompileOptions {
                 target: gpu_target,
@@ -202,11 +222,12 @@ pub fn handle_compile_wgsl_multi(
                 fma_policy: fma,
                 ..CompileOptions::default()
             };
-            coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)
+            let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
+            Ok((compiled, gpu_target))
         })();
 
         match result {
-            Ok(compiled) => {
+            Ok((compiled, gpu_target)) => {
                 success_count += 1;
                 let size = compiled.binary.len();
                 results.push(DeviceCompileResult {
@@ -221,6 +242,8 @@ pub fn handle_compile_wgsl_multi(
                         shared_mem_bytes: compiled.info.shared_mem_bytes,
                         barrier_count: compiled.info.barrier_count,
                         workgroup_size: compiled.info.local_size,
+                        wave_size: wave_size_for(gpu_target),
+                        local_memory: compiled.info.local_mem_bytes,
                     }),
                 });
             }

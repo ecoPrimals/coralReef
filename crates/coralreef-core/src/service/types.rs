@@ -79,28 +79,32 @@ pub struct CompileWgslRequest {
     pub fma_policy: Option<String>,
 }
 
-/// Response from shader compilation.
+/// Response from shader compilation (Compute Trio wire contract).
 ///
 /// Uses `bytes::Bytes` for zero-copy IPC payloads — `Bytes::from(Vec<u8>)`
 /// takes ownership of the allocation without copying.
 ///
-/// Includes [`CompilationInfoResponse`] so callers (barraCuda, springs) can
+/// Includes [`CompilationInfoResponse`] so callers (barraCuda, toadStool) can
 /// construct QMD / dispatch descriptors without re-parsing the binary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileResponse {
-    /// Compiled GPU binary (zero-copy via `bytes::Bytes`).
+    /// Compiled GPU binary, base64-encoded on the wire.
+    #[serde(rename = "binary_b64")]
     pub binary: Bytes,
     /// Size in bytes.
     pub size: usize,
     /// Target architecture the binary was compiled for.
-    #[serde(default)]
+    #[serde(rename = "target", default)]
     pub arch: Option<String>,
     /// Compilation status (e.g. `"success"`, `"partial"`).
     #[serde(default)]
     pub status: Option<String>,
-    /// Compilation metadata for dispatch (GPR count, shared memory, barriers, workgroup size).
-    #[serde(default)]
+    /// Compilation metadata for dispatch descriptor construction.
+    #[serde(rename = "shader_info", default)]
     pub info: Option<CompilationInfoResponse>,
+    /// Wall-clock compilation time in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compile_time_ms: Option<f64>,
 }
 
 /// Compilation metadata needed by the dispatch layer (toadStool, coralDriver).
@@ -108,18 +112,29 @@ pub struct CompileResponse {
 /// Maps 1:1 from the compiler's internal `CompilationInfo`. Serialized as
 /// part of every `CompileResponse` so callers can build GPU dispatch
 /// descriptors (QMD, PM4) without re-analyzing the binary.
+///
+/// Wire field names follow the Compute Trio contract (`gprs`, `shared_memory`,
+/// `barriers`, `workgroup`, `wave_size`, `local_memory`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CompilationInfoResponse {
     /// General-purpose registers used by the shader.
+    #[serde(rename = "gprs")]
     pub gpr_count: u32,
     /// Instructions emitted.
     pub instr_count: u32,
     /// Shared memory in bytes (from `var<workgroup>`).
+    #[serde(rename = "shared_memory")]
     pub shared_mem_bytes: u32,
     /// Number of barriers used.
+    #[serde(rename = "barriers")]
     pub barrier_count: u32,
     /// Workgroup dimensions from `@workgroup_size(x, y, z)`.
+    #[serde(rename = "workgroup")]
     pub workgroup_size: [u32; 3],
+    /// Wave/warp size: 32 for NVIDIA, 32 or 64 for AMD.
+    pub wave_size: u32,
+    /// Per-thread local (scratch) memory in bytes.
+    pub local_memory: u32,
 }
 
 /// `capability.list` response — Wire Standard Level 2 compliance.
@@ -196,9 +211,13 @@ pub struct HealthResponse {
 ///
 /// Carries architecture support AND f64 transcendental capability metadata,
 /// enabling callers to make informed routing decisions (no blind routing).
+///
+/// Wire field `targets` (renamed from `supported_archs`) satisfies Compute
+/// Trio Gate 1.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileCapabilitiesResponse {
     /// Supported GPU architectures (e.g. `["sm_70", "sm_86", "rdna2"]`).
+    #[serde(rename = "targets")]
     pub supported_archs: Vec<String>,
     /// f64 transcendental lowering capabilities — which ops the sovereign
     /// compiler can polyfill into pure f64 arithmetic (DFMA/DMUL/DADD).
@@ -287,16 +306,20 @@ pub struct DeviceCompileResult {
     pub card_index: u32,
     /// Architecture compiled for.
     pub arch: String,
-    /// Compiled binary (zero-copy via `bytes::Bytes`), or `None` on failure.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Compiled binary, base64-encoded on the wire, or `None` on failure.
+    #[serde(rename = "binary_b64", skip_serializing_if = "Option::is_none")]
     pub binary: Option<Bytes>,
     /// Binary size in bytes (0 on failure).
     pub size: usize,
     /// Error message if compilation failed for this target.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Compilation metadata (GPR count, shared memory, etc.), or `None` on failure.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Compilation metadata, or `None` on failure.
+    #[serde(
+        rename = "shader_info",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub info: Option<CompilationInfoResponse>,
 }
 

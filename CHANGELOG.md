@@ -10,6 +10,38 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Iteration 96 — Compute Trio Wire Contract + Extraction Boundary (2026-05-11)
+
+#### Wire Contract Alignment (Compute Trio Gate 1)
+- `CompileResponse` field renames via `#[serde(rename)]`: `binary`→`binary_b64`, `arch`→`target`, `info`→`shader_info`
+- `CompilationInfoResponse` field renames: `gpr_count`→`gprs`, `shared_mem_bytes`→`shared_memory`, `barrier_count`→`barriers`, `workgroup_size`→`workgroup`
+- New fields: `wave_size` (32 NVIDIA, 32/64 AMD), `local_memory` (per-thread scratch bytes), `compile_time_ms` (wall-clock compilation timing)
+- `CompileCapabilitiesResponse.supported_archs` → wire name `targets` (Gate 1 contract)
+- `DeviceCompileResult` field renames: `binary`→`binary_b64`, `info`→`shader_info`
+
+#### Upstream Compiler Changes
+- `coral-reef::CompilationInfo` gained `local_mem_bytes: u32` — populated from `ShaderInfo::shared_local_mem_size` in NVIDIA and AMD backends
+- PTX emit path defaults to 0 (PTX driver manages local memory)
+- `wave_size_for(GpuTarget)` helper derives warp/wave size from target architecture
+
+#### Extraction Boundary Documentation
+- Handoff: `CORALREEF_ITER96_COMPUTE_TRIO_CONTRACT_EXTRACTION_MAY11_2026.md`
+- coral-ember (~11k LOC, 216 tests) + coral-glowplug (~21k LOC, 484 tests) → toadStool absorption candidates
+- coral-driver hardware modules (BAR0/MMIO, VFIO, DRM, UVM, GSP, Falcon/SEC2) → toadStool
+- coralReef retains: coralreef-core, coral-reef compiler, coral-gpu, coral-driver QMD/cubin/generation
+
+#### Tests
+- Wire contract shape assertions: `binary_b64`, `target`, `shader_info`, `gprs`, `shared_memory`, `barriers`, `workgroup`, `wave_size`, `local_memory`, `compile_time_ms` verified on wire
+- Gate 1 assertion: `targets` array present on `shader.compile.capabilities` wire output
+- 4754 passing, 0 failures, 181 ignored. Zero clippy warnings.
+
+### Iteration 95 — eprintln! → tracing Migration (2026-05-08)
+
+#### Structured Logging
+- 57 `eprintln!` calls migrated to `tracing::{debug,warn,error}` with structured fields across 5 production files
+- Files: `open_userspace.rs` (30), `open_kmod.rs` (16), `compute_trait.rs` (9), `device/mod.rs` (1), `nvidia_drm.rs` (1 duplicate removed)
+- CLI binary (`coral_probe.rs`) and test files retain `eprintln!` per convention
+
 ### Iteration 94 — JH-0 MethodGate Adoption (2026-05-07)
 
 #### Security: Pre-Dispatch Capability Gate (JH-0)

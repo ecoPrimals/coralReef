@@ -44,9 +44,9 @@ fn dispatch_capabilities_returns_archs() {
     assert!(result.is_ok());
     let val = result.unwrap();
     let obj = val.as_object().expect("capabilities returns object");
-    let archs = obj["supported_archs"]
+    let archs = obj["targets"]
         .as_array()
-        .expect("supported_archs is array");
+        .expect("targets is array (Gate 1 wire contract)");
     assert!(!archs.is_empty());
     let f64_caps = obj["f64_transcendentals"]
         .as_object()

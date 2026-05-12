@@ -514,9 +514,22 @@ fn test_compile_response_serde_roundtrip() {
             shared_mem_bytes: 256,
             barrier_count: 1,
             workgroup_size: [64, 1, 1],
+            wave_size: 32,
+            local_memory: 0,
         }),
+        compile_time_ms: Some(42.0),
     };
     let json = serde_json::to_string(&resp).unwrap();
+    assert!(json.contains("\"binary_b64\""), "wire field must be binary_b64");
+    assert!(json.contains("\"target\""), "wire field must be target");
+    assert!(json.contains("\"shader_info\""), "wire field must be shader_info");
+    assert!(json.contains("\"gprs\""), "wire field must be gprs");
+    assert!(json.contains("\"shared_memory\""), "wire field must be shared_memory");
+    assert!(json.contains("\"barriers\""), "wire field must be barriers");
+    assert!(json.contains("\"workgroup\""), "wire field must be workgroup");
+    assert!(json.contains("\"wave_size\""), "wire field must include wave_size");
+    assert!(json.contains("\"local_memory\""), "wire field must include local_memory");
+    assert!(json.contains("\"compile_time_ms\""), "wire field must include compile_time_ms");
     let roundtrip: CompileResponse = serde_json::from_str(&json).unwrap();
     assert_eq!(roundtrip.binary.as_ref(), resp.binary.as_ref());
     assert_eq!(roundtrip.size, resp.size);
@@ -527,6 +540,9 @@ fn test_compile_response_serde_roundtrip() {
     assert_eq!(info.shared_mem_bytes, 256);
     assert_eq!(info.barrier_count, 1);
     assert_eq!(info.workgroup_size, [64, 1, 1]);
+    assert_eq!(info.wave_size, 32);
+    assert_eq!(info.local_memory, 0);
+    assert_eq!(roundtrip.compile_time_ms, Some(42.0));
 }
 
 #[test]
@@ -537,14 +553,17 @@ fn test_compile_response_defaults_from_json() {
         arch: None,
         status: None,
         info: None,
+        compile_time_ms: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
+    assert!(!json.contains("\"compile_time_ms\""), "None should skip");
     let roundtrip: CompileResponse = serde_json::from_str(&json).unwrap();
     assert_eq!(roundtrip.binary.as_ref(), &[1, 2, 3]);
     assert_eq!(roundtrip.size, 3);
     assert!(roundtrip.arch.is_none());
     assert!(roundtrip.status.is_none());
     assert!(roundtrip.info.is_none());
+    assert!(roundtrip.compile_time_ms.is_none());
 }
 
 #[test]
@@ -583,6 +602,8 @@ fn test_device_compile_result_serde_roundtrip() {
             shared_mem_bytes: 0,
             barrier_count: 0,
             workgroup_size: [256, 1, 1],
+            wave_size: 32,
+            local_memory: 0,
         }),
     };
     let json = serde_json::to_string(&result).unwrap();
@@ -603,7 +624,7 @@ fn test_device_compile_result_error_skips_binary_in_json() {
         info: None,
     };
     let json = serde_json::to_string(&result).unwrap();
-    assert!(!json.contains("\"binary\""));
+    assert!(!json.contains("\"binary_b64\""), "None binary should be skipped");
     assert!(json.contains("unsupported arch"));
     let roundtrip: DeviceCompileResult = serde_json::from_str(&json).unwrap();
     assert!(roundtrip.binary.is_none());
@@ -799,6 +820,8 @@ fn test_compile_capabilities_response_serde_roundtrip() {
         },
     };
     let json = serde_json::to_string(&resp).expect("serialize");
+    assert!(json.contains("\"targets\""), "Gate 1: wire field must be targets");
+    assert!(!json.contains("\"supported_archs\""), "supported_archs must not appear on wire");
     let rt: CompileCapabilitiesResponse = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(rt.supported_archs, resp.supported_archs);
     assert!(rt.f64_transcendentals.sin);
