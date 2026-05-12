@@ -70,7 +70,7 @@ impl FirmwareInventory {
 /// A subsystem is marked `Present` if at least one firmware file exists.
 #[must_use]
 pub fn firmware_inventory(chip: &str) -> FirmwareInventory {
-    let base = format!("/lib/firmware/nvidia/{chip}");
+    let base = crate::linux_paths::nvidia_firmware_path(chip, "");
     let probe = |subdir: &str, files: &[&str]| -> FwStatus {
         if files
             .iter()
@@ -109,7 +109,7 @@ pub fn firmware_inventory(chip: &str) -> FirmwareInventory {
 /// typically needs. For structured results, use [`firmware_inventory`] instead.
 #[must_use]
 pub fn check_nouveau_firmware(chip: &str) -> Vec<(String, bool)> {
-    let base = format!("/lib/firmware/nvidia/{chip}");
+    let base = crate::linux_paths::nvidia_firmware_path(chip, "");
     let firmware_files = [
         "acr/bl.bin",
         "acr/ucode_unload.bin",

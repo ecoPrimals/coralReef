@@ -23,6 +23,7 @@ pub(super) fn resolve_kepler_firmware() -> Option<KeplerFirmwareBlobs> {
     // Priority: internal (FECS starts GPCCS via DMA — required on GK210B where
     // host MMIO STARTCPU is silently ignored for per-GPC GPCCS falcons) →
     // external → system → gk110 fallback
+    let system_gk210 = crate::linux_paths::nvidia_firmware_path("gk210", "");
     let fw_search: &[(&str, &str, &str, &str, &str, bool)] = &[
         (
             "gk110-internal",
@@ -42,7 +43,7 @@ pub(super) fn resolve_kepler_firmware() -> Option<KeplerFirmwareBlobs> {
         ),
         (
             "gk210-system",
-            "/lib/firmware/nvidia/gk210",
+            &system_gk210,
             "fecs_inst.bin",
             "fecs_data.bin",
             "gpccs_inst.bin",

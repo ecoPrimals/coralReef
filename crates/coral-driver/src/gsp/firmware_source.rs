@@ -29,7 +29,7 @@ pub fn nvidia_firmware_base() -> PathBuf {
             return PathBuf::from(t.trim_end_matches('/'));
         }
     }
-    PathBuf::from("/lib/firmware/nvidia")
+    PathBuf::from(crate::linux_paths::nvidia_firmware_root())
 }
 
 /// Discover NVIDIA chip codenames under a firmware root (directories with a `gr/` child).

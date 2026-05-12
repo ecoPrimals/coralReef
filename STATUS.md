@@ -26,8 +26,8 @@
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#![forbid(unsafe_code)]` on all 9 non-driver crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only (all blocks have SAFETY comments), all ioctl via `rustix`, `libc` eliminated from direct deps, `mem::zeroed()` eliminated for ioctl param structs (Iter 101), all sysfs/procfs paths use `linux_paths` helpers with env var overrides |
-| Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, all `unreachable!()` → `ice!()` with descriptive messages (encoder + PTX emitter) |
+| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#![forbid(unsafe_code)]` on all 9 non-driver crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only (all blocks have SAFETY comments), all ioctl via `rustix`, `libc` eliminated from direct deps, `mem::zeroed()` eliminated for ioctl param structs (Iter 101), all sysfs/procfs/firmware paths use `linux_paths` helpers with env var overrides (`CORALREEF_SYSFS_ROOT`, `CORALREEF_PROC_ROOT`, `CORALREEF_NVIDIA_FIRMWARE_ROOT`) |
+| Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, all `unreachable!()` → `ice!()` with descriptive messages (encoder + PTX emitter + register allocator + legalization) |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml` (ecoBin v3 C/FFI bans), pure Rust ISA generator |
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
@@ -42,6 +42,10 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 101** |
+
+### Post-101: Sprint 5 Cont'd — Deep Debt: Firmware Paths, ICE Consistency, Allow Reasons (May 12, 2026)
+
+**Theme**: Centralized all NVIDIA firmware paths through `linux_paths::nvidia_firmware_root()` / `nvidia_firmware_path()` (8 sites migrated), evolved 11 `unreachable!()` to `ice!()` across production codegen, added `reason =` to all bare `#[allow(deprecated)]` attributes. Firmware loading is now fully configurable via `CORALREEF_NVIDIA_FIRMWARE_ROOT`.
 
 ### Post-101: Sprint 5 — Pass 12 Sentinel Gaps (May 12, 2026)
 

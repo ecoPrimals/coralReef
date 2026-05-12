@@ -276,7 +276,7 @@ pub(super) fn apply_sw_nonctx(
         "{}/firmware/{chip}/sw_nonctx.bin",
         env!("CARGO_MANIFEST_DIR")
     );
-    let system_path = format!("/lib/firmware/nvidia/{chip}/sw_nonctx.bin");
+    let system_path = crate::linux_paths::nvidia_firmware_path(chip, "sw_nonctx.bin");
     let fw_paths: &[&str] = &[&local_prefixed, &local_plain, &system_path];
 
     let mut data = None;

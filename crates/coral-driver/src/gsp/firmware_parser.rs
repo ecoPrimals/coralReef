@@ -16,18 +16,8 @@
 //! where it can accept them.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-
 fn nvidia_firmware_root() -> String {
-    static ROOT: OnceLock<String> = OnceLock::new();
-    ROOT.get_or_init(|| {
-        std::env::var("CORALREEF_NVIDIA_FIRMWARE_ROOT")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.trim_end_matches('/').to_string())
-            .unwrap_or_else(|| "/lib/firmware/nvidia".to_string())
-    })
-    .clone()
+    crate::linux_paths::nvidia_firmware_root().to_string()
 }
 
 /// Firmware format variant discovered for a chip.

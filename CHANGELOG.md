@@ -4,11 +4,30 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101+ (Sprint 4)
+**Current status**: Phase 10 — Iteration 101+ (Sprint 5)
 
 ---
 
 ## [Unreleased]
+
+### Post-101 — Sprint 5 Cont'd: Deep Debt — Firmware Paths, ICE Consistency, Allow Reasons (2026-05-12)
+
+#### Firmware Path Centralization
+- `linux_paths.rs`: New `nvidia_firmware_root()` and `nvidia_firmware_path(chip, tail)` — single source of truth for `CORALREEF_NVIDIA_FIRMWARE_ROOT` (default `/lib/firmware/nvidia`)
+- 8 firmware loading sites migrated from hardcoded `/lib/firmware/nvidia/` to `linux_paths::nvidia_firmware_path()`: `fecs_boot.rs`, `pri.rs`, `acr_boot/firmware.rs`, `sovereign_stages.rs`, `kepler_fecs_boot/firmware.rs`, `identity/firmware.rs` (2×), `gsp/firmware_source.rs`
+- `gsp/firmware_parser.rs`: Delegated to `linux_paths::nvidia_firmware_root()`, removed redundant `OnceLock`
+
+#### Compiler ICE Consistency
+- 11 `unreachable!()` calls in production codegen evolved to `ice!()`: `assign_regs/block.rs`, `nv/sm32/mem.rs` (2×), `nv/sm32/tex.rs` (3×), `nv/sm20/alu/int.rs` (4×), `ir/op_tex/surface_addr.rs`
+
+#### `#[allow]` Reason Annotations
+- `coral-glowplug/src/lib.rs`: `#![allow(deprecated)]` and 4× `#[allow(deprecated)]` re-exports annotated with `reason = "..."`
+- `coral-ember/src/lib.rs`: `#![allow(deprecated)]` annotated with reason
+
+#### Tests
+- 4790 passing, 0 failed, 181 ignored. Zero clippy warnings. No regressions.
+
+---
 
 ### Post-101 — Sprint 5: Pass 12 Sentinel Gaps (2026-05-12)
 

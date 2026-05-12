@@ -174,7 +174,7 @@ fn kepler_falcon_boot(bar0: &MappedBar, sm_version: u32) -> Result<String, Sover
 
     crate::nv::vfio_compute::NvVfioComputeDevice::apply_gr_bar0_init(bar0, sm_version);
 
-    let fw_dir = format!("/lib/firmware/nvidia/{}", profile.firmware_chip);
+    let fw_dir = crate::linux_paths::nvidia_firmware_path(profile.firmware_chip, "");
     let load = |name: &str| -> Result<Vec<u8>, SovereignStagesError> {
         let path = format!("{fw_dir}/{name}");
         std::fs::read(&path).map_err(|e| SovereignStagesError::KeplerFirmwareRead {

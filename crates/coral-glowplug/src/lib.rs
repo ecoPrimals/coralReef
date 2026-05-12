@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
-#![allow(deprecated)]
+#![allow(deprecated, reason = "crate is soft-deprecated — absorbed into toadStool")]
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
@@ -125,19 +125,19 @@ pub mod sysfs;
 #[deprecated(since = "0.2.0", note = "Absorbed into toadStool Phase B — use toadstool-glowplug")]
 pub mod sysfs_ops;
 
-#[allow(deprecated)]
+#[allow(deprecated, reason = "re-exporting deprecated items for backward compatibility")]
 pub use sysfs_ops::{RealSysfs, SysfsOps};
 
-#[allow(deprecated)]
+#[allow(deprecated, reason = "re-exporting deprecated items for backward compatibility")]
 #[cfg(all(test, target_os = "linux"))]
 pub use sysfs_ops::MockSysfs;
 
-#[allow(deprecated)]
+#[allow(deprecated, reason = "re-exporting deprecated items for backward compatibility")]
 #[cfg(target_os = "linux")]
 #[doc(hidden)]
 pub use ember::test_support_default_ember_socket;
 
-#[allow(deprecated)]
+#[allow(deprecated, reason = "re-exporting deprecated items for backward compatibility")]
 #[cfg(target_os = "linux")]
 #[doc(hidden)]
 pub use health::test_support_notify_watchdog;

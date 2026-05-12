@@ -259,7 +259,7 @@ pub struct AcrFirmwareSet {
 impl AcrFirmwareSet {
     /// Load all firmware files for the full ACR boot chain.
     pub fn load(chip: &str) -> DriverResult<Self> {
-        let base = format!("/lib/firmware/nvidia/{chip}");
+        let base = crate::linux_paths::nvidia_firmware_path(chip, "");
         let read = |subpath: &str| -> DriverResult<Vec<u8>> {
             let path = format!("{base}/{subpath}");
             std::fs::read(&path)

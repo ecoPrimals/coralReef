@@ -4,6 +4,7 @@
 //! Environment:
 //! - `CORALREEF_SYSFS_ROOT` — sysfs mount (default `/sys`).
 //! - `CORALREEF_PROC_ROOT` — procfs mount (default `/proc`).
+//! - `CORALREEF_NVIDIA_FIRMWARE_ROOT` — NVIDIA firmware base (default `/lib/firmware/nvidia`).
 //! - `CORALREEF_DATA_DIR` — optional data directory for dumps and training assets.
 
 use std::sync::OnceLock;
@@ -42,6 +43,31 @@ pub fn sysfs_root() -> &'static str {
 #[must_use]
 pub fn proc_root() -> &'static str {
     proc_root_storage()
+}
+
+fn firmware_root_storage() -> &'static str {
+    static ROOT: OnceLock<String> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        std::env::var("CORALREEF_NVIDIA_FIRMWARE_ROOT")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.trim_end_matches('/').to_string())
+            .unwrap_or_else(|| "/lib/firmware/nvidia".to_string())
+    })
+    .as_str()
+}
+
+/// Resolved NVIDIA firmware base path (`$CORALREEF_NVIDIA_FIRMWARE_ROOT`,
+/// default `/lib/firmware/nvidia`).
+#[must_use]
+pub fn nvidia_firmware_root() -> &'static str {
+    firmware_root_storage()
+}
+
+/// Build a firmware path: `{firmware_root}/{chip}/{tail}`.
+#[must_use]
+pub fn nvidia_firmware_path(chip: &str, tail: &str) -> String {
+    format!("{}/{chip}/{tail}", nvidia_firmware_root())
 }
 
 /// Optional data directory for VBIOS dumps and similar assets.

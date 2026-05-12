@@ -66,7 +66,7 @@ impl FecsFirmware {
     /// The BL file is parsed through [`GrBlFirmware`] to extract the code
     /// section and `bl_imem_off`. Raw inst/data files are loaded as-is.
     pub fn load(chip: &str) -> DriverResult<Self> {
-        let base = format!("/lib/firmware/nvidia/{chip}/gr");
+        let base = crate::linux_paths::nvidia_firmware_path(chip, "gr");
         let bl_raw = read_firmware(&base, "fecs_bl.bin")?;
         let bl = GrBlFirmware::parse(&bl_raw, "fecs_bl")?;
         let bl_imem_off = bl.bl_imem_off();
@@ -84,7 +84,7 @@ impl GpccsFirmware {
     ///
     /// Same [`GrBlFirmware`] parsing as [`FecsFirmware`].
     pub fn load(chip: &str) -> DriverResult<Self> {
-        let base = format!("/lib/firmware/nvidia/{chip}/gr");
+        let base = crate::linux_paths::nvidia_firmware_path(chip, "gr");
         let bl_raw = read_firmware(&base, "gpccs_bl.bin")?;
         let bl = GrBlFirmware::parse(&bl_raw, "gpccs_bl")?;
         let bl_imem_off = bl.bl_imem_off();
@@ -403,11 +403,8 @@ pub fn boot_gr_falcons(bar0: &MappedBar, chip: &str) -> DriverResult<FalconBootR
 ///
 /// Respects `CORALREEF_NVIDIA_FIRMWARE_ROOT` (default `/lib/firmware/nvidia`).
 pub fn firmware_available(chip: &str) -> bool {
-    let root = std::env::var("CORALREEF_NVIDIA_FIRMWARE_ROOT")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/lib/firmware/nvidia".to_string());
-    Path::new(&format!("{root}/{chip}/gr/fecs_inst.bin")).exists()
+    let path = crate::linux_paths::nvidia_firmware_path(chip, "gr/fecs_inst.bin");
+    Path::new(&path).exists()
 }
 
 // ── Capability-based boot (uses FalconCapabilityProbe) ──────────────────
