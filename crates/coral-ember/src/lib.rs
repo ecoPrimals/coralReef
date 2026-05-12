@@ -27,6 +27,12 @@
     clippy::missing_panics_doc,
     reason = "VFIO fd holder: fd-passing and daemon lifecycle patterns conflict with pedantic lints"
 )]
+//! **Deprecated**: This crate is absorbed into toadStool (Phase A). Use
+//! `toadstool-ember` for new development. Bug fixes only until toadStool
+//! Phase C confirms full coverage, then this crate will be removed.
+//!
+//! ---
+//!
 //! coral-ember — Immortal VFIO fd holder for safe daemon restarts.
 //!
 //! Holds VFIO fds open and passes duplicates to coral-glowplug via

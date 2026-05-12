@@ -63,7 +63,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpAtom {
         let dst_reg = dst_to_vgpr_index(&self.dst)?;
         let addr_reg = src_to_vgpr_index(self.addr())?;
         let data_reg = src_to_vgpr_index(self.data())?;
-        let flat_opcode = atom_op_to_flat(self.atom_op)?;
+        let flat_opcode = atom_op_to_flat(self.atom_op, self.atom_type)?;
         let offset = e.flat_offset(checked_flat_offset(self.addr_offset)?);
         Ok(Rdna2Encoder::encode_flat_atomic(
             flat_opcode,
@@ -185,10 +185,13 @@ fn mem_type_to_flat_store(mt: MemType) -> Result<u16, CompileError> {
     })
 }
 
-fn atom_op_to_flat(op: AtomOp) -> Result<u16, CompileError> {
+fn atom_op_to_flat(op: AtomOp, atom_type: AtomType) -> Result<u16, CompileError> {
+    let is_unsigned = matches!(atom_type, AtomType::U32 | AtomType::U64);
     Ok(match op {
         AtomOp::Add => isa::flat::FLAT_ATOMIC_ADD,
+        AtomOp::Min if is_unsigned => isa::flat::FLAT_ATOMIC_UMIN,
         AtomOp::Min => isa::flat::FLAT_ATOMIC_SMIN,
+        AtomOp::Max if is_unsigned => isa::flat::FLAT_ATOMIC_UMAX,
         AtomOp::Max => isa::flat::FLAT_ATOMIC_SMAX,
         AtomOp::Inc => isa::flat::FLAT_ATOMIC_INC,
         AtomOp::Dec => isa::flat::FLAT_ATOMIC_DEC,

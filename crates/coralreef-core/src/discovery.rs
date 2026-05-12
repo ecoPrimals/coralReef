@@ -224,6 +224,10 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
 /// Standalone / dev machines without a GPU provider in the discovery dir. Uses
 /// `coral_driver` to list nodes and probe identity — appropriate for `shader.*`
 /// compilation targeting, not a separate “hardware inventory” primal.
+// Phase C/D transition: once toadStool serves device enumeration via
+// `compute.dispatch.capabilities` IPC, replace this direct coral-driver
+// call with an IPC query. Don't cut over until toadStool confirms the
+// endpoint is live and tested.
 #[cfg(target_os = "linux")]
 fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
     use coral_driver::drm::enumerate_render_nodes;

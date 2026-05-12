@@ -30,6 +30,12 @@
     clippy::items_after_statements,
     reason = "PCIe lifecycle broker: sysfs/VFIO device management patterns require casts and kernel-mirrored naming"
 )]
+//! **Deprecated**: This crate is absorbed into toadStool (Phase B). Use
+//! `toadstool-glowplug` for new development. Bug fixes only until toadStool
+//! Phase C confirms full coverage, then this crate will be removed.
+//!
+//! ---
+//!
 //! coral-glowplug library — shared types for the sovereign PCIe device lifecycle broker.
 //!
 //! The full daemon, VFIO device stack, ember bridge, and capture pipelines are **Linux-only**
