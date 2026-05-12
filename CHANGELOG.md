@@ -4,7 +4,7 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101
+**Current status**: Phase 10 — Iteration 101+ (Sprint 4)
 
 ---
 
@@ -28,6 +28,12 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - `IsaTarget`: Added `Hash` derive, `ALL` constant, `sm_version()`, `has_independent_thread_scheduling()`, `has_uniform_datapath()` methods
 - `InstrLatency`: Extended test coverage for throughput values and edge cases
 - `SphBuilder`: Added tests for max barriers, large shared memory, zero GPRs, LE alignment
+
+#### Deep Debt — Hardcoded Path Evolution
+- 6 hardcoded `/sys/` and `/proc/` paths in production code evolved to use `sysfs_root()`/`proc_root()`/`dri_render_prefix()` helpers with env var overrides (`CORALREEF_SYSFS_ROOT`, `CORALREEF_PROC_ROOT`, `CORALREEF_DRI_RENDER_PREFIX`)
+- Files: `coral-gpu/pcie.rs`, `nvidia_drm.rs`, `vfio_compute/pri.rs`, `mmu_oracle/capture.rs`, `intel/ioctl.rs`, `bin/coral_probe.rs`
+- `dri_render_prefix()` promoted to `pub(crate)` for cross-module reuse
+- All `#[allow]` attributes given reason strings
 
 #### Tests
 - 4784 passing (+19), 0 failed, 181 ignored. Zero clippy warnings. No regressions.

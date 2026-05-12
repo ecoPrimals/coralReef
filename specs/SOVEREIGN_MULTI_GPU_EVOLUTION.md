@@ -4,7 +4,7 @@
 
 **Version**: 0.4.0
 **Date**: May 12, 2026
-**Status**: Phase 10 — Iteration 101 (Deep Debt Resolved, Smart Refactoring, Unsafe Evolution, 4765 tests)
+**Status**: Phase 10 — Iteration 101 (Deep Debt Resolved, Smart Refactoring, Unsafe Evolution, 4784 tests)
 **Hardware**: NVIDIA Titan V ×2 (GV100/SM70) + NVIDIA RTX 4070 (AD104/SM89)
 
 ---
@@ -332,7 +332,7 @@ Every external dependency has a planned evolution path:
 
 | Test Type | NVIDIA | AMD | Method |
 |-----------|:------:|:---:|--------|
-| Unit (encoder) | ✅ 4765 tests | ✅ 100+ tests | Instruction-level encoding verification |
+| Unit (encoder) | ✅ 4784 tests | ✅ 100+ tests | Instruction-level encoding verification |
 | Integration (pipeline) | ✅ Complete | ✅ Complete | WGSL → binary round-trip |
 | Property (proptest) | ✅ 5 tests | Extend | Random shader fuzzing |
 | Chaos | ✅ 6 tests | Extend | Concurrent, truncated, determinism |

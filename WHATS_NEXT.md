@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 101+ (Sprint 3 Cleanup + ICE Consistency).
+**Current position**: Phase 10 — Iteration 101+ (Sprint 4: PTX SM120 subgroup scans + deep debt sysfs evolution).
 
-**Last completed**: Sprint 3 — vestigial deprecation markers on ember/glowplug crates, RDNA2 unsigned atomics correctness fix, Phase C/D transition markers for toadStool IPC cutover, all PTX emitter `unreachable!()` evolved to `ice!()`. Full comprehensive deep debt audit confirmed zero remaining actionable debt in production crates.
+**Last completed**: Sprint 4 — PTX emitter inclusive/exclusive prefix scans via `shfl.sync.up` butterfly, silent statement catch-all eliminated, `SubgroupOperationResult`/`SubgroupBallotResult` expression handling, `coral-reef-isa` API evolution (`IsaTarget` methods + `Hash`), comprehensive deep debt audit (6 hardcoded sysfs/procfs paths evolved to `linux_paths` helpers, all `#[allow]` given reasons). Zero remaining actionable debt in production crates.
 
-**Tests**: 4765 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4784 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 12, 2026.
 
-**Next focus**: Compute Trio coordination — toadStool absorbs coral-ember/coral-glowplug/coral-driver hardware modules concurrently; coralReef monitors for vestigial removal once toadStool Phase C confirms full coverage. PTX emitter completion for SM120/Blackwell (cooperative groups, texture instructions); UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
+**Next focus**: Compute Trio coordination — toadStool absorbs coral-ember/coral-glowplug/coral-driver hardware modules concurrently; coralReef monitors for vestigial removal once toadStool Phase C confirms full coverage. PTX emitter completion for SM120/Blackwell (texture instructions); UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
 
 ---
 
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio domain split underway — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-4765 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4784 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 Wire contract aligned to Compute Trio specification: `binary_b64`, `target`, `shader_info` (with `gprs`, `shared_memory`, `barriers`, `workgroup`, `wave_size`, `local_memory`), `compile_time_ms`. Gate 1 satisfied: `shader.compile.capabilities` returns `targets` array.

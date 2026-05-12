@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: May 12, 2026 (Phase 10 — Iteration 101+)
-**Phase**: 10 — Sprint 3 cleanup complete: vestigial deprecation markers, RDNA2 unsigned atomics correctness fix, Phase C/D transition markers, all `unreachable!()` → `ice!()`. PTX SM120 at 25 math ops + switch + atomics + subgroup. RDNA2 parity confirmed. coral-glowplug/coral-ember soft-deprecated (crate-level doc). 4765 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Last updated**: May 12, 2026 (Phase 10 — Iteration 101+, Sprint 4)
+**Phase**: 10 — Sprint 4: PTX SM120 subgroup inclusive/exclusive scans (shfl.sync.up butterfly), silent statement catch-all eliminated, SubgroupOperationResult expression handling, ISA API evolution. Sprint 3: vestigial deprecation markers, RDNA2 unsigned atomics fix, Phase C/D markers, all `unreachable!()` → `ice!()`. Deep debt: 6 hardcoded sysfs/procfs paths evolved to `linux_paths` helpers. PTX SM120 at 25 math ops + switch + atomics + subgroup scans. RDNA2 parity confirmed. coral-glowplug/coral-ember soft-deprecated. 4784 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM35–SM120, including Blackwell) and AMD (GCN5/RDNA2–RDNA4). Pure Rust; transitive
 libc only via tokio/mio (deferred to mio#1735 rustix migration).
-4765 tests (181 ignored), ~65% line coverage (8 crates above 90%),
+4784 tests (181 ignored), ~65% line coverage (82%+ non-hardware, 8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
@@ -144,7 +144,7 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [ ] ImageLoad / ImageSample / ImageQuery
 - [ ] Override
 - [ ] RayQueryGetIntersection
-- [ ] SubgroupBallotResult / SubgroupOperationResult
+- [x] SubgroupBallotResult / SubgroupOperationResult (PTX: pre-allocates typed registers — Sprint 4)
 - [ ] WorkGroupUniformLoadResult
 - [ ] ZeroValue
 
@@ -163,7 +163,9 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [ ] Barrier (other barrier types)
 - [ ] ImageStore
 - [ ] RayQuery
-- [ ] SubgroupBallot / SubgroupCollectiveOperation / SubgroupGather
+- [x] SubgroupBallot (PTX: vote.sync.ballot.b32)
+- [x] SubgroupCollectiveOperation (PTX: redux.sync reduce + shfl.sync.up inclusive/exclusive scans — Sprint 4)
+- [x] SubgroupGather (PTX: shfl.sync.idx/down/up/bfly — shuffle modes)
 
 ### Math Functions
 
