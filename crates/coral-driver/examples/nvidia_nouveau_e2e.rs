@@ -329,7 +329,7 @@ fn main() {
         Err(e) => {
             eprintln!("  FATAL: Cannot open nouveau device: {e}");
             eprintln!("  Is the Titan V bound to nouveau?");
-            eprintln!("  Run: sudo bash scripts/rebind-titanv-nouveau.sh");
+            eprintln!("  Run: sudo bash scripts/rebind-gpu-nouveau.sh");
             std::process::exit(1);
         }
     };
