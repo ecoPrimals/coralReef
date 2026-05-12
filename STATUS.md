@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 12, 2026  
-**Phase**: 10 — Iteration 101 (Deep debt: smart refactoring 3 files, unsafe→safe evolution, VFIO error domain split; 4765 tests, zero debt)
+**Phase**: 10 — Iteration 101+ (Sprint 3 cleanup: vestigial deprecation markers, RDNA2 atomics correctness fix, Phase C/D transition markers, ice!() consistency; 4765 tests, zero debt)
 
 ---
 
@@ -27,7 +27,7 @@
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
 | Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#[forbid(unsafe_code)]` on coral-ember + coral-glowplug, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only, all ioctl via `rustix`, `libc` eliminated from direct deps, `mem::zeroed()` eliminated for ioctl param structs (Iter 101) |
-| Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, `unreachable!()` → `ice!()` in encoder |
+| Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, all `unreachable!()` → `ice!()` with descriptive messages (encoder + PTX emitter) |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml` (ecoBin v3 C/FFI bans), pure Rust ISA generator |
 | Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
@@ -42,6 +42,18 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 101** |
+
+### Post-101: Sprint 3 Cleanup + ICE Consistency (May 12, 2026)
+
+**Theme**: Compute Trio Phase C coordination. Deprecated crates marked with crate-level doc comments. RDNA2 atomics correctness fix (unsigned min/max mapped to correct opcodes). Phase C/D transition markers placed in `coral-gpu` and `coralreef-core` for future toadStool IPC cutover. All remaining bare `unreachable!()` in PTX emitter evolved to `ice!()`. QMD module documented as Phase C contested boundary.
+
+| Area | Change |
+|------|--------|
+| Vestigial deprecation | `coral-ember`, `coral-glowplug` lib.rs: crate-level deprecation doc comments |
+| Phase C/D markers | `coral-gpu/context.rs`, `coralreef-core/discovery.rs`, `nv/qmd/mod.rs` |
+| RDNA2 atomics fix | `atom_op_to_flat` takes `AtomType` — `U32`/`U64` → `FLAT_ATOMIC_UMIN`/`UMAX` |
+| ICE consistency | 3 bare `unreachable!()` in PTX emitter → `ice!()` with invariant descriptions |
+| Quality gates | `fmt` ✅, `clippy --all-features -D warnings` ✅, `test --all-features` ✅ (4765 passing, 0 failed, 181 ignored) |
 
 ### Iteration 101: Deep Debt — Smart Refactoring + Unsafe Evolution (May 12, 2026)
 

@@ -10,6 +10,27 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Post-101 — Sprint 3 Cleanup + ICE Consistency (2026-05-12)
+
+#### Vestigial Pattern Cleanup (Sprint 3 — Compute Trio Phase C)
+- `coral-ember/src/lib.rs`: Crate-level deprecation doc comment (absorbed into toadStool Phase A)
+- `coral-glowplug/src/lib.rs`: Crate-level deprecation doc comment (absorbed into toadStool Phase B)
+- `coral-gpu/src/context.rs`: Phase D TODO — future routing through toadStool IPC (`compute.dispatch.submit`)
+- `coralreef-core/src/discovery.rs`: Phase C/D transition comment — replace DRM call with toadStool IPC when ready
+- `coral-driver/src/nv/qmd/mod.rs`: Documented as Phase C contested module (toadStool absorbs encoding, coralReef provides values)
+
+#### RDNA2 Atomics Correctness Fix
+- `codegen/ops/memory.rs`: `atom_op_to_flat` now takes `AtomType` — unsigned min/max correctly maps to `FLAT_ATOMIC_UMIN`/`UMAX` instead of signed opcodes
+
+#### ICE Consistency (PTX Emitter)
+- `ptx_emit/math.rs`: bare `unreachable!()` → `ice!("rounding mode matched Floor|Ceil|Round|Trunc above")`
+- `ptx_emit/expr_arith.rs`: 2× bare `unreachable!()` → `ice!()` with descriptive invariant messages
+
+#### Tests
+- 4765 passing, 0 failed, 181 ignored. Zero clippy warnings. No regressions.
+
+---
+
 ### Iteration 101 — Deep Debt: Smart Refactoring + Unsafe Evolution (2026-05-12)
 
 #### Smart Refactoring (3 files, semantic domain extraction)

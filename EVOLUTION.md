@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: May 12, 2026 (Phase 10 — Iteration 101)
-**Phase**: 10 — Deep debt resolved: smart refactoring (error.rs, nv/mod.rs, pfifo.rs), unsafe→safe evolution (mem::zeroed→Default), ice! consistency. PTX SM120 at 25 math ops + switch + atomics + subgroup. RDNA2 parity confirmed. coral-glowplug/coral-ember soft-deprecated. 4765 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Last updated**: May 12, 2026 (Phase 10 — Iteration 101+)
+**Phase**: 10 — Sprint 3 cleanup complete: vestigial deprecation markers, RDNA2 unsigned atomics correctness fix, Phase C/D transition markers, all `unreachable!()` → `ice!()`. PTX SM120 at 25 math ops + switch + atomics + subgroup. RDNA2 parity confirmed. coral-glowplug/coral-ember soft-deprecated (crate-level doc). 4765 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 

@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 101 (Deep Debt: Smart Refactoring + Unsafe Evolution).
+**Current position**: Phase 10 — Iteration 101+ (Sprint 3 Cleanup + ICE Consistency).
 
-**Last completed**: Smart refactoring of 3 largest files by semantic domain extraction (error.rs→error/, nv/mod.rs→fecs_init.rs, pfifo.rs→bar2_init.rs). `mem::zeroed()` evolved to safe `Default::default()` for ioctl param structs. Comprehensive `.unwrap()` and production mock audits confirmed clean.
+**Last completed**: Sprint 3 — vestigial deprecation markers on ember/glowplug crates, RDNA2 unsigned atomics correctness fix, Phase C/D transition markers for toadStool IPC cutover, all PTX emitter `unreachable!()` evolved to `ice!()`. Full comprehensive deep debt audit confirmed zero remaining actionable debt in production crates.
 
 **Tests**: 4765 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 12, 2026.
 
-**Next focus**: Compute Trio coordination — toadStool absorbs coral-ember/coral-glowplug/coral-driver hardware modules concurrently; coralReef monitors for vestigial removal once toadStool has full coverage. PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
+**Next focus**: Compute Trio coordination — toadStool absorbs coral-ember/coral-glowplug/coral-driver hardware modules concurrently; coralReef monitors for vestigial removal once toadStool Phase C confirms full coverage. PTX emitter completion for SM120/Blackwell (cooperative groups, texture instructions); UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
 
 ---
 
@@ -300,8 +300,8 @@ Non-hardware coverage (excl. coral-driver): **80.8%**. Hardware coverage can now
 ### Sovereignty Roadmap
 - [ ] Custom PMU Falcon firmware for GV100 in Rust (replace vendor firmware dependency)
 - [ ] Sovereign HBM2 training via coral-driver typestate machine (eliminate nouveau dependency)
-- [ ] Vendor-agnostic GPU abstraction layer in coral-driver (unified AMD/NVIDIA backend)
-- [ ] Devinit via VBIOS boot script execution from Rust
+- [x] Vendor-agnostic GPU abstraction layer in coral-driver (`ComputeDevice` trait — unified AMD/NVIDIA/VFIO backend)
+- [x] Devinit via VBIOS boot script execution from Rust (`vbios_devinit.rs` — full Kepler opcode interpreter, 836 LOC)
 
 ### Iteration 53 — Deep Audit Execution + Safe Rust Evolution + Test Coverage
 - [x] `clippy::nursery` lints enabled workspace-wide (`nursery = "warn"` in `[workspace.lints.clippy]`)
