@@ -31,8 +31,8 @@
     reason = "PCIe lifecycle broker: sysfs/VFIO device management patterns require casts and kernel-mirrored naming"
 )]
 //! **Deprecated**: This crate is absorbed into toadStool (Phase B). Use
-//! `toadstool-glowplug` for new development. Bug fixes only until toadStool
-//! Phase C confirms full coverage, then this crate will be removed.
+//! `toadstool-glowplug` for new development. toadStool Phase C is **COMPLETE**
+//! (S245-S250) — removal gated on Phase D dispatch validation.
 //!
 //! ---
 //!

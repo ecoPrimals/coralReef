@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! QMD (Queue Management Descriptor) construction for NVIDIA compute dispatch.
 //!
-//! **Phase C contested module**: QMD encoding belongs with hardware dispatch
-//! (toadStool absorbs), but the *values* (GPR counts, workgroup dims, shared
-//! memory sizes) come from shader compilation metadata (coralReef provides via
-//! `ShaderDispatchInfo` in the compile response). Resolution: toadStool absorbs
-//! QMD *encoding*, coralReef provides the values.
+//! **Phase D status**: toadStool Phase C is COMPLETE (S245-S250) — QMD
+//! *encoding* has been absorbed into `toadstool-cylinder`. coralReef retains
+//! this module for backward compatibility and sovereign testing. The *values*
+//! (GPR counts, workgroup dims, shared memory sizes) continue to come from
+//! shader compilation metadata (coralReef provides via `ShaderDispatchInfo`
+//! in the compile response).
 //!
 //! Supports multiple QMD versions:
 //! - v2.1 (256-byte, 64-word): Kepler, Maxwell, Pascal (SM35-SM62)

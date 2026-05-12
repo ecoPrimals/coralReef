@@ -318,14 +318,19 @@ pub fn falcon_boot(
         }
 
         if halted && !hreset {
-            result.running = false;
             tracing::warn!(
                 name,
                 boot_time_us = result.boot_time_us,
                 cpuctl = format!("{:#010x}", result.cpuctl_after),
                 "falcon boot: halted without mailbox response"
             );
-            break;
+            return Err(DriverError::SubmitFailed(
+                format!(
+                    "{name}: falcon halted without response (cpuctl={:#010x})",
+                    result.cpuctl_after
+                )
+                .into(),
+            ));
         }
 
         if start.elapsed() > timeout {
@@ -336,7 +341,15 @@ pub fn falcon_boot(
                 mailbox0 = format!("{:#010x}", result.mailbox0),
                 "falcon boot: timeout waiting for response"
             );
-            break;
+            return Err(DriverError::SubmitFailed(
+                format!(
+                    "{name}: falcon boot timeout after {}ms (cpuctl={:#010x}, mailbox0={:#010x})",
+                    timeout.as_millis(),
+                    result.cpuctl_after,
+                    result.mailbox0,
+                )
+                .into(),
+            ));
         }
     }
 

@@ -4,11 +4,34 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101+ (Sprint 5)
+**Current status**: Phase 10 — Iteration 101+ (Sprint 6)
 
 ---
 
 ## [Unreleased]
+
+### Post-101 — Sprint 6: Ecosystem Wave Sync — Phase D Markers, FECS Stability (2026-05-12)
+
+#### FECS Cold Silicon Stability (sentinel blocker evolution)
+- `fecs_boot.rs`: `falcon_boot()` now returns `Err(DriverError::SubmitFailed)` on timeout and halted-without-response — previously returned `Ok(result)` masking cold silicon failures
+- Callers (`boot_fecs`, `boot_gpccs`, `boot_gr_falcons`) propagate the error to `cold_init` and `sovereign_stages`
+- `cold_init` (Volta/Blackwell) continues to handle FECS failures gracefully (warn + continue) but now receives structured errors instead of silent success
+
+#### Phase D Transition Markers (toadStool Phase C is COMPLETE)
+- `coral-gpu/context.rs`: Updated dispatch comments from "Blocked on toadStool Phase C" to "Phase C is COMPLETE (S245-S250); Phase D local dispatch wiring is stadial"
+- `coralreef-core/discovery.rs`: Updated to "Phase D transition" language
+- `coral-driver/lib.rs`: Added Phase D status module doc — hardware modules remain for backward compatibility, compiler-adjacent modules stay with coralReef
+- `coral-driver/nv/qmd/mod.rs`: "Phase C contested" → "Phase D status" — encoding absorbed into toadstool-cylinder
+- IPC method name aligned to `compute.dispatch.execute` (upstream contract)
+
+#### Soft-Deprecation Updates
+- `coral-ember/lib.rs`: Updated from "until Phase C confirms coverage" to "Phase C is COMPLETE — removal gated on Phase D dispatch validation"
+- `coral-glowplug/lib.rs`: Same update
+
+#### Tests
+- 4790 passing, 0 failed, 181 ignored. Zero clippy warnings. No regressions.
+
+---
 
 ### Post-101 — Sprint 5 Cont'd: Deep Debt — Firmware Paths, ICE Consistency, Allow Reasons (2026-05-12)
 

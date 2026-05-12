@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 12, 2026  
-**Phase**: 10 — Iteration 101+ (Sprint 5: Pass 12 sentinel gaps — naga::Module direct ingest, compile deadline, FECS cold init; 4790 tests, zero debt)
+**Phase**: 10 — Iteration 101+ (Sprint 6: Ecosystem wave sync — Phase D markers, FECS stability hardened, toadStool Phase C COMPLETE; 4790 tests, zero debt)
 
 ---
 
@@ -42,6 +42,10 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 101** |
+
+### Post-101: Sprint 6 — Ecosystem Wave Sync: Phase D Markers, FECS Stability (May 12, 2026)
+
+**Theme**: toadStool Phase C is COMPLETE (S245-S250). FECS `falcon_boot` hardened to return `Err` on timeout/halt (was silently `Ok`). Phase D transition markers updated across `context.rs`, `discovery.rs`, `coral-driver`, `qmd/mod.rs`. IPC method name aligned to `compute.dispatch.execute`. Ember/glowplug deprecation language updated to Phase D gate. Remaining sentinel: FECS cold silicon stability is now properly error-propagating.
 
 ### Post-101: Sprint 5 Cont'd — Deep Debt: Firmware Paths, ICE Consistency, Allow Reasons (May 12, 2026)
 

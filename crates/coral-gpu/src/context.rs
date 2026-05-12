@@ -672,9 +672,11 @@ impl GpuContext {
     ///
     /// Returns [`GpuError`] if no device is attached or dispatch fails.
     //
-    // Phase D: route dispatch through toadStool IPC (`compute.dispatch.submit`)
-    // instead of calling coral-driver directly. Blocked on toadStool Phase C
-    // absorption of coral-driver hardware modules.
+    // Phase D: route dispatch through toadStool IPC (`compute.dispatch.execute`)
+    // instead of calling coral-driver directly. toadStool Phase C is COMPLETE
+    // (S245-S250); Phase D local dispatch wiring is stadial — default still
+    // forwards to coralReef. Cut over when toadStool confirms
+    // `compute.dispatch.execute` serves the full hardware surface.
     pub fn dispatch(
         &mut self,
         kernel: &CompiledKernel,
@@ -705,8 +707,9 @@ impl GpuContext {
     ///
     /// Returns [`GpuError`] if no device is attached or dispatch fails.
     //
-    // Phase D: route dispatch through toadStool IPC (`compute.dispatch.submit`)
-    // instead of calling coral-driver directly. Blocked on toadStool Phase C.
+    // Phase D: route dispatch through toadStool IPC (`compute.dispatch.execute`)
+    // instead of calling coral-driver directly. toadStool Phase C is COMPLETE
+    // (S245-S250); Phase D local dispatch wiring is stadial.
     pub fn dispatch_precompiled(
         &mut self,
         entry: &KernelCacheEntry,

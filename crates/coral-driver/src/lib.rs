@@ -99,6 +99,16 @@
 //!          │                │
 //!     /dev/dri/renderD*  /dev/vfio/* ← Linux DRM / VFIO
 //! ```
+//!
+//! ## Phase D Status
+//!
+//! toadStool Phase C is **COMPLETE** (S245-S250) — hardware modules (`drm`,
+//! `nv`, `amd`, `vfio`, `mmio`, `gsp`) are absorbed into toadStool's
+//! `toadstool-cylinder` crate. These modules remain in coral-driver for
+//! backward compatibility and sovereign testing. Phase D cutover removes
+//! the direct-dispatch path once toadStool's `compute.dispatch.execute`
+//! IPC is validated end-to-end. Compiler-adjacent modules (`error`,
+//! `hardware`, `linux_paths`) stay with coralReef.
 
 pub mod error;
 pub mod hardware;
