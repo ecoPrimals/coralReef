@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn test_latency_clone() {
         let a = InstrLatency::DEFAULT;
-        #[allow(clippy::clone_on_copy)]
+        #[allow(clippy::clone_on_copy, reason = "testing Clone impl explicitly")]
         let b = a.clone();
         assert_eq!(a.latency, b.latency);
     }

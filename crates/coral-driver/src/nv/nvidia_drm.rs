@@ -45,7 +45,8 @@ fn nvidia_gpu_index_from_render_node(path: &str) -> u32 {
         .and_then(|n| n.to_str())
         .unwrap_or("renderD128");
 
-    let sysfs_device = format!("/sys/class/drm/{node_name}/device");
+    let sysfs = crate::linux_paths::sysfs_root();
+    let sysfs_device = format!("{sysfs}/class/drm/{node_name}/device");
     let bdf = match std::fs::read_link(&sysfs_device) {
         Ok(link) => link
             .file_name()
@@ -59,7 +60,8 @@ fn nvidia_gpu_index_from_render_node(path: &str) -> u32 {
         return 0;
     }
 
-    let info_path = format!("/proc/driver/nvidia/gpus/{bdf}/information");
+    let procfs = crate::linux_paths::proc_root();
+    let info_path = format!("{procfs}/driver/nvidia/gpus/{bdf}/information");
     let info = match std::fs::read_to_string(&info_path) {
         Ok(s) => s,
         Err(_) => return 0,

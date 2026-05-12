@@ -30,7 +30,7 @@ pub(crate) const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
 const DRM_IOCTL_BASE: u32 = b'd' as u32;
 
 /// Linux DRM render node path prefix. Override with `CORALREEF_DRI_RENDER_PREFIX`.
-fn dri_render_prefix() -> &'static str {
+pub(crate) fn dri_render_prefix() -> &'static str {
     static PREFIX: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     PREFIX.get_or_init(|| {
         std::env::var("CORALREEF_DRI_RENDER_PREFIX")

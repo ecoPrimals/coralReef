@@ -296,7 +296,8 @@ pub struct Pd0Directory {
 
 /// Detect the currently bound driver for a BDF.
 pub fn detect_driver(bdf: &str) -> String {
-    let link = format!("/sys/bus/pci/devices/{bdf}/driver");
+    let sysfs = crate::linux_paths::sysfs_root();
+    let link = format!("{sysfs}/bus/pci/devices/{bdf}/driver");
     match std::fs::read_link(&link) {
         Ok(p) => p
             .file_name()

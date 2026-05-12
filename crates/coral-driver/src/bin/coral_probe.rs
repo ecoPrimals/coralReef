@@ -93,7 +93,8 @@ struct Bar0Map {
 
 impl Bar0Map {
     fn open(bdf: &str) -> Result<Self, ProbeError> {
-        let path = format!("/sys/bus/pci/devices/{bdf}/resource0");
+        let sysfs = coral_driver::linux_paths::sysfs_root();
+        let path = format!("{sysfs}/bus/pci/devices/{bdf}/resource0");
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)

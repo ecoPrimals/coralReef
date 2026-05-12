@@ -490,8 +490,9 @@ pub enum IntelDriver {
 /// Checks for `/dev/dri/renderD*` nodes and reads the driver name via
 /// `DRM_IOCTL_VERSION`. Returns `None` if no Intel GPU is found.
 pub fn detect_driver() -> Option<IntelDriver> {
+    let prefix = crate::drm::dri_render_prefix();
     for i in 128..136 {
-        let path = format!("/dev/dri/renderD{i}");
+        let path = format!("{prefix}{i}");
         let driver = detect_driver_for_node(&path);
         if driver.is_some() {
             return driver;

@@ -58,7 +58,8 @@ pub fn probe_pcie_topology() -> Vec<PcieDeviceInfo> {
         }
 
         let render_path = dri_path.join(&name).to_string_lossy().into_owned();
-        let sysfs_device = format!("/sys/class/drm/{name_str}/device");
+        let sysfs = coral_driver::linux_paths::sysfs_root();
+        let sysfs_device = format!("{sysfs}/class/drm/{name_str}/device");
 
         let pcie_address = std::fs::read_link(&sysfs_device)
             .ok()

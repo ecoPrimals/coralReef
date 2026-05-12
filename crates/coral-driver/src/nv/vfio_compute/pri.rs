@@ -228,7 +228,8 @@ pub(super) fn sysfs_bar0_read_gpc0(bdf: &str) -> Option<u32> {
     use std::os::fd::AsFd;
 
     let bdf_resolved = std::env::var("CORALREEF_PRI_DEBUG_BDF").unwrap_or_else(|_| bdf.to_string());
-    let path = format!("/sys/bus/pci/devices/{bdf_resolved}/resource0");
+    let sysfs = crate::linux_paths::sysfs_root();
+    let path = format!("{sysfs}/bus/pci/devices/{bdf_resolved}/resource0");
     let file = File::open(&path).ok()?;
 
     const MAP_LEN: usize = 0x80_0000;
