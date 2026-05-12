@@ -4,11 +4,33 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 98
+**Current status**: Phase 10 — Iteration 99
 
 ---
 
 ## [Unreleased]
+
+### Iteration 99 — PTX Emitter SM120/Blackwell Evolution (2026-05-12)
+
+#### Switch Statement Implementation
+- PTX emitter now handles `naga::Statement::Switch` — generates `setp.eq.s32` comparison chain with labeled branches, default fallthrough, and proper break semantics
+- Unblocks real-world shaders using switch/case on SM120
+
+#### Math Functions (10 new operations)
+- `Pow`: `lg2 → mul → ex2` chain (base-2 logarithm trick)
+- `Exp`: `x * log2(e) → ex2` (natural exponential via base-2)
+- `Log`: `lg2 → * ln(2)` (natural logarithm via base-2)
+- `Sign`: predicate-based sign extraction (`setp.gt/lt → selp`)
+- `Fract`: `cvt.rmi (floor) → sub` (fractional part)
+- `Mix`: `sub → fma` (linear interpolation via FMA)
+- `Step`: `setp.ge → selp` (step function)
+- `Dot`: vector component-wise `mul + fma` accumulation
+- `Tanh`: `2x * log2e → ex2 → rcp → selp` approximation
+- Existing: `Abs`, `Min`, `Max`, `Clamp`, `Floor/Ceil/Round/Trunc`, `Sqrt`, `InverseSqrt`, `Sin`, `Cos`, `Exp2`, `Log2`, `Fma`
+
+#### Tests
+- 7 new PTX unit tests: switch, pow/exp/log, fma/clamp/abs, fract, sqrt/exp2/log2, if/else, loop
+- 4761 passing (+7), 0 failures, 181 ignored. Zero clippy warnings.
 
 ### Iteration 98 — Firmware Panic Elimination + Deep Audit (2026-05-11)
 

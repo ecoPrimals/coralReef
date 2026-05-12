@@ -177,6 +177,271 @@ impl PtxEmitter<'_> {
                 .expect("write to String");
                 Ok(dst)
             }
+            MF::Pow => {
+                let exp =
+                    arg1.ok_or_else(|| CompileError::NotImplemented("pow without arg1".into()))?;
+                let lg = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    lg2.approx.{ts} {}, {};",
+                    lg.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, {};",
+                    lg.fmt_operand(),
+                    lg.fmt_operand(),
+                    exp.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    ex2.approx.{ts} {}, {};",
+                    dst.fmt_operand(),
+                    lg.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Exp => {
+                // exp(x) = ex2(x * log2(e))
+                let tmp = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f3FB8AA3B;",
+                    tmp.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    ex2.approx.{ts} {}, {};",
+                    dst.fmt_operand(),
+                    tmp.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Log => {
+                // log(x) = lg2(x) * ln(2)
+                let tmp = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    lg2.approx.{ts} {}, {};",
+                    tmp.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f3F317218;",
+                    dst.fmt_operand(),
+                    tmp.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Sign => {
+                let dst = self.alloc_for_scalar(scalar);
+                let p_pos = self.alloc_pred();
+                let p_neg = self.alloc_pred();
+                writeln!(
+                    self.body,
+                    "    setp.gt.{ts} {}, {}, 0f00000000;",
+                    p_pos.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    setp.lt.{ts} {}, {}, 0f00000000;",
+                    p_neg.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    selp.{ts} {}, 0f3F800000, 0f00000000, {};",
+                    dst.fmt_operand(),
+                    p_pos.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    selp.{ts} {}, 0fBF800000, {}, {};",
+                    dst.fmt_operand(),
+                    dst.fmt_operand(),
+                    p_neg.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Fract => {
+                // fract(x) = x - floor(x)
+                let floored = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    cvt.rmi.{ts}.{ts} {}, {};",
+                    floored.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    sub.{ts} {}, {}, {};",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                    floored.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Mix => {
+                // mix(a, b, t) = a*(1-t) + b*t = a + t*(b - a)
+                let b =
+                    arg1.ok_or_else(|| CompileError::NotImplemented("mix without arg1".into()))?;
+                let t =
+                    arg2.ok_or_else(|| CompileError::NotImplemented("mix without arg2".into()))?;
+                let diff = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    sub.{ts} {}, {}, {};",
+                    diff.fmt_operand(),
+                    b.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    fma.rn.{ts} {}, {}, {}, {};",
+                    dst.fmt_operand(),
+                    t.fmt_operand(),
+                    diff.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Step => {
+                // step(edge, x) = x >= edge ? 1.0 : 0.0
+                let x =
+                    arg1.ok_or_else(|| CompileError::NotImplemented("step without arg1".into()))?;
+                let pred = self.alloc_pred();
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    setp.ge.{ts} {}, {}, {};",
+                    pred.fmt_operand(),
+                    x.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    selp.{ts} {}, 0f3F800000, 0f00000000, {};",
+                    dst.fmt_operand(),
+                    pred.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Dot => {
+                let rhs =
+                    arg1.ok_or_else(|| CompileError::NotImplemented("dot without arg1".into()))?;
+                match (arg, rhs) {
+                    (PtxVal::Vec(lhs_comps), PtxVal::Vec(rhs_comps)) => {
+                        let dst = self.alloc_for_scalar(scalar);
+                        writeln!(
+                            self.body,
+                            "    mul.{ts} {}, {}, {};",
+                            dst.fmt_operand(),
+                            lhs_comps[0].fmt_operand(),
+                            rhs_comps[0].fmt_operand(),
+                        )
+                        .expect("write to String");
+                        for (l, r) in lhs_comps.iter().zip(rhs_comps.iter()).skip(1) {
+                            writeln!(
+                                self.body,
+                                "    fma.rn.{ts} {}, {}, {}, {};",
+                                dst.fmt_operand(),
+                                l.fmt_operand(),
+                                r.fmt_operand(),
+                                dst.fmt_operand(),
+                            )
+                            .expect("write to String");
+                        }
+                        Ok(dst)
+                    }
+                    _ => Err(CompileError::NotImplemented(
+                        "PTX dot: non-vector operands".into(),
+                    )),
+                }
+            }
+            MF::Tanh => {
+                // tanh(x) ≈ 1 - 2/(exp(2x)+1): use ex2 approximation
+                let two_x = self.alloc_for_scalar(scalar);
+                let exp_val = self.alloc_for_scalar(scalar);
+                let denom = self.alloc_for_scalar(scalar);
+                let frac = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f40000000;",
+                    two_x.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f3FB8AA3B;",
+                    two_x.fmt_operand(),
+                    two_x.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    ex2.approx.{ts} {}, {};",
+                    exp_val.fmt_operand(),
+                    two_x.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    add.{ts} {}, {}, 0f3F800000;",
+                    denom.fmt_operand(),
+                    exp_val.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    rcp.approx.{ts} {}, {};",
+                    denom.fmt_operand(),
+                    denom.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, 0f40000000, {};",
+                    frac.fmt_operand(),
+                    denom.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    sub.{ts} {}, 0f3F800000, {};",
+                    dst.fmt_operand(),
+                    frac.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
             _ => Err(CompileError::NotImplemented(
                 format!("PTX math function: {fun:?}").into(),
             )),

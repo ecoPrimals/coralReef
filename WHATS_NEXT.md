@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 98 (Firmware Panic Elimination + Deep Audit).
+**Current position**: Phase 10 — Iteration 99 (PTX Emitter SM120/Blackwell Evolution).
 
-**Last completed**: Firmware `.expect("firmware load")` → `DriverResult` propagation on all 3 ACR boot entry points (sysmem_acr_boot, sysmem_physical_boot, hybrid_acr_boot). Deep 800L+ file review: 7 files assessed, all cohesive, all under 1000L cap. Zero new debt across all categories.
+**Last completed**: PTX emitter evolution: Switch statement support + 10 new math functions (pow, exp, log, sign, fract, mix, step, dot, tanh). Unblocks real-world shaders on SM120/Blackwell. 7 new PTX unit tests.
 
-**Tests**: 4754 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4761 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
-**Last updated**: May 11, 2026.
+**Last updated**: May 12, 2026.
 
 **Next focus**: Compute Trio coordination — toadStool absorbs coral-ember/coral-glowplug/coral-driver hardware modules concurrently; coralReef monitors for vestigial removal once toadStool has full coverage. PTX emitter completion for SM120/Blackwell; UVM hardware validation (RTX 5060); Falcon boot FBP=0 resolution; `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
 

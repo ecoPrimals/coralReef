@@ -181,4 +181,145 @@ fn main(@builtin(num_workgroups) nwg: vec3<u32>) {
         assert!(ptx.contains("%nctaid.y"));
         assert!(ptx.contains("%nctaid.z"));
     }
+
+    #[test]
+    fn ptx_switch_statement() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    switch gid.x {
+        case 0u: { out[0] = 10u; }
+        case 1u: { out[0] = 20u; }
+        default: { out[0] = 99u; }
+    }
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("setp.eq.s32"));
+        assert!(ptx.contains("10"));
+        assert!(ptx.contains("20"));
+        assert!(ptx.contains("99"));
+    }
+
+    #[test]
+    fn ptx_math_sqrt_exp2_log2() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<f32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    buf[0] = sqrt(buf[0]);
+    buf[1] = exp2(buf[1]);
+    buf[2] = log2(buf[2]);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("sqrt.rn"));
+        assert!(ptx.contains("ex2.approx"));
+        assert!(ptx.contains("lg2.approx"));
+    }
+
+    #[test]
+    fn ptx_math_pow_exp_log() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<f32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    buf[0] = pow(buf[0], buf[1]);
+    buf[2] = exp(buf[2]);
+    buf[3] = log(buf[3]);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("lg2.approx"));
+        assert!(ptx.contains("ex2.approx"));
+    }
+
+    #[test]
+    fn ptx_math_fma_clamp_abs() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<f32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    buf[0] = fma(buf[0], buf[1], buf[2]);
+    buf[3] = clamp(buf[3], 0.0, 1.0);
+    buf[4] = abs(buf[4]);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("fma.rn"));
+        assert!(ptx.contains("abs."));
+    }
+
+    #[test]
+    fn ptx_math_fract() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<f32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    buf[0] = fract(buf[0]);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("cvt.rmi"));
+        assert!(ptx.contains("sub."));
+    }
+
+    #[test]
+    fn ptx_if_else() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x == 0u {
+        buf[0] = 1u;
+    } else {
+        buf[0] = 2u;
+    }
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("setp"));
+        assert!(ptx.contains("bra"));
+    }
+
+    #[test]
+    fn ptx_loop_basic() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    var i: u32 = 0u;
+    loop {
+        if i >= 10u { break; }
+        buf[i] = i;
+        continuing { i = i + 1u; }
+    }
+}
+";
+        let result = emit_compute_ptx(wgsl, 120).expect("compile");
+        let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
+        assert!(ptx.contains("$L"));
+        assert!(ptx.contains("bra"));
+    }
 }

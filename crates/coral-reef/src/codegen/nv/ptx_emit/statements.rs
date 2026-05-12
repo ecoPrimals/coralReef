@@ -97,8 +97,59 @@ impl PtxEmitter<'_> {
                 // Same concern as Break — needs label stack for full support.
                 Ok(())
             }
-            naga::Statement::Switch { .. } => {
-                Err(CompileError::NotImplemented("PTX switch statement".into()))
+            naga::Statement::Switch {
+                selector,
+                ref cases,
+            } => {
+                let sel = self.eval_expr(selector)?;
+                let end_label = self.alloc_label();
+
+                let mut case_labels: Vec<(u32, i64)> = Vec::new();
+                let mut default_label = None;
+
+                for case in cases {
+                    let lbl = self.alloc_label();
+                    match case.value {
+                        naga::SwitchValue::I32(v) => case_labels.push((lbl, i64::from(v))),
+                        naga::SwitchValue::U32(v) => case_labels.push((lbl, i64::from(v))),
+                        naga::SwitchValue::Default => default_label = Some(lbl),
+                    }
+                }
+
+                let default_lbl = default_label.unwrap_or(end_label);
+
+                for &(lbl, val) in &case_labels {
+                    let pred = self.alloc_pred();
+                    writeln!(
+                        self.body,
+                        "    setp.eq.s32 {}, {}, {val};",
+                        pred.fmt_operand(),
+                        sel.fmt_operand(),
+                    )
+                    .expect("write to String");
+                    writeln!(self.body, "    @{} bra $L{lbl};", pred.fmt_operand())
+                        .expect("write to String");
+                }
+                writeln!(self.body, "    bra $L{default_lbl};").expect("write to String");
+
+                let mut label_iter = case_labels.iter().map(|(lbl, _)| *lbl);
+                let mut default_iter = default_label.into_iter();
+                for case in cases {
+                    let lbl = match case.value {
+                        naga::SwitchValue::Default => default_iter.next().unwrap_or(end_label),
+                        _ => label_iter.next().unwrap_or(end_label),
+                    };
+                    writeln!(self.body, "$L{lbl}:").expect("write to String");
+                    self.emit_block(&case.body)?;
+                    if case.fall_through {
+                        // fall through to next case
+                    } else {
+                        writeln!(self.body, "    bra $L{end_label};").expect("write to String");
+                    }
+                }
+
+                writeln!(self.body, "$L{end_label}:").expect("write to String");
+                Ok(())
             }
             naga::Statement::Kill => {
                 writeln!(self.body, "    exit;").expect("write to String");
