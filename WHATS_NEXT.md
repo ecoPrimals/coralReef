@@ -2,11 +2,11 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 101+ (Sprint 4: PTX SM120 subgroup scans + deep debt sysfs evolution).
+**Current position**: Phase 10 — Iteration 101+ (Sprint 5: Pass 12 sentinel gaps).
 
-**Last completed**: Sprint 4 — PTX emitter inclusive/exclusive prefix scans via `shfl.sync.up` butterfly, silent statement catch-all eliminated, `SubgroupOperationResult`/`SubgroupBallotResult` expression handling, `coral-reef-isa` API evolution (`IsaTarget` methods + `Hash`), comprehensive deep debt audit (6 hardcoded sysfs/procfs paths evolved to `linux_paths` helpers, all `#[allow]` given reasons). Zero remaining actionable debt in production crates.
+**Last completed**: Sprint 5 — primalSpring Pass 12 sentinel escalation items resolved: `naga::Module` direct ingest API (skip text→parse round-trip, `compile_module`/`compile_module_full`), compile deadline on all IPC handlers (120s default, `CORALREEF_COMPILE_TIMEOUT_SECS`), Volta+/Blackwell cold init wired to attempt PIO falcon boot when firmware available, `firmware_available` respects `CORALREEF_NVIDIA_FIRMWARE_ROOT`. Zero remaining actionable debt in production crates.
 
-**Tests**: 4784 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 4790 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
 **Last updated**: May 12, 2026.
 
@@ -614,7 +614,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio domain split underway — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-4784 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+4790 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
 Wire contract aligned to Compute Trio specification: `binary_b64`, `target`, `shader_info` (with `gprs`, `shared_memory`, `barriers`, `workgroup`, `wave_size`, `local_memory`), `compile_time_ms`. Gate 1 satisfied: `shader.compile.capabilities` returns `targets` array.

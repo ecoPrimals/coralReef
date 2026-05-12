@@ -522,3 +522,84 @@ fn test_compile_wgsl_full_minimal() {
         "minimal WGSL full compile should succeed: {result:?}"
     );
 }
+
+#[test]
+fn test_compile_module_empty_entry_points_rejected() {
+    let module = naga::Module::default();
+    let result = compile_module(&module, &CompileOptions::default());
+    assert!(
+        matches!(result, Err(CompileError::InvalidInput(_))),
+        "module with no entry points should fail: {result:?}"
+    );
+}
+
+#[test]
+fn test_compile_module_minimal_compute() {
+    let wgsl = "@compute @workgroup_size(1) fn main() {}";
+    let module =
+        naga::front::wgsl::parse_str(wgsl).expect("parse minimal WGSL");
+    let opts = CompileOptions::default();
+    let result = compile_module(&module, &opts);
+    assert!(
+        result.is_ok(),
+        "direct naga::Module compile should succeed: {result:?}"
+    );
+}
+
+#[test]
+fn test_compile_module_full_returns_metadata() {
+    let wgsl = "@compute @workgroup_size(64) fn main() {}";
+    let module =
+        naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let opts = CompileOptions::default();
+    let compiled = compile_module_full(&module, &opts)
+        .expect("module_full compile");
+    assert!(!compiled.binary.is_empty(), "binary should be non-empty");
+    assert_eq!(compiled.info.local_size[0], 64, "workgroup_size x");
+}
+
+#[test]
+fn test_compile_module_matches_wgsl_output() {
+    let wgsl = "@compute @workgroup_size(1) fn main() {}";
+    let module =
+        naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let opts = CompileOptions::default();
+    let from_wgsl = compile_wgsl(wgsl, &opts).expect("wgsl compile");
+    let from_module = compile_module(&module, &opts).expect("module compile");
+    assert_eq!(
+        from_wgsl, from_module,
+        "direct module path should produce identical binary to WGSL path"
+    );
+}
+
+#[test]
+fn test_compile_module_amd_target() {
+    let wgsl = "@compute @workgroup_size(1) fn main() {}";
+    let module =
+        naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let opts = CompileOptions {
+        target: GpuTarget::Amd(AmdArch::Rdna2),
+        ..Default::default()
+    };
+    let result = compile_module(&module, &opts);
+    assert!(
+        result.is_ok(),
+        "AMD module compile should succeed: {result:?}"
+    );
+}
+
+#[test]
+fn test_compile_module_intel_unsupported() {
+    let wgsl = "@compute @workgroup_size(1) fn main() {}";
+    let module =
+        naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let opts = CompileOptions {
+        target: GpuTarget::Intel(IntelArch::XeHpg),
+        ..Default::default()
+    };
+    let result = compile_module(&module, &opts);
+    assert!(
+        matches!(result, Err(CompileError::UnsupportedArch(_))),
+        "Intel should return UnsupportedArch: {result:?}"
+    );
+}

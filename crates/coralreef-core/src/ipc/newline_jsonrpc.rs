@@ -267,16 +267,38 @@ where
     }
 }
 
+/// Default compile timeout (seconds). Override with `CORALREEF_COMPILE_TIMEOUT_SECS`.
+const DEFAULT_COMPILE_TIMEOUT_SECS: u64 = 120;
+
+pub(super) fn compile_timeout() -> std::time::Duration {
+    let secs = std::env::var("CORALREEF_COMPILE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_COMPILE_TIMEOUT_SECS);
+    std::time::Duration::from_secs(secs)
+}
+
 /// Dispatch a JSON-RPC method, offloading CPU-heavy compile work to the blocking pool.
+///
+/// Compile methods are wrapped in a deadline (`CORALREEF_COMPILE_TIMEOUT_SECS`,
+/// default 120s) to prevent unbounded blocking from stalling the IPC server.
 pub(super) async fn dispatch_maybe_blocking(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, IpcServiceError> {
     if method.starts_with("shader.compile.") {
         let method = method.to_owned();
-        tokio::task::spawn_blocking(move || dispatch_jsonrpc(&method, params))
-            .await
-            .map_err(|e| IpcServiceError::internal(format!("compile task panicked: {e}")))?
+        let deadline = compile_timeout();
+        let task = tokio::task::spawn_blocking(move || dispatch_jsonrpc(&method, params));
+        match tokio::time::timeout(deadline, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => Err(IpcServiceError::internal(format!(
+                "compile task panicked: {e}"
+            ))),
+            Err(_elapsed) => Err(IpcServiceError::internal(format!(
+                "shader compilation exceeded {deadline:?} deadline"
+            ))),
+        }
     } else {
         dispatch_jsonrpc(method, params)
     }

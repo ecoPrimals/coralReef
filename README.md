@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10 — Iteration 101+ (Sprint 4: PTX SM120 subgroup scans, ISA evolution, 4784 tests, zero debt)  
+**Status**: Phase 10 — Iteration 101+ (Sprint 5: Pass 12 sentinel gaps — naga::Module direct ingest, compile deadline, FECS cold init; 4790 tests, zero debt)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -36,7 +36,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 4784 passing, 0 failed (~181 ignored hardware-gated)
+cargo test --workspace     # 4790 passing, 0 failed (~181 ignored hardware-gated)
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
@@ -175,7 +175,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4784 passing, 0 failed, ~181 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (4790 passing, 0 failed, ~181 ignored hardware-gated) |
 | `cargo llvm-cov` | ~65% workspace line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -238,7 +238,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | coralDriver (AMD amdgpu + NVIDIA nouveau) | **Complete** |
 | 8 | coralGpu (unified Rust GPU abstraction) | **Complete** |
 | 9 | Full sovereignty (zero FFI, zero C) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — PTX SM120 atomics/warp/barriers, RDNA2 parity, coral-glowplug/coral-ember soft-deprecated, smart refactoring (3 files), unsafe→safe evolution, `ice!` consistency. Wire contract frozen. 4784 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — PTX SM120 atomics/warp/barriers, RDNA2 parity, coral-glowplug/coral-ember soft-deprecated, smart refactoring (3 files), unsafe→safe evolution, `ice!` consistency. Wire contract frozen. 4790 tests, zero debt |
 
 ---
 

@@ -10,6 +10,30 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Post-101 — Sprint 5: Pass 12 Sentinel Gaps (2026-05-12)
+
+#### `naga::Module` Direct Ingest (Pass 12 — coralReef stability)
+- `lib.rs`: New public `compile_module()` and `compile_module_full()` — accept pre-parsed `naga::Module` directly, skipping text→parse round-trip
+- `ptx_emit/mod.rs`: New `emit_compute_ptx_module()` — PTX path accepts `&naga::Module` directly for SM100+ targets
+- `pub use naga` re-export — downstream crates can construct `naga::Module` without a separate dependency
+- 6 new tests: empty module rejection, minimal compute, full metadata, output parity with WGSL path, AMD target, Intel unsupported
+
+#### Compile Deadline (Pass 12 — `bind_stat` timeout)
+- `newline_jsonrpc.rs`: All `shader.compile.*` IPC handlers wrapped in `tokio::time::timeout` (default 120s, configurable via `CORALREEF_COMPILE_TIMEOUT_SECS`)
+- `tarpc_transport.rs`: Same deadline applied to all tarpc compile methods (spirv, wgsl, wgsl_multi)
+- Prevents unbounded blocking from stalling the IPC server on pathological inputs
+
+#### FECS/GPCCS Cold Silicon Init (Pass 12 — firmware command sequencing)
+- `boot_sequence.rs`: `VoltaBoot::cold_init` and `BlackwellBoot::cold_init` now attempt PIO falcon boot (`boot_gr_falcons`) when firmware is available on disk
+- Graceful fallback: logs clear diagnostic when firmware is missing or ACR/SEC2 chain is required
+- `fecs_boot.rs`: `firmware_available()` respects `CORALREEF_NVIDIA_FIRMWARE_ROOT` env var (consistent with GSP firmware parser)
+- Unblocks hotSpring Titan V / K80 sovereign GPU validation path
+
+#### Tests
+- 4790 passing (+6), 0 failed, 181 ignored. Zero clippy warnings. No regressions.
+
+---
+
 ### Post-101 — Sprint 4: PTX SM120 Evolution + Coverage Push (2026-05-12)
 
 #### PTX Emitter — Subgroup Scan Implementation

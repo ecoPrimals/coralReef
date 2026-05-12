@@ -67,6 +67,9 @@ pub use error::CompileError;
 pub use frontend::{Frontend, NagaFrontend};
 pub use gpu_arch::{AmdArch, GpuArch, GpuTarget, IntelArch, NvArch};
 
+/// Re-export naga for callers that build `naga::Module` directly.
+pub use naga;
+
 /// df64 (double-float) WGSL preamble — Dekker/Knuth pair arithmetic.
 /// Prepended automatically when source uses df64 functions or when
 /// `Fp64Strategy::DoubleFloat` is selected.
@@ -500,6 +503,65 @@ pub fn compile_wgsl_with(
     shader.fma_policy = options.fma_policy;
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, options.target))
+}
+
+/// Compile a pre-parsed `naga::Module` to native GPU binary.
+///
+/// Accepts a naga IR module directly, skipping the WGSL/SPIR-V/GLSL
+/// parse step. This avoids the overhead of text round-tripping when
+/// the caller already holds a `naga::Module` (e.g. from programmatic
+/// IR construction or a custom frontend).
+///
+/// Uses the first entry point in the module.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if the module has no entry points or
+/// compilation fails.
+pub fn compile_module(
+    module: &naga::Module,
+    options: &CompileOptions,
+) -> Result<Vec<u8>, CompileError> {
+    let compiled = compile_module_full(module, options)?;
+    Ok(compiled.binary)
+}
+
+/// Compile a pre-parsed `naga::Module` to [`CompiledBinary`] with full metadata.
+///
+/// Like [`compile_module`] but returns compilation info (GPR count,
+/// shared memory, barriers) needed by the driver for dispatch setup.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if the module has no entry points or
+/// compilation fails.
+pub fn compile_module_full(
+    module: &naga::Module,
+    options: &CompileOptions,
+) -> Result<CompiledBinary, CompileError> {
+    if module.entry_points.is_empty() {
+        return Err(CompileError::InvalidInput(
+            "naga::Module has no entry points".into(),
+        ));
+    }
+    tracing::info!(
+        target = %options.target,
+        opt = options.opt_level,
+        "coral-reef compile_module"
+    );
+
+    if let Some(nv) = options.target.as_nvidia() {
+        if nv.sm() >= 100 {
+            return codegen::nv::ptx_emit::emit_compute_ptx_module(module, nv.sm_version());
+        }
+    }
+
+    let sm = shader_model_for(options.target)?;
+    let ep = &module.entry_points[0];
+    let mut shader = codegen::naga_translate::translate(module, sm.as_ref(), &ep.name)?;
+    shader.fma_policy = options.fma_policy;
+    let backend = backend::backend_for(options.target)?;
+    backend.compile(&mut shader)
 }
 
 /// Compile GLSL compute shader source to native GPU binary.

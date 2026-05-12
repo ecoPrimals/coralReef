@@ -45,7 +45,17 @@ use types::{BufferBinding, PtxVal, SharedVar};
 /// `CompiledBinary` with `format: BinaryFormat::Ptx`.
 pub fn emit_compute_ptx(wgsl_source: &str, sm: u8) -> Result<CompiledBinary, CompileError> {
     let module = crate::codegen::naga_translate::parse_wgsl(wgsl_source)?;
+    emit_compute_ptx_module(&module, sm)
+}
 
+/// Emit PTX from a pre-parsed `naga::Module` for SM100+ targets.
+///
+/// Accepts a module directly, skipping the WGSL parse step.
+/// Used by `compile_module_full` for the Blackwell PTX path.
+pub fn emit_compute_ptx_module(
+    module: &naga::Module,
+    sm: u8,
+) -> Result<CompiledBinary, CompileError> {
     let ep_index = module
         .entry_points
         .iter()
@@ -54,7 +64,7 @@ pub fn emit_compute_ptx(wgsl_source: &str, sm: u8) -> Result<CompiledBinary, Com
 
     let ep = &module.entry_points[ep_index];
 
-    let mut emitter = PtxEmitter::new(&module, ep, sm);
+    let mut emitter = PtxEmitter::new(module, ep, sm);
     let ptx = emitter.emit()?;
 
     let ws = ep.workgroup_size;

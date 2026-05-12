@@ -72,7 +72,8 @@ impl ShaderCompileTarpc for TarpcServer {
         _ctx: tarpc::context::Context,
         request: service::CompileSpirvRequestTarpc,
     ) -> Result<service::CompileResponse, TarpcCompileError> {
-        tokio::task::spawn_blocking(move || {
+        let deadline = super::newline_jsonrpc::compile_timeout();
+        let task = tokio::task::spawn_blocking(move || {
             service::handle_compile_spirv(
                 &request.spirv,
                 request.arch,
@@ -80,13 +81,16 @@ impl ShaderCompileTarpc for TarpcServer {
                 request.fp64_software,
             )
             .map_err(service::TarpcCompileError::from_error)
-        })
-        .await
-        .unwrap_or_else(|e| {
-            Err(TarpcCompileError {
+        });
+        match tokio::time::timeout(deadline, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => Err(TarpcCompileError {
                 message: format!("compile task panicked: {e}"),
-            })
-        })
+            }),
+            Err(_elapsed) => Err(TarpcCompileError {
+                message: format!("shader compilation exceeded {deadline:?} deadline"),
+            }),
+        }
     }
 
     async fn wgsl(
@@ -94,15 +98,19 @@ impl ShaderCompileTarpc for TarpcServer {
         _ctx: tarpc::context::Context,
         request: service::CompileWgslRequest,
     ) -> Result<service::CompileResponse, TarpcCompileError> {
-        tokio::task::spawn_blocking(move || {
+        let deadline = super::newline_jsonrpc::compile_timeout();
+        let task = tokio::task::spawn_blocking(move || {
             service::handle_compile_wgsl(&request).map_err(service::TarpcCompileError::from_error)
-        })
-        .await
-        .unwrap_or_else(|e| {
-            Err(TarpcCompileError {
+        });
+        match tokio::time::timeout(deadline, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => Err(TarpcCompileError {
                 message: format!("compile task panicked: {e}"),
-            })
-        })
+            }),
+            Err(_elapsed) => Err(TarpcCompileError {
+                message: format!("shader compilation exceeded {deadline:?} deadline"),
+            }),
+        }
     }
 
     async fn status(self, _ctx: tarpc::context::Context) -> service::HealthResponse {
@@ -118,16 +126,20 @@ impl ShaderCompileTarpc for TarpcServer {
         _ctx: tarpc::context::Context,
         request: service::MultiDeviceCompileRequest,
     ) -> Result<service::MultiDeviceCompileResponse, TarpcCompileError> {
-        tokio::task::spawn_blocking(move || {
+        let deadline = super::newline_jsonrpc::compile_timeout();
+        let task = tokio::task::spawn_blocking(move || {
             service::handle_compile_wgsl_multi(request)
                 .map_err(service::TarpcCompileError::from_error)
-        })
-        .await
-        .unwrap_or_else(|e| {
-            Err(TarpcCompileError {
+        });
+        match tokio::time::timeout(deadline, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => Err(TarpcCompileError {
                 message: format!("compile task panicked: {e}"),
-            })
-        })
+            }),
+            Err(_elapsed) => Err(TarpcCompileError {
+                message: format!("shader compilation exceeded {deadline:?} deadline"),
+            }),
+        }
     }
 
     async fn health_check(self, _ctx: tarpc::context::Context) -> service::HealthCheckResponse {

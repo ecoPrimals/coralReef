@@ -400,8 +400,14 @@ pub fn boot_gr_falcons(bar0: &MappedBar, chip: &str) -> DriverResult<FalconBootR
 }
 
 /// Check if the GR firmware directory exists for a given chip.
+///
+/// Respects `CORALREEF_NVIDIA_FIRMWARE_ROOT` (default `/lib/firmware/nvidia`).
 pub fn firmware_available(chip: &str) -> bool {
-    Path::new(&format!("/lib/firmware/nvidia/{chip}/gr/fecs_inst.bin")).exists()
+    let root = std::env::var("CORALREEF_NVIDIA_FIRMWARE_ROOT")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/lib/firmware/nvidia".to_string());
+    Path::new(&format!("{root}/{chip}/gr/fecs_inst.bin")).exists()
 }
 
 // ── Capability-based boot (uses FalconCapabilityProbe) ──────────────────

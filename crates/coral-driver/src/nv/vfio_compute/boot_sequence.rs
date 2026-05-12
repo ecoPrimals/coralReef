@@ -151,6 +151,26 @@ impl SovereignBootSequence for KeplerBoot {
 impl SovereignBootSequence for VoltaBoot {
     fn cold_init(&self, bar0: &MappedBar) -> DriverResult<()> {
         super::NvVfioComputeDevice::apply_gr_bar0_init(bar0, self.sm_version);
+
+        let chip = super::layout::sm_to_chip(self.sm_version);
+        if super::fecs_boot::firmware_available(chip) {
+            match super::fecs_boot::boot_gr_falcons(bar0, chip) {
+                Ok(result) => tracing::info!(
+                    chip, sm = self.sm_version,
+                    "Volta+ cold init: FECS/GPCCS PIO boot succeeded — {result}"
+                ),
+                Err(e) => tracing::warn!(
+                    chip, sm = self.sm_version,
+                    "Volta+ cold init: FECS/GPCCS PIO boot failed (ACR/SEC2 may be required): {e}"
+                ),
+            }
+        } else {
+            tracing::info!(
+                chip, sm = self.sm_version,
+                "Volta+ cold init: no firmware on disk — FECS/GPCCS requires sovereign_init or warm handoff"
+            );
+        }
+
         Ok(())
     }
 
@@ -213,6 +233,26 @@ impl SovereignBootSequence for VoltaBoot {
 impl SovereignBootSequence for BlackwellBoot {
     fn cold_init(&self, bar0: &MappedBar) -> DriverResult<()> {
         super::NvVfioComputeDevice::apply_gr_bar0_init(bar0, self.sm_version);
+
+        let chip = super::layout::sm_to_chip(self.sm_version);
+        if super::fecs_boot::firmware_available(chip) {
+            match super::fecs_boot::boot_gr_falcons(bar0, chip) {
+                Ok(result) => tracing::info!(
+                    chip, sm = self.sm_version,
+                    "Blackwell cold init: FECS/GPCCS PIO boot succeeded — {result}"
+                ),
+                Err(e) => tracing::warn!(
+                    chip, sm = self.sm_version,
+                    "Blackwell cold init: FECS/GPCCS PIO boot failed (ACR/SEC2 may be required): {e}"
+                ),
+            }
+        } else {
+            tracing::info!(
+                chip, sm = self.sm_version,
+                "Blackwell cold init: no firmware on disk — FECS/GPCCS requires sovereign_init or warm handoff"
+            );
+        }
+
         Ok(())
     }
 
