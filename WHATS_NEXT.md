@@ -41,15 +41,17 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 - SEC2 base address corrected, EMEM PIO verified, firmware headers parsed
 - ACR boot solver tries 5 strategies with increasing aggression
 - HS ROM PC is advancing (0x14b9 → 0x1505) but BL has not yet executed
-- `bind_stat` (instance block binding) is the immediate blocker
+- `bind_stat` timeout: **IPC compile deadline resolved** (Sprint 5 — 120s default, `CORALREEF_COMPILE_TIMEOUT_SECS`)
+- FECS/GPCCS cold init: **PIO falcon boot wired** in `VoltaBoot`/`BlackwellBoot` (Sprint 5)
 - Three parallel paths: system-memory WPR, hybrid WPR, Nouveau warm handoff
 
 ### Immediate Next Steps
 
-1. Resolve `bind_stat` timeout (instance block not binding to SEC2)
-2. Verify PMC disable+enable cycle fixes DMA engine state
-3. If ACR boot succeeds: construct WPR with FECS/GPCCS LS images
-4. Warm handoff path: capture Nouveau's FECS state via Ember swap
+1. ~~Resolve `bind_stat` timeout~~ — **RESOLVED** Sprint 5: compile deadline on all IPC handlers
+2. ~~FECS/GPCCS cold silicon init~~ — **RESOLVED** Sprint 5: PIO falcon boot wired
+3. PTX emitter completion for SM120/Blackwell (texture instructions, cooperative groups)
+4. UVM hardware validation (RTX 5060 on-site)
+5. `coral-gpu` sovereign path evolution (replace wgpu dependency)
 
 ### Untestable Code — Hardware Abstraction Plan
 
@@ -79,7 +81,7 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 | coral-driver | 31,177 | 22,806 | **26.8%** |
 | **Workspace total** | **100,468** | **36,132** | **64.0%** |
 
-Non-hardware coverage (excl. coral-driver): **80.8%**. Hardware coverage can now be expanded on any NVIDIA or AMD GPU.
+Non-hardware coverage (excl. coral-driver): **~82%**. Hardware coverage can now be expanded on any NVIDIA or AMD GPU. (Coverage table from Iter 73; current workspace ~65%.)
 
 ---
 

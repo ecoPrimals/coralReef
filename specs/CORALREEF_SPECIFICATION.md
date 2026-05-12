@@ -10,11 +10,11 @@
 
 ## Purpose
 
-coralReef is a sovereign Rust GPU compiler. It compiles WGSL and
-SPIR-V compute shaders to native GPU binaries with full f64
+coralReef is a sovereign Rust GPU compiler. It compiles WGSL, SPIR-V,
+and GLSL 450 compute shaders to native GPU binaries with full f64
 transcendental support, as a standalone pure-Rust workspace.
 
-Multi-vendor architecture: NVIDIA (SM70–SM89) and AMD (RDNA2 GFX1030)
+Multi-vendor architecture: NVIDIA (SM35–SM120) and AMD (GCN5–RDNA4)
 backends operational. Both share the same IR, optimizer passes, and
 `ShaderModel` trait — Rust trait dispatch, no manual vtables.
 
@@ -31,7 +31,7 @@ coralGlowPlug manages GPU lifecycle at the PCIe level — boot-persistent VFIO b
 | NVIDIA Titan V #1 | Volta SM70 (GV100) | SASS | vfio-pci (sovereign) | 1/2, native | Oracle card — sovereign VFIO dispatch |
 | NVIDIA Titan V #2 | Volta SM70 (GV100) | SASS | vfio-pci (sovereign) | 1/2, native | Compute target — sovereign VFIO dispatch |
 | NVIDIA RTX 5060 | Ada SM89 | SASS | nvidia-drm | 1/64, DF64 | Desktop display + UVM dispatch |
-| AMD MI50 (planned) | Vega GFX906 | GCN | amdgpu (open) | Full rate | GFX9 cross-architecture validation |
+| AMD MI50 | Vega GFX906 | GCN | amdgpu (open) | Full rate | GFX9 cross-architecture validation |
 
 ## Architecture
 

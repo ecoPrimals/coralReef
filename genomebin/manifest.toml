@@ -31,8 +31,12 @@ provided = [
     "capability.list",
     "capability.register",
     "ipc.heartbeat",
+    "btsp.negotiate",
+    "auth.check",
+    "auth.mode",
+    "auth.peer_info",
 ]
-consumed = []
+consumed = ["gpu.dispatch"]
 
 [capabilities.gpu_targets]
 nvidia = ["sm35", "sm70", "sm75", "sm80", "sm86", "sm89", "sm120"]
@@ -51,5 +55,5 @@ tarpc = ["unix_socket", "tcp"]
 
 [security]
 btsp_phase = 3
-forbid_unsafe = ["coralreef-core", "coral-reef", "coral-glowplug", "coral-ember", "primal-rpc-client", "coral-gpu"]
+forbid_unsafe = ["coralreef-core", "coral-reef", "coral-reef-isa", "coral-reef-stubs", "coral-reef-bitview", "nak-ir-proc", "coral-glowplug", "coral-ember", "primal-rpc-client", "coral-gpu"]
 unsafe_exception = "coral-driver (hardware ioctl/MMIO)"

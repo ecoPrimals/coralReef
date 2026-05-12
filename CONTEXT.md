@@ -73,6 +73,9 @@ shader.compile.wgsl.multi    shader.compile.status
 shader.compile.capabilities  health.check
 health.liveness              health.readiness
 identity.get                 capability.list
+capability.register          ipc.heartbeat
+btsp.negotiate               auth.check
+auth.mode                    auth.peer_info
 ```
 
 ## Quick start
