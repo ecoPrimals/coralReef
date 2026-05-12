@@ -50,7 +50,7 @@ impl PtxEmitter<'_> {
                     BO::Multiply => "mul.lo",
                     BO::Divide => "div.rn",
                     BO::Modulo => "rem",
-                    _ => unreachable!(),
+                    _ => crate::codegen::ice!("arithmetic op matched Add|Sub|Mul|Div|Mod above"),
                 };
                 writeln!(
                     self.body,
@@ -76,7 +76,7 @@ impl PtxEmitter<'_> {
                     BO::LessEqual => "le",
                     BO::Greater => "gt",
                     BO::GreaterEqual => "ge",
-                    _ => unreachable!(),
+                    _ => crate::codegen::ice!("comparison op matched Eq|Ne|Lt|Le|Gt|Ge above"),
                 };
                 writeln!(
                     self.body,

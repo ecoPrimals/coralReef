@@ -92,7 +92,7 @@ impl PtxEmitter<'_> {
                     MF::Ceil => "rpi",
                     MF::Round => "rni",
                     MF::Trunc => "rzi",
-                    _ => unreachable!(),
+                    _ => crate::codegen::ice!("rounding mode matched Floor|Ceil|Round|Trunc above"),
                 };
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(
