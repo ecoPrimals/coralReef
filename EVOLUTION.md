@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: May 11, 2026 (Phase 10 — Iteration 98)
-**Phase**: 10 — Firmware panic elimination: 3 ACR boot entry points (`sysmem_acr_boot`, `sysmem_physical_boot`, `hybrid_acr_boot`) evolved from `.expect("firmware load")` to `DriverResult<AcrBootResult>` with `?` propagation. Deep 800L+ file review: 7 files assessed (error.rs 928, uvm/structs.rs 907, pfifo.rs 882, nv/mod.rs 857, newton.rs 849, vbios_devinit.rs 836, gpr.rs 814) — all cohesive, all under 1000L cap. Zero new debt found. 4754 tests, zero failures. Compute Trio Evolution (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Last updated**: May 12, 2026 (Phase 10 — Iteration 99)
+**Phase**: 10 — PTX emitter SM120/Blackwell evolution: Switch statement lowering (setp.eq chain + labeled branches) + 10 new math functions (pow, exp, log, sign, fract, mix, step, dot, tanh). Firmware panic elimination (Iter 98). Smart refactoring (Iter 97). Zero debt across all categories. 4761 tests, zero failures. Compute Trio Evolution (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM35–SM120, including Blackwell) and AMD (GCN5/RDNA2–RDNA4). Pure Rust; transitive
 libc only via tokio/mio (deferred to mio#1735 rustix migration).
-4754 tests (181 ignored), ~65% line coverage (8 crates above 90%),
+4761 tests (181 ignored), ~65% line coverage (8 crates above 90%),
 84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with

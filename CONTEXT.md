@@ -19,9 +19,9 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
-## Project status (Iteration 98)
+## Project status (Iteration 99)
 
-- **Tests**: 4754 workspace tests, 0 failed, 181 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
+- **Tests**: 4761 workspace tests, 0 failed, 181 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
 - **Debt**: Zero across all categories — no `Result<_, String>`, no `.unwrap()` in library code, no `eprintln!` in production library, no `async_trait`/`lazy_static`, all `#[expect(dead_code)]` verified. `deny.toml` enforced (ecoBin v3 C/FFI bans).
 - **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen (`binary_b64`, `target`, `shader_info`). Gate 1 satisfied. toadStool absorbs hardware modules concurrently.
 - **BTSP Phase 3**: Complete (ChaCha20-Poly1305 AEAD encrypted transport).
