@@ -2,8 +2,8 @@
 
 # coralReef — Compiler & Driver Evolution
 
-**Last updated**: May 12, 2026 (Phase 10 — Iteration 101+, Sprint 5)
-**Phase**: 10 — Sprint 5: Pass 12 sentinel gaps (`naga::Module` direct ingest, compile deadline, FECS cold init). Sprint 4: PTX SM120 subgroup inclusive/exclusive scans (shfl.sync.up butterfly), silent statement catch-all eliminated, SubgroupOperationResult expression handling, ISA API evolution. Deep debt: sysfs/procfs paths evolved to `linux_paths` helpers. PTX SM120 at 25 math ops + switch + atomics + subgroup scans. RDNA2 parity confirmed. coral-glowplug/coral-ember soft-deprecated. 4790 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Last updated**: May 12, 2026 (Phase 10 — Iteration 101+, Sprint 7)
+**Phase**: 10 — Sprint 7: FECS/GPCCS cold-silicon stability proof (`boot_gr_falcons_with_recovery`, PMC GR reset, structured `GrBootOutcome`). Sprint 6: toadStool Phase C COMPLETE, Phase D markers, FECS error hardening (`falcon_boot()` returns Err on timeout/halt). Sprint 5: Pass 12 sentinel gaps (`naga::Module` direct ingest, compile deadline, FECS cold init). Sprint 4: PTX SM120 subgroup scans, ISA evolution. Deep debt: all firmware paths use `linux_paths` helpers, all `unreachable!()` → `ice!()`, zero production `.unwrap()`. coral-glowplug/coral-ember soft-deprecated (removal gated on Phase D dispatch validation). 4790 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 
