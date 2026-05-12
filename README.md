@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10 — Iteration 101+ (Sprint 3 cleanup, RDNA2 atomics fix, zero debt, 4765 tests)  
+**Status**: Phase 10 — Iteration 101+ (Sprint 4: PTX SM120 subgroup scans, ISA evolution, 4784 tests, zero debt)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

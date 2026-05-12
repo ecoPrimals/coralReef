@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 12, 2026  
-**Phase**: 10 — Iteration 101+ (Sprint 3 cleanup: vestigial deprecation markers, RDNA2 atomics correctness fix, Phase C/D transition markers, ice!() consistency; 4765 tests, zero debt)
+**Phase**: 10 — Iteration 101+ (Sprint 4: PTX SM120 subgroup scans, silent catch-all eliminated, ISA API evolution; 4784 tests, zero debt)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
 | coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
 | Code structure | A+ | Smart refactoring: error.rs 928→mod(412)+vfio(523) (Iter 101), nv/mod.rs 857→747+fecs_init(124) (Iter 101), pfifo.rs 882→695+bar2_init(199) (Iter 101), ioctl 929→655 (Iter 97), channel 896→594 (Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4765 passing, 0 failed, 181 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests (atomics, barriers, subgroups) |
+| Tests | A+ | 4784 passing, 0 failed, 181 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests (atomics, barriers, subgroups, inclusive/exclusive scans), ISA target + SPH coverage |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -42,6 +42,10 @@
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Iteration 101** |
+
+### Post-101: Sprint 4 — PTX SM120 Evolution + Coverage Push (May 12, 2026)
+
+**Theme**: PTX emitter subgroup scan implementation (inclusive/exclusive via shfl.sync.up butterfly), silent catch-all elimination, SubgroupOperationResult expression handling, coral-reef-isa API evolution (IsaTarget methods, Hash), test coverage push (+19 to 4784).
 
 ### Post-101: Sprint 3 Cleanup + ICE Consistency (May 12, 2026)
 

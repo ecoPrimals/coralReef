@@ -19,11 +19,12 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
-## Project status (Iteration 101+)
+## Project status (Iteration 101+, Sprint 4)
 
-- **Tests**: 4765 workspace tests, 0 failed, 181 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
+- **Tests**: 4784 workspace tests, 0 failed, 181 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
+- **Sprint 4**: PTX emitter subgroup scans (inclusive/exclusive via shfl.sync.up butterfly), silent catch-all eliminated in statement dispatch, SubgroupOperationResult expression handling, coral-reef-isa API evolution (IsaTarget methods + Hash).
 - **Debt**: Zero across all categories — no `Result<_, String>`, no `.unwrap()` in library code, no `eprintln!` in production library, no `async_trait`/`lazy_static`, all `#[expect(dead_code)]` verified. `deny.toml` enforced (ecoBin v3 C/FFI bans). `mem::zeroed()` eliminated for ioctl structs. Smart refactoring: all files under 800 LOC threshold. All bare `unreachable!()` evolved to `ice!()`. RDNA2 unsigned atomics correctness fix applied.
-- **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen (`binary_b64`, `target`, `shader_info`). Gate 1 satisfied. toadStool absorbs hardware modules concurrently. Phase C/D transition markers in place.
+- **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen (`binary_b64`, `target`, `shader_info`). Gate 1 satisfied. toadStool absorbs hardware modules concurrently. Phase C/D transition markers in place. QMD split boundary documented (encoding → toadStool, values → coralReef).
 - **BTSP Phase 3**: Complete (ChaCha20-Poly1305 AEAD encrypted transport).
 - **JH-0 MethodGate**: Pre-dispatch capability authorization live.
 - **Deprecated crates**: `coral-ember` (Phase A → toadstool-ember), `coral-glowplug` (Phase B → toadstool-glowplug) — bug fixes only until removal.

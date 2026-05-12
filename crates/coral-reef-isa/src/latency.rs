@@ -58,4 +58,35 @@ mod tests {
     fn test_ialu_fastest() {
         const { assert!(InstrLatency::IALU.latency < InstrLatency::DEFAULT.latency) };
     }
+
+    #[test]
+    fn test_dfma_throughput_half() {
+        assert!((InstrLatency::DFMA.throughput - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_mufu_latency() {
+        assert_eq!(InstrLatency::MUFU.latency, 5);
+        assert!((InstrLatency::MUFU.throughput - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_ialu_throughput_highest() {
+        assert!(InstrLatency::IALU.throughput > InstrLatency::DEFAULT.throughput);
+    }
+
+    #[test]
+    fn test_latency_debug_format() {
+        let dbg = format!("{:?}", InstrLatency::DEFAULT);
+        assert!(dbg.contains("latency"));
+        assert!(dbg.contains("throughput"));
+    }
+
+    #[test]
+    fn test_latency_clone() {
+        let a = InstrLatency::DEFAULT;
+        #[allow(clippy::clone_on_copy)]
+        let b = a.clone();
+        assert_eq!(a.latency, b.latency);
+    }
 }

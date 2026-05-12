@@ -392,4 +392,150 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
         let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
         assert!(ptx.contains("bar.sync"), "Expected bar.sync in:\n{ptx}");
     }
+
+    fn build_scan_module(
+        collective_op: naga::CollectiveOperation,
+    ) -> (naga::Module, usize) {
+        use naga::*;
+
+        let mut module = Module::default();
+        let u32_ty = module.types.insert(
+            Type { name: None, inner: TypeInner::Scalar(Scalar::U32) },
+            Span::UNDEFINED,
+        );
+        let buf_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Array {
+                    base: u32_ty,
+                    size: ArraySize::Dynamic,
+                    stride: 4,
+                },
+            },
+            Span::UNDEFINED,
+        );
+        let result_ty = module.types.insert(
+            Type { name: None, inner: TypeInner::Scalar(Scalar::U32) },
+            Span::UNDEFINED,
+        );
+        let arg_ty = module.types.insert(
+            Type { name: None, inner: TypeInner::Scalar(Scalar::U32) },
+            Span::UNDEFINED,
+        );
+        let gv = module.global_variables.append(
+            GlobalVariable {
+                name: Some("buf".into()),
+                space: AddressSpace::Storage {
+                    access: StorageAccess::LOAD | StorageAccess::STORE,
+                },
+                binding: Some(ResourceBinding { group: 0, binding: 0 }),
+                ty: buf_ty,
+                init: None,
+            },
+            Span::UNDEFINED,
+        );
+
+        let mut func = Function {
+            name: Some("main".into()),
+            ..Default::default()
+        };
+
+        let lane_expr = func.expressions.append(
+            Expression::FunctionArgument(0),
+            Span::UNDEFINED,
+        );
+        let scan_result = func.expressions.append(
+            Expression::SubgroupOperationResult { ty: result_ty },
+            Span::UNDEFINED,
+        );
+        let gv_expr = func.expressions.append(
+            Expression::GlobalVariable(gv),
+            Span::UNDEFINED,
+        );
+        let access = func.expressions.append(
+            Expression::Access { base: gv_expr, index: lane_expr },
+            Span::UNDEFINED,
+        );
+
+        func.body.push(
+            Statement::Emit(func.expressions.range_from(func.expressions.len() - 4)),
+            Span::UNDEFINED,
+        );
+        func.body.push(
+            Statement::SubgroupCollectiveOperation {
+                op: SubgroupOperation::Add,
+                collective_op,
+                argument: lane_expr,
+                result: scan_result,
+            },
+            Span::UNDEFINED,
+        );
+        func.body.push(
+            Statement::Store { pointer: access, value: scan_result },
+            Span::UNDEFINED,
+        );
+
+        func.arguments.push(FunctionArgument {
+            name: Some("lane".into()),
+            ty: arg_ty,
+            binding: Some(Binding::BuiltIn(BuiltIn::SubgroupInvocationId)),
+        });
+
+        module.entry_points.push(EntryPoint {
+            name: "main".into(),
+            stage: ShaderStage::Compute,
+            early_depth_test: None,
+            workgroup_size: [32, 1, 1],
+            workgroup_size_overrides: None,
+            function: func,
+            mesh_info: None,
+            task_payload: None,
+        });
+        (module, 0)
+    }
+
+    #[test]
+    fn ptx_subgroup_inclusive_scan_add() {
+        let (module, ep_idx) =
+            build_scan_module(naga::CollectiveOperation::InclusiveScan);
+        let ep_ref = &module.entry_points[ep_idx];
+        let mut emitter = PtxEmitter::new(&module, ep_ref, 120);
+        let ptx = emitter.emit().expect("emit scan");
+        assert!(
+            ptx.contains("shfl.sync.up.b32"),
+            "Expected shfl.sync.up.b32 for inclusive scan in:\n{ptx}"
+        );
+    }
+
+    #[test]
+    fn ptx_subgroup_exclusive_scan_add() {
+        let (module, ep_idx) =
+            build_scan_module(naga::CollectiveOperation::ExclusiveScan);
+        let ep_ref = &module.entry_points[ep_idx];
+        let mut emitter = PtxEmitter::new(&module, ep_ref, 120);
+        let ptx = emitter.emit().expect("emit exclusive scan");
+        assert!(
+            ptx.contains("shfl.sync.up.b32"),
+            "Expected shfl.sync.up.b32 for exclusive scan in:\n{ptx}"
+        );
+        assert!(
+            ptx.contains("selp."),
+            "Expected selp for identity element in exclusive scan in:\n{ptx}"
+        );
+    }
+
+    #[test]
+    fn ptx_unhandled_statement_errors() {
+        let wgsl = r"
+@group(0) @binding(0)
+var output_tex: texture_storage_2d<rgba8unorm, write>;
+
+@compute @workgroup_size(1)
+fn main() {
+    textureStore(output_tex, vec2<u32>(0u, 0u), vec4<f32>(1.0, 0.0, 0.0, 1.0));
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_err(), "Expected error for unhandled image store");
+    }
 }

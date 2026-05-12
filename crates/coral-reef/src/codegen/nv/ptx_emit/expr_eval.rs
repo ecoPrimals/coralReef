@@ -165,6 +165,14 @@ impl PtxEmitter<'_> {
                     Ok(PtxVal::Vec(components))
                 }
             }
+            naga::Expression::SubgroupOperationResult { ty } => {
+                let scalar = match self.module.types[ty].inner {
+                    naga::TypeInner::Scalar(s) => s,
+                    _ => naga::Scalar::U32,
+                };
+                Ok(self.alloc_for_scalar(scalar))
+            }
+            naga::Expression::SubgroupBallotResult => Ok(self.alloc_r32()),
             _ => Err(CompileError::NotImplemented(
                 format!("PTX expression: {expr:?}").into(),
             )),

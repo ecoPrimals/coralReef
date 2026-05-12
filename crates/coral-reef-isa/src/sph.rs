@@ -148,4 +148,32 @@ mod tests {
         let dbg = format!("{sph:?}");
         assert!(dbg.contains("SphBuilder"));
     }
+
+    #[test]
+    fn test_sph_max_barriers() {
+        let sph = SphBuilder::new().num_barriers(16).num_gprs(16).shared_mem(0);
+        let encoded = sph.encode();
+        assert_eq!(get_field_from_bytes(&encoded, 144, 5), 16);
+    }
+
+    #[test]
+    fn test_sph_large_shared_mem() {
+        let shared = 96 * 1024;
+        let sph = SphBuilder::new().num_gprs(32).num_barriers(0).shared_mem(shared);
+        let encoded = sph.encode();
+        assert_eq!(get_field_from_bytes(&encoded, 149, 11), u64::from(shared / 256));
+    }
+
+    #[test]
+    fn test_sph_zero_gprs_encodes_as_zero() {
+        let sph = SphBuilder::new().num_gprs(0).num_barriers(0).shared_mem(0);
+        let encoded = sph.encode();
+        assert_eq!(get_field_from_bytes(&encoded, 64, 8), 0);
+    }
+
+    #[test]
+    fn test_sph_output_is_le_aligned() {
+        let encoded = SphBuilder::new().num_gprs(32).encode();
+        assert_eq!(encoded.len() % 4, 0, "SPH must be 4-byte aligned");
+    }
 }

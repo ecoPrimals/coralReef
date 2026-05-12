@@ -184,7 +184,13 @@ impl PtxEmitter<'_> {
                 value,
                 result,
             } => self.emit_atomic(pointer, fun, value, result),
-            _ => Ok(()),
+            naga::Statement::Call { .. }
+            | naga::Statement::ImageStore { .. }
+            | naga::Statement::ImageAtomic { .. }
+            | naga::Statement::RayQuery { .. }
+            | naga::Statement::WorkGroupUniformLoad { .. } => Err(CompileError::NotImplemented(
+                format!("PTX statement: {stmt:?}").into(),
+            )),
         }
     }
 
@@ -415,26 +421,35 @@ impl PtxEmitter<'_> {
         let dst = self.alloc_for_scalar(val_scalar);
         let type_suffix = Self::ptx_atom_type(val_scalar);
 
-        let reduce_op = match collective_op {
-            naga::CollectiveOperation::Reduce => match op {
-                naga::SubgroupOperation::All => "and",
-                naga::SubgroupOperation::Any => "or",
-                _ => "add",
-            },
-            naga::CollectiveOperation::InclusiveScan | naga::CollectiveOperation::ExclusiveScan => {
-                return Err(CompileError::NotImplemented(
-                    format!("PTX subgroup scan: {collective_op:?} {op:?}").into(),
-                ));
+        match collective_op {
+            naga::CollectiveOperation::Reduce => {
+                let reduce_op = match op {
+                    naga::SubgroupOperation::All => "and",
+                    naga::SubgroupOperation::Any => "or",
+                    _ => "add",
+                };
+                writeln!(
+                    self.body,
+                    "    redux.sync.{reduce_op}.{type_suffix} {}, {}, 0xFFFFFFFF;",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                )
+                .expect("write to String");
             }
-        };
-
-        writeln!(
-            self.body,
-            "    redux.sync.{reduce_op}.{type_suffix} {}, {}, 0xFFFFFFFF;",
-            dst.fmt_operand(),
-            val.fmt_operand(),
-        )
-        .expect("write to String");
+            naga::CollectiveOperation::InclusiveScan
+            | naga::CollectiveOperation::ExclusiveScan => {
+                let scan_op = Self::scan_op_str(op, val_scalar)?;
+                self.emit_warp_scan(
+                    &val,
+                    &dst,
+                    type_suffix,
+                    scan_op,
+                    collective_op == naga::CollectiveOperation::ExclusiveScan,
+                    op,
+                    val_scalar,
+                );
+            }
+        }
         self.values.insert(result, dst);
         Ok(())
     }
@@ -538,5 +553,118 @@ impl PtxEmitter<'_> {
 
         self.values.insert(result, dst);
         Ok(())
+    }
+
+    fn scan_op_str(
+        op: naga::SubgroupOperation,
+        scalar: naga::Scalar,
+    ) -> Result<&'static str, CompileError> {
+        let is_float = scalar.kind == naga::ScalarKind::Float;
+        Ok(match op {
+            naga::SubgroupOperation::Add => "add",
+            naga::SubgroupOperation::Mul => {
+                if is_float {
+                    "mul"
+                } else {
+                    "mul.lo"
+                }
+            }
+            naga::SubgroupOperation::Min => "min",
+            naga::SubgroupOperation::Max => "max",
+            naga::SubgroupOperation::And => "and",
+            naga::SubgroupOperation::Or => "or",
+            naga::SubgroupOperation::Xor => "xor",
+            _ => {
+                return Err(CompileError::NotImplemented(
+                    format!("PTX scan op: {op:?}").into(),
+                ));
+            }
+        })
+    }
+
+    fn scan_identity(op: naga::SubgroupOperation, scalar: naga::Scalar) -> &'static str {
+        match op {
+            naga::SubgroupOperation::Add | naga::SubgroupOperation::Or | naga::SubgroupOperation::Xor => "0",
+            naga::SubgroupOperation::Mul => "1",
+            naga::SubgroupOperation::And => "0xFFFFFFFF",
+            naga::SubgroupOperation::Min => {
+                if scalar.kind == naga::ScalarKind::Float {
+                    "0x7F800000" // +inf as f32 bits
+                } else {
+                    "0x7FFFFFFF" // i32 max
+                }
+            }
+            naga::SubgroupOperation::Max => {
+                if scalar.kind == naga::ScalarKind::Float {
+                    "0xFF800000" // -inf as f32 bits
+                } else {
+                    "0x80000000" // i32 min
+                }
+            }
+            _ => "0",
+        }
+    }
+
+    #[allow(clippy::too_many_arguments, reason = "scan emission needs all parameters")]
+    fn emit_warp_scan(
+        &mut self,
+        val: &PtxVal,
+        dst: &PtxVal,
+        type_suffix: &str,
+        scan_op: &str,
+        exclusive: bool,
+        op: naga::SubgroupOperation,
+        scalar: naga::Scalar,
+    ) {
+        let tmp = self.alloc_for_scalar(scalar);
+        let pred = self.alloc_pred();
+
+        writeln!(
+            self.body,
+            "    mov.{type_suffix} {}, {};",
+            dst.fmt_operand(),
+            val.fmt_operand(),
+        )
+        .expect("write to String");
+
+        for offset in [1u32, 2, 4, 8, 16] {
+            writeln!(
+                self.body,
+                "    shfl.sync.up.b32 {}|{}, {}, {offset}, 0, 0xFFFFFFFF;",
+                tmp.fmt_operand(),
+                pred.fmt_operand(),
+                dst.fmt_operand(),
+            )
+            .expect("write to String");
+            writeln!(
+                self.body,
+                "    @{} {scan_op}.{type_suffix} {}, {}, {};",
+                pred.fmt_operand(),
+                dst.fmt_operand(),
+                dst.fmt_operand(),
+                tmp.fmt_operand(),
+            )
+            .expect("write to String");
+        }
+
+        if exclusive {
+            writeln!(
+                self.body,
+                "    shfl.sync.up.b32 {}|{}, {}, 1, 0, 0xFFFFFFFF;",
+                tmp.fmt_operand(),
+                pred.fmt_operand(),
+                dst.fmt_operand(),
+            )
+            .expect("write to String");
+            let identity = Self::scan_identity(op, scalar);
+            writeln!(
+                self.body,
+                "    selp.{type_suffix} {}, {}, {identity}, {};",
+                dst.fmt_operand(),
+                tmp.fmt_operand(),
+                pred.fmt_operand(),
+            )
+            .expect("write to String");
+        }
     }
 }

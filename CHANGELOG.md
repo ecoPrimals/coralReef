@@ -10,6 +10,30 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Post-101 — Sprint 4: PTX SM120 Evolution + Coverage Push (2026-05-12)
+
+#### PTX Emitter — Subgroup Scan Implementation
+- `ptx_emit/statements.rs`: Implemented inclusive and exclusive warp-level prefix scans via `shfl.sync.up` butterfly accumulation (5 iterations for warp-32)
+- Supports Add, Mul, Min, Max, And, Or, Xor operations with correct identity elements for exclusive scans
+- Exclusive scan uses `selp` with type-appropriate identity (0 for add, 1 for mul, +inf/-inf for min/max)
+
+#### PTX Emitter — Silent Catch-All Eliminated
+- `ptx_emit/statements.rs`: `_ => Ok(())` catch-all replaced with explicit `NotImplemented` errors for `ImageStore`, `ImageAtomic`, `Call`, `RayQuery`, `WorkGroupUniformLoad`
+- Unhandled statement types now fail loudly instead of silently producing incorrect code
+
+#### PTX Expression Evaluator — Subgroup Result Handling
+- `ptx_emit/expr_eval.rs`: Added `SubgroupOperationResult` and `SubgroupBallotResult` expression handling — pre-allocates typed registers for statement-driven writes
+
+#### coral-reef-isa — API Evolution + Coverage
+- `IsaTarget`: Added `Hash` derive, `ALL` constant, `sm_version()`, `has_independent_thread_scheduling()`, `has_uniform_datapath()` methods
+- `InstrLatency`: Extended test coverage for throughput values and edge cases
+- `SphBuilder`: Added tests for max barriers, large shared memory, zero GPRs, LE alignment
+
+#### Tests
+- 4784 passing (+19), 0 failed, 181 ignored. Zero clippy warnings. No regressions.
+
+---
+
 ### Post-101 — Sprint 3 Cleanup + ICE Consistency (2026-05-12)
 
 #### Vestigial Pattern Cleanup (Sprint 3 — Compute Trio Phase C)
