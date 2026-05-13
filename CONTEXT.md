@@ -58,7 +58,7 @@ WGSL / SPIR-V / GLSL  →  naga frontend  →  SSA IR
 - **Rust 2024 edition**, MSRV 1.85. No C/C++/Python in production.
 - **`clippy::pedantic` + `clippy::nursery`** — zero warnings.
 - **`#![forbid(unsafe_code)]`** on all crates. Zero unsafe in the entire workspace.
-- **`unsafe_code = "deny"`** at workspace lint level; `coral-driver` opts out.
+- **`unsafe_code = "deny"`** at workspace lint level. No opt-outs (diesel stack excised Sprint 9).
 - **No `.unwrap()` in library code**. `Result<T, E>` + `thiserror`. `.expect()` with reason is acceptable.
 - **Max 1000 LOC per file**. Split into cohesive submodules.
 - **IPC**: JSON-RPC 2.0 primary, tarpc optional. Semantic method names: `shader.compile.wgsl`, `health.check`, etc.

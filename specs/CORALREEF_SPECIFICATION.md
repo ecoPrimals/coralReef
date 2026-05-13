@@ -18,11 +18,11 @@ Multi-vendor architecture: NVIDIA (SM35–SM120) and AMD (GCN5–RDNA4)
 backends operational. Both share the same IR, optimizer passes, and
 `ShaderModel` trait — Rust trait dispatch, no manual vtables.
 
-coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu,
-NVIDIA nouveau). coralGpu wraps compilation and dispatch into a unified
-API. Every layer pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
-
-coralGlowPlug manages GPU lifecycle at the PCIe level — boot-persistent VFIO binding, health monitoring with circuit breaker, personality hot-swap, and boot sovereignty that prevents vendor drivers from touching managed devices.
+**Note (Sprint 9)**: coralReef is now a pure compiler primal. GPU dispatch
+(DRM ioctl, VFIO) and device lifecycle (PCIe binding, health monitoring,
+personality hot-swap) were excised and delegated to toadStool. coralReef
+compiles shaders; toadStool dispatches them. Zero FFI, zero `*-sys`,
+zero `extern "C"`, zero unsafe.
 
 ## Target Hardware
 

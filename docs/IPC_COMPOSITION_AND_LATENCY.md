@@ -15,7 +15,7 @@ for exact request/response/error JSON shapes.
 Measured on typical compute shaders (64-thread workgroup, f32 ALU + mixed ops)
 using `cargo bench --bench compile_bench`. Hardware: AMD Ryzen / Intel Core class
 CPU. These are *compile* times — GPU dispatch latency is separate and depends on
-the `gpu.dispatch` provider (toadStool, coralDriver, etc.).
+the `compute.dispatch` provider (toadStool).
 
 | Path | p50 | p99 | Notes |
 |------|-----|-----|-------|

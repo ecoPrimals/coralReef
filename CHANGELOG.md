@@ -40,7 +40,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 #### Changed
 - `coralreef-core/discovery.rs`: DRM render node scan replaced with empty fallback — hardware enumeration delegated to toadStool via `compute.dispatch.capabilities` IPC
 - Workspace `unsafe_code = "deny"`: no more `unsafe` exception — `#![forbid(unsafe_code)]` on all remaining crates
-- `genomebin/manifest.toml`: updated to pure compiler (zero unsafe, 3115 tests)
+- `genomebin/manifest.toml`: updated to pure compiler (zero unsafe, 3115 tests at time of excision)
 - `.gitignore`: cleaned orphaned entries
 
 #### Tests
