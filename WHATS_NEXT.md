@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 101+ (Sprint 7: FECS/GPCCS cold-silicon stability proof).
+**Current position**: Phase 10 — Iteration 101+ (Sprint 8: Diesel engine migration feature freeze).
 
-**Last completed**: Sprint 7 — FECS/GPCCS cold-silicon stability proof shipped. `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset cycles, structured `GrBootOutcome` enum for callers, all boot paths (VoltaBoot, BlackwellBoot, sovereign_stages warm/ACR fallback) upgraded to recovery-aware boot. Sprint 6 shipped Phase D markers and FECS error hardening.
+**Last completed**: Sprint 8 — Diesel engine migration response. Feature freeze on coral-ember/coral-glowplug/coral-driver hardware runtime. E1 (cylinder subprocess pattern) and E2 (warm handoff API) documented as toadStool reference. E3 (FECS cold silicon init) already shipped (Sprint 7). Handoff created for toadStool C1-C7 implementation. Sprint 7 shipped FECS/GPCCS cold-silicon stability proof.
 
 **Tests**: 4790 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
 
-**Last updated**: May 12, 2026.
+**Last updated**: May 13, 2026.
 
-**Next focus**: Phase D execution — toadStool `compute.dispatch.execute` IPC validation for dispatch cutover. PTX emitter completion for SM120/Blackwell (texture instructions); UVM hardware validation (RTX 5060); `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%.
+**Next focus**: Phase D execution — toadStool `compute.dispatch.execute` IPC validation for dispatch cutover; barracuda rewires to toadStool sockets file-by-file. PTX emitter completion for SM120/Blackwell (texture instructions); UVM hardware validation (RTX 5060); `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%. Diesel stack removal gated on hardware validation (Titan V / K80 / RTX 5060).
 
 ---
 

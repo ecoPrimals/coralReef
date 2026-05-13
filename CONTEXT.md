@@ -19,16 +19,18 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
-## Project status (Iteration 101+, Sprint 5)
+## Project status (Iteration 101+, Sprint 8)
 
 - **Tests**: 4790 workspace tests, 0 failed, 181 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
-- **Sprint 5**: Pass 12 sentinel gaps — `naga::Module` direct ingest API (`compile_module`/`compile_module_full`), compile deadline on all IPC handlers (120s, `CORALREEF_COMPILE_TIMEOUT_SECS`), Volta+/Blackwell cold init wired to PIO falcon boot when firmware available.
-- **Sprint 4**: PTX emitter subgroup scans (inclusive/exclusive via shfl.sync.up butterfly), silent catch-all eliminated in statement dispatch, SubgroupOperationResult expression handling, coral-reef-isa API evolution (IsaTarget methods + Hash).
-- **Debt**: Zero across all categories — no `Result<_, String>`, no `.unwrap()` in library code, no `eprintln!` in production library, no `async_trait`/`lazy_static`, all `#[expect(dead_code)]` verified. `deny.toml` enforced (ecoBin v3 C/FFI bans). `mem::zeroed()` eliminated for ioctl structs. Smart refactoring: all production files under 1000 LOC limit (largest is 929L generated ISA table). All bare `unreachable!()` evolved to `ice!()`. RDNA2 unsigned atomics correctness fix applied.
-- **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen (`binary_b64`, `target`, `shader_info`). Gate 1 satisfied. toadStool absorbs hardware modules concurrently. Phase C/D transition markers in place. QMD split boundary documented (encoding → toadStool, values → coralReef).
+- **Sprint 8**: Diesel engine migration feature freeze. coral-ember/coral-glowplug/coral-driver hardware runtime feature-frozen. E1 (cylinder subprocess pattern) and E2 (warm handoff API) documented as toadStool reference. E3 (FECS cold silicon init) shipped (Sprint 7). Handoff created for toadStool C1-C7 cutover.
+- **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.
+- **Sprint 6**: toadStool Phase C COMPLETE. Phase D markers. FECS error hardening (`falcon_boot()` returns Err on timeout/halt).
+- **Sprint 5**: Pass 12 sentinel gaps — `naga::Module` direct ingest API, compile deadline, FECS cold init.
+- **Debt**: Zero across all categories — no `Result<_, String>`, no `.unwrap()` in library code, no `eprintln!` in production library, no `async_trait`/`lazy_static`, all `#[expect(dead_code)]` verified. `deny.toml` enforced (ecoBin v3 C/FFI bans). `mem::zeroed()` eliminated for ioctl structs. Smart refactoring: all production files under 1000 LOC limit. All bare `unreachable!()` evolved to `ice!()`.
+- **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen. Phase D in progress (toadStool cutover). QMD split boundary documented.
 - **BTSP Phase 3**: Complete (ChaCha20-Poly1305 AEAD encrypted transport).
 - **JH-0 MethodGate**: Pre-dispatch capability authorization live.
-- **Deprecated crates**: `coral-ember` (Phase A → toadstool-ember), `coral-glowplug` (Phase B → toadstool-glowplug) — bug fixes only until removal.
+- **Diesel stack (feature-frozen)**: `coral-ember`, `coral-glowplug`, `coral-driver` hardware runtime — no new features. toadStool Phase C implements equivalents (C1-C7). Removal gated on hardware validation (Titan V / K80 / RTX 5060).
 
 ## Architecture
 

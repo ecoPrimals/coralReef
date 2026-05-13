@@ -2,7 +2,7 @@
 
 # IPC Composition & Compile Latency Guide
 
-**Last updated**: April 30, 2026 (Iteration 88)
+**Last updated**: May 13, 2026 (Iteration 101+, Sprint 8)
 **Audience**: Spring teams composing with coralReef (`shader.compile.*`)
 **Wire contract**: See [SHADER_COMPILE_WIRE_CONTRACT.md](SHADER_COMPILE_WIRE_CONTRACT.md)
 for exact request/response/error JSON shapes.
