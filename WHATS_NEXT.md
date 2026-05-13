@@ -2,19 +2,32 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 101+ (Sprint 9: Diesel engine excision — pure compiler primal).
+**Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
 
-**Last completed**: Sprint 9 — Diesel engine excision. Removed coral-ember (52 .rs), coral-glowplug (70 .rs), coral-driver (367 .rs), coral-gpu, and showcase/. Hardware lifecycle fully delegated to toadStool. DRM render node scan replaced with ecosystem-only discovery. Zero unsafe in entire workspace. Sprint 8 created handoff for toadStool C1-C7.
+**Last completed**: Sprint 9+ — Post-excision evolution. Discovery filter aligned with toadStool capabilities (`compute.dispatch.*`, `gpu.*`, `compute.hardware.*`). Cross-primal name leaks eliminated (`beardog_socket()` → `security_provider_socket_legacy()`). 42 dependency patch updates. 4 new `compile_module` coverage tests (f64 lowering, FMA, SM120 PTX, shared memory).
 
-**Tests**: 3115 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3121 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 13, 2026.
 
-**Next focus**: PTX emitter completion for SM120/Blackwell (texture instructions). Coverage push toward 90% on remaining 7 compiler crates. `naga::Module` ingest path hardening. Ecosystem discovery integration with toadStool `compute.dispatch.capabilities` IPC.
+**Next focus**: PTX emitter completion for SM120/Blackwell (texture instructions). Coverage push toward 90% on remaining 7 compiler crates. `naga::Module` ingest path hardening.
 
 ---
 
-## Team Evolution Priorities (Iteration 70c+)
+## Current Priorities (Sprint 9+)
+
+1. PTX emitter completion for SM120/Blackwell (texture instructions, cooperative groups)
+2. Coverage push toward 90% on 7 remaining compiler crates
+3. `naga::Module` ingest path hardening (multiple entry points, validation)
+4. Ecosystem discovery integration testing with live toadStool instance
+
+---
+
+## Historical Evolution Priorities (Iterations 64–101)
+
+> The sections below document completed work from prior iterations. Many reference
+> crates excised in Sprint 9 (coral-driver, coral-glowplug, coral-ember, coral-gpu).
+> Retained as fossil record.
 
 ### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–71)**
 
@@ -50,12 +63,16 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 1. ~~Resolve `bind_stat` timeout~~ — **RESOLVED** Sprint 5: compile deadline on all IPC handlers
 2. ~~FECS/GPCCS cold silicon init~~ — **RESOLVED** Sprint 5: PIO falcon boot wired
 3. PTX emitter completion for SM120/Blackwell (texture instructions, cooperative groups)
-4. UVM hardware validation (RTX 5060 on-site)
-5. `coral-gpu` sovereign path evolution (replace wgpu dependency)
+4. ~~UVM hardware validation~~ — **EXCISED** Sprint 9: hardware dispatch → toadStool
+5. ~~`coral-gpu` sovereign path~~ — **EXCISED** Sprint 9: dispatch → toadStool
 
 ### Untestable Code — Hardware Abstraction Plan
 
-`coral-driver` has ~22,806 lines (73%) missed — VFIO/DRM/GPU-channel code that requires actual GPU hardware. This is the primary barrier to 90% workspace coverage. Iter 71–72 advanced the plan:
+> **EXCISED (Sprint 9)**: `coral-driver` was the primary barrier to 90% workspace coverage
+> (22,806 lines of hardware code). It has been removed along with the rest of the diesel stack.
+> The remaining compiler crates target 90%+ coverage.
+
+Historical hardware abstraction plan (Iter 71–72, now toadStool's domain):
 
 1. **`MmioRegion` RAII wrapper** — consolidates volatile BAR0 read/write into bounds-checked safe API; used by `Bar0Access`, `SysfsBar0`, `MappedBar` (Iter 71) ✅
 2. **`MockBar0`** — heap-backed `RegisterAccess` impl for unit testing GSP applicator, `resolve_sm`, BOOT0 decoding without hardware (Iter 71) ✅
@@ -75,13 +92,11 @@ All files under 1000 LOC (including tests). Iter 71 resolved the last oversized 
 | coral-reef-bitview | 311 | 27 | **91.3%** |
 | nak-ir-proc | 414 | 47 | **88.6%** |
 | coral-reef (compiler) | 44,444 | 7,570 | **83.0%** |
-| coral-gpu | 645 | 199 | **69.1%** |
-| coral-glowplug | 8,892 | 3,480 | **60.9%** |
-| coral-ember | 3,686 | 1,466 | **60.2%** |
-| coral-driver | 31,177 | 22,806 | **26.8%** |
-| **Workspace total** | **100,468** | **36,132** | **64.0%** |
 
-Non-hardware coverage (excl. coral-driver): **~82%**. Hardware coverage can now be expanded on any NVIDIA or AMD GPU. (Coverage table from Iter 73; current workspace ~65%.)
+> **Note**: coral-gpu, coral-glowplug, coral-ember, and coral-driver were excised in Sprint 9.
+> Workspace coverage is now significantly higher with only compiler crates remaining.
+
+Coverage table from Iter 73 (pre-excision). Post-excision workspace should be ~85%+ since all removed crates were low-coverage hardware code.
 
 ---
 

@@ -4,11 +4,26 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101+ (Sprint 9)
+**Current status**: Phase 10 — Iteration 101+ (Sprint 9+)
 
 ---
 
 ## [Unreleased]
+
+### Post-101 — Sprint 9+: Post-Excision Evolution (2026-05-13)
+
+#### Changed
+- **Discovery filter evolved**: Now matches toadStool capability names (`compute.dispatch.*`, `gpu.*`, `compute.hardware.*`) in addition to legacy `gpu.dispatch`
+- **Requires declaration**: `gpu.dispatch` → `compute.dispatch` (with `legacy_id` metadata for backward compat)
+- **Cross-primal leaks eliminated**: `beardog_socket()` → `security_provider_socket_legacy()`; doc comments no longer reference peer primal internal architecture
+- **All workspace deps updated** to latest patch versions (42 updates)
+
+#### Added
+- 2 new ecosystem discovery tests (toadStool-style `compute.dispatch.*` JSON, `compute.hardware.*`)
+- 4 new `compile_module` tests (f64 software lowering, FMA fused, SM120 PTX path, shared memory reporting)
+- Total: **3121 tests** (was 3115)
+
+---
 
 ### Post-101 — Sprint 9: Diesel Engine Excision — Pure Compiler Primal (2026-05-13)
 

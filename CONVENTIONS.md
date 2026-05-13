@@ -82,7 +82,7 @@ The `Backend` trait in `backend.rs` and `GpuTarget` enum in
 - **Inputs**: Prefer `impl AsRef<[u8]>` for byte inputs so callers can pass `Bytes`, `Vec<u8>`, or `&[u8]`.
 - **String literals**: Prefer `&'static str` or `Cow<str>` over `String::from` / `.to_owned()` where struct types allow.
 - **Avoid**: `.to_vec()` on byte slices when a reference is sufficient; `.to_owned()` on static strings when borrowing is possible.
-- **Shared identity**: Use `Arc<str>` for frequently-cloned identity strings (e.g. `DeviceSlot.bdf`) — cheap refcount vs heap allocation on every clone.
+- **Shared identity**: Use `Arc<str>` for frequently-cloned identity strings (e.g. arch names, family IDs) — cheap refcount vs heap allocation on every clone.
 - **Estimation functions**: Take `&Src` / `&[&Src]` (references) not owned values when the function only reads — avoids clone waste on hot paths.
 
 ## Configuration Conventions
@@ -95,7 +95,7 @@ The `Backend` trait in `backend.rs` and `GpuTarget` enum in
 ## Toolchain Sovereignty Policy
 
 The Rust compiler is the DNA synthase of this project. Every tool in
-the pipeline — from ISA spec parsing to binary encoding to GPU dispatch
+the pipeline — from ISA spec parsing to binary encoding to IPC transport
 — must be internal Rust by production release. Non-Rust tools (Python
 scripts, C bindings, shell wrappers) are acceptable only as Pass 1
 scaffolding and must be tracked for replacement.
@@ -129,8 +129,8 @@ No non-Rust tool survives to production. Each pass produces strictly
 better Rust. The Rust language and compilation model is the competitive
 advantage — anything else is a bandaid fix.
 
-See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md` for the full evolution
-pass definitions and dependency tracking.
+See `specs/CORALREEF_SPECIFICATION.md` for the compiler architecture
+specification.
 
 ---
 

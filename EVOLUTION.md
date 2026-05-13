@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: May 13, 2026 (Phase 10 — Iteration 101+, Sprint 9)
-**Phase**: 10 — Sprint 9: Diesel engine excision — pure compiler primal. coral-ember/glowplug/driver/gpu removed (489+ .rs files excised). Hardware lifecycle fully delegated to toadStool. Zero unsafe in workspace. Sprint 8: Feature freeze + toadStool handoff. Sprint 7: FECS stability proof. Sprint 6: Phase D markers. Sprint 5: Pass 12 sentinel gaps. Sprint 4: PTX SM120 subgroup scans. All `unreachable!()` → `ice!()`, zero production `.unwrap()`. 3115 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Last updated**: May 13, 2026 (Phase 10 — Iteration 101+, Sprint 9+)
+**Phase**: 10 — Sprint 9+: Post-excision evolution — discovery aligned with toadStool, cross-primal leaks eliminated, deps current. Sprint 9: Diesel engine excision — pure compiler primal (489+ .rs files excised). Zero unsafe. 3121 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 
@@ -12,8 +12,8 @@
 coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
 (SM35–SM120, including Blackwell) and AMD (GCN5/RDNA2–RDNA4). Pure Rust; transitive
 libc only via tokio/mio (deferred to mio#1735 rustix migration).
-4790 tests (181 ignored), ~65% line coverage (82%+ non-hardware, 8 crates above 90%),
-84/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
+3121 tests (3 ignored), zero unsafe, pure compiler primal (diesel excised Sprint 9).
+93/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
 compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
 sovereignty: driver preference (vfio-first), nvidia-drm probing with
 UVM delegation, ecosystem discovery, cross-vendor parity testing, zero DEBT

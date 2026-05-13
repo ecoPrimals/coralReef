@@ -2,6 +2,10 @@
 
 # UVM Sovereign Compute Dispatch — Bypass Nouveau
 
+> **ARCHIVED (Sprint 9)**: Hardware dispatch is now toadStool's domain.
+> coralReef is a pure compiler primal. This document is retained as a
+> fossil record of the original dispatch architecture research.
+
 **Created**: March 11, 2026 (Phase 10 — Iteration 36)
 
 ---
