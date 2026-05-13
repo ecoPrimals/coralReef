@@ -45,22 +45,37 @@ use types::{BufferBinding, PtxVal, SharedVar};
 /// `CompiledBinary` with `format: BinaryFormat::Ptx`.
 pub fn emit_compute_ptx(wgsl_source: &str, sm: u8) -> Result<CompiledBinary, CompileError> {
     let module = crate::codegen::naga_translate::parse_wgsl(wgsl_source)?;
-    emit_compute_ptx_module(&module, sm)
+    emit_compute_ptx_module(&module, sm, None)
 }
 
 /// Emit PTX from a pre-parsed `naga::Module` for SM100+ targets.
 ///
 /// Accepts a module directly, skipping the WGSL parse step.
 /// Used by `compile_module_full` for the Blackwell PTX path.
+///
+/// If `entry_point_name` is `Some`, compiles that specific entry point.
+/// If `None`, uses the first compute-stage entry point in the module.
 pub fn emit_compute_ptx_module(
     module: &naga::Module,
     sm: u8,
+    entry_point_name: Option<&str>,
 ) -> Result<CompiledBinary, CompileError> {
-    let ep_index = module
-        .entry_points
-        .iter()
-        .position(|ep| ep.stage == naga::ShaderStage::Compute)
-        .ok_or_else(|| CompileError::InvalidInput("no compute entry point".into()))?;
+    let ep_index = match entry_point_name {
+        Some(name) => module
+            .entry_points
+            .iter()
+            .position(|ep| ep.name == name)
+            .ok_or_else(|| {
+                CompileError::InvalidInput(
+                    format!("entry point '{name}' not found in module").into(),
+                )
+            })?,
+        None => module
+            .entry_points
+            .iter()
+            .position(|ep| ep.stage == naga::ShaderStage::Compute)
+            .ok_or_else(|| CompileError::InvalidInput("no compute entry point".into()))?,
+    };
 
     let ep = &module.entry_points[ep_index];
 

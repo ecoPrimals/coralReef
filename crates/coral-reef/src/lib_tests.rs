@@ -687,3 +687,102 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
     assert!(compiled.info.gpr_count > 0, "should report GPR usage");
     assert_eq!(compiled.info.local_size[0], 64);
 }
+
+#[test]
+fn test_compile_module_entry_point_selection_by_name() {
+    let wgsl = r"
+@compute @workgroup_size(32)
+fn kernel_a() {}
+
+@compute @workgroup_size(128)
+fn kernel_b() {}
+";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse multi-EP WGSL");
+    let opts_a = CompileOptions {
+        entry_point: Some("kernel_a".into()),
+        ..Default::default()
+    };
+    let compiled_a = compile_module_full(&module, &opts_a)
+        .expect("compile kernel_a by name");
+    assert_eq!(compiled_a.info.local_size[0], 32);
+
+    let opts_b = CompileOptions {
+        entry_point: Some("kernel_b".into()),
+        ..Default::default()
+    };
+    let compiled_b = compile_module_full(&module, &opts_b)
+        .expect("compile kernel_b by name");
+    assert_eq!(compiled_b.info.local_size[0], 128);
+}
+
+#[test]
+fn test_compile_module_entry_point_not_found() {
+    let wgsl = "@compute @workgroup_size(64) fn main() {}";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let opts = CompileOptions {
+        entry_point: Some("nonexistent_kernel".into()),
+        ..Default::default()
+    };
+    let err = compile_module_full(&module, &opts)
+        .expect_err("should fail for missing entry point");
+    assert!(matches!(err, CompileError::InvalidInput(_)));
+    let msg = err.to_string();
+    assert!(msg.contains("nonexistent_kernel"), "error should name the missing EP: {msg}");
+    assert!(msg.contains("main"), "error should list available EPs: {msg}");
+}
+
+#[test]
+fn test_compile_module_default_selects_compute() {
+    let wgsl = r"
+@vertex
+fn vert_main() -> @builtin(position) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+
+@compute @workgroup_size(256)
+fn compute_main() {}
+";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse mixed-stage WGSL");
+    let opts = CompileOptions::default();
+    let compiled = compile_module_full(&module, &opts)
+        .expect("should select compute EP by default");
+    assert_eq!(
+        compiled.info.local_size[0], 256,
+        "should have selected compute_main (wg=256), not vert_main"
+    );
+}
+
+#[test]
+fn test_compile_module_validation_rejects_malformed() {
+    let wgsl = r"
+var<workgroup> data: array<f32, 64>;
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
+    data[lid.x] = f32(lid.x);
+}";
+    let mut module = naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    // Corrupt the module: clear global variables while function body still references them
+    module.global_variables.clear();
+    let opts = CompileOptions {
+        validate: true,
+        ..Default::default()
+    };
+    let err = compile_module_full(&module, &opts)
+        .expect_err("malformed module should be rejected by validation");
+    assert!(
+        matches!(err, CompileError::Validation(_)),
+        "should be a validation error, got: {err}"
+    );
+}
+
+#[test]
+fn test_compile_module_validation_disabled_skips_check() {
+    let wgsl = "@compute @workgroup_size(64) fn main() {}";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let opts = CompileOptions {
+        validate: false,
+        ..Default::default()
+    };
+    let result = compile_module_full(&module, &opts);
+    assert!(result.is_ok(), "valid module should compile with validation disabled");
+}

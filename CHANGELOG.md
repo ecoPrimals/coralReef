@@ -19,9 +19,12 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - **All workspace deps updated** to latest patch versions (42 updates)
 
 #### Added
+- **`naga::Module` direct ingest H2**: Entry point selection via `CompileOptions::entry_point`, module validation via `naga::valid::Validator` (opt-out with `validate: false`)
+- PTX emit path (`emit_compute_ptx_module`) now accepts entry point name for SM100+ targets
 - 2 new ecosystem discovery tests (toadStool-style `compute.dispatch.*` JSON, `compute.hardware.*`)
 - 4 new `compile_module` tests (f64 software lowering, FMA fused, SM120 PTX path, shared memory reporting)
-- Total: **3121 tests** (was 3115)
+- 5 new entry point + validation tests (EP selection by name, missing EP error, compute-stage preference, validation rejection, validation bypass)
+- Total: **3129 tests** (was 3115)
 
 ---
 

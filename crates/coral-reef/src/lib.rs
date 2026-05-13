@@ -148,6 +148,13 @@ pub struct CompileOptions {
     pub fp64_software: bool,
     /// FMA fusion policy — controls whether `a*b + c` may be fused.
     pub fma_policy: FmaPolicy,
+    /// Select a specific entry point by name for `compile_module*` APIs.
+    /// When `None`, uses the first compute entry point in the module.
+    pub entry_point: Option<String>,
+    /// Run `naga::valid::Validator` on modules before compilation.
+    /// Catches malformed IR early with clear diagnostics. Disable for
+    /// trusted modules where validation overhead is unwanted.
+    pub validate: bool,
 }
 
 impl CompileOptions {
@@ -188,6 +195,8 @@ impl Default for CompileOptions {
             fp64_strategy: Fp64Strategy::default(),
             fp64_software: true,
             fma_policy: FmaPolicy::default(),
+            entry_point: None,
+            validate: true,
         }
     }
 }
@@ -512,12 +521,14 @@ pub fn compile_wgsl_with(
 /// the caller already holds a `naga::Module` (e.g. from programmatic
 /// IR construction or a custom frontend).
 ///
-/// Uses the first entry point in the module.
+/// Entry point selection: set `options.entry_point` to target a specific
+/// entry point by name, or leave it `None` to use the first compute entry
+/// point in the module.
 ///
 /// # Errors
 ///
-/// Returns [`CompileError`] if the module has no entry points or
-/// compilation fails.
+/// Returns [`CompileError`] if the module has no entry points, validation
+/// fails, or compilation fails.
 pub fn compile_module(
     module: &naga::Module,
     options: &CompileOptions,
@@ -531,10 +542,14 @@ pub fn compile_module(
 /// Like [`compile_module`] but returns compilation info (GPR count,
 /// shared memory, barriers) needed by the driver for dispatch setup.
 ///
+/// Entry point selection: set `options.entry_point` to target a specific
+/// entry point by name, or leave it `None` to use the first compute entry
+/// point in the module.
+///
 /// # Errors
 ///
-/// Returns [`CompileError`] if the module has no entry points or
-/// compilation fails.
+/// Returns [`CompileError`] if the module has no entry points, validation
+/// fails, or compilation fails.
 pub fn compile_module_full(
     module: &naga::Module,
     options: &CompileOptions,
@@ -544,24 +559,84 @@ pub fn compile_module_full(
             "naga::Module has no entry points".into(),
         ));
     }
+
+    if options.validate {
+        validate_module(module)?;
+    }
+
+    let ep = resolve_entry_point(module, options.entry_point.as_deref())?;
+
     tracing::info!(
         target = %options.target,
         opt = options.opt_level,
+        entry_point = %ep.name,
         "coral-reef compile_module"
     );
 
     if let Some(nv) = options.target.as_nvidia() {
         if nv.sm() >= 100 {
-            return codegen::nv::ptx_emit::emit_compute_ptx_module(module, nv.sm_version());
+            return codegen::nv::ptx_emit::emit_compute_ptx_module(
+                module,
+                nv.sm_version(),
+                Some(&ep.name),
+            );
         }
     }
 
     let sm = shader_model_for(options.target)?;
-    let ep = &module.entry_points[0];
     let mut shader = codegen::naga_translate::translate(module, sm.as_ref(), &ep.name)?;
     shader.fma_policy = options.fma_policy;
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
+}
+
+/// Validate a `naga::Module` using naga's built-in validator.
+///
+/// Returns `Ok(())` on success, or a [`CompileError::Validation`] with
+/// diagnostic details on failure.
+fn validate_module(module: &naga::Module) -> Result<(), CompileError> {
+    let mut validator = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    );
+    validator.validate(module).map_err(|e| {
+        CompileError::Validation(format!("{e}").into())
+    })?;
+    Ok(())
+}
+
+/// Resolve which entry point to compile from the module.
+///
+/// If `name` is `Some`, looks up that specific entry point.
+/// If `None`, returns the first compute-stage entry point (or the first
+/// entry point if none are compute).
+fn resolve_entry_point<'m>(
+    module: &'m naga::Module,
+    name: Option<&str>,
+) -> Result<&'m naga::EntryPoint, CompileError> {
+    name.map_or_else(
+        || {
+            let compute = module
+                .entry_points
+                .iter()
+                .find(|ep| ep.stage == naga::ShaderStage::Compute);
+            Ok(compute.unwrap_or(&module.entry_points[0]))
+        },
+        |requested| {
+            module
+                .entry_points
+                .iter()
+                .find(|ep| ep.name == requested)
+                .ok_or_else(|| {
+                    let available: Vec<&str> =
+                        module.entry_points.iter().map(|ep| ep.name.as_str()).collect();
+                    CompileError::InvalidInput(
+                        format!("entry point '{requested}' not found; available: {available:?}")
+                            .into(),
+                    )
+                })
+        },
+    )
 }
 
 /// Compile GLSL compute shader source to native GPU binary.

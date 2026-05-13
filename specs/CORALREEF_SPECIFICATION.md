@@ -4,7 +4,7 @@
 
 **Version**: 0.8.0
 **Date**: May 12, 2026
-**Status**: Phase 10 — Sprint 9+ (Pure compiler primal, diesel excised, 3121 tests, zero unsafe)
+**Status**: Phase 10 — Sprint 9+ (Pure compiler primal, diesel excised, 3129 tests, zero unsafe)
 
 ---
 
@@ -173,7 +173,7 @@ Adopted from barraCuda's `Fp64Strategy`:
 | 7 | coralDriver — userspace GPU dispatch (AMD + NVIDIA) | **Complete** |
 | 8 | coralGpu — unified Rust GPU abstraction | **Complete** |
 | 9 | Full sovereignty — zero FFI, zero C, all Rust | **Complete** |
-| 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 9+ — 3121 tests, zero unsafe, zero debt** |
+| 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 9+ — 3129 tests, zero unsafe, zero debt** |
 
 ## Evolution Policy
 
