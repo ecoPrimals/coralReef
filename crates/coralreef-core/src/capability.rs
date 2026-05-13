@@ -76,7 +76,7 @@ pub fn self_description() -> SelfDescription {
                     "multi_stage_ml": {
                         "supported": true,
                         "pattern": "sequential_compile_and_dispatch",
-                        "description": "Call shader.compile.wgsl N times with distinct stage WGSL (tokenizer, attention, FFN), then dispatch sequentially via compute.dispatch provider (toadStool). Memory layout and inter-stage barriers are caller responsibility.",
+                        "description": "Call shader.compile.wgsl N times with distinct stage WGSL (tokenizer, attention, FFN), then dispatch sequentially via the compute.dispatch provider. Memory layout and inter-stage barriers are caller responsibility.",
                         "max_concurrent_compiles": 64,
                     },
                 }),

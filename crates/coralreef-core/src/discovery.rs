@@ -220,11 +220,12 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
 /// Fallback when no ecosystem discovery files advertise GPU capabilities.
 ///
 /// Hardware enumeration (DRM render node scan) was excised as part of the
-/// diesel engine migration. toadStool owns GPU hardware discovery via
-/// `compute.dispatch.capabilities` IPC. coralReef is a pure compiler primal
-/// and discovers GPU targets only through ecosystem discovery JSON files.
+/// diesel engine migration. The compute.dispatch provider owns GPU hardware
+/// discovery via `compute.dispatch.capabilities` IPC. coralReef is a pure
+/// compiler primal and discovers GPU targets only through ecosystem discovery
+/// JSON files.
 fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
-    tracing::debug!("no ecosystem GPU provider found; hardware enumeration delegated to toadStool");
+    tracing::debug!("no ecosystem GPU provider found; hardware enumeration delegated to compute.dispatch provider");
     Vec::new()
 }
 
