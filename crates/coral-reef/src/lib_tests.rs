@@ -603,3 +603,87 @@ fn test_compile_module_intel_unsupported() {
         "Intel should return UnsupportedArch: {result:?}"
     );
 }
+
+#[test]
+fn test_compile_module_full_f64_software_lowering() {
+    let wgsl = r"
+@compute @workgroup_size(1)
+fn main() {
+    let a: f64 = 1.0;
+    let b: f64 = 2.0;
+    let c = a * b + a;
+    _ = c;
+}";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse f64 WGSL");
+    let opts = CompileOptions {
+        fp64_software: true,
+        ..Default::default()
+    };
+    let compiled = compile_module_full(&module, &opts)
+        .expect("f64 software lowering through module API");
+    assert!(!compiled.binary.is_empty());
+    assert!(compiled.info.gpr_count > 0);
+}
+
+#[test]
+fn test_compile_module_full_fma_fused() {
+    let wgsl = r"
+@compute @workgroup_size(32)
+fn main() {
+    let a: f32 = 1.0;
+    let b: f32 = 2.0;
+    let c = a * b + a;
+    _ = c;
+}";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse fma WGSL");
+    let opts = CompileOptions {
+        fma_policy: FmaPolicy::Fused,
+        ..Default::default()
+    };
+    let compiled = compile_module_full(&module, &opts)
+        .expect("fused FMA through module API");
+    assert!(!compiled.binary.is_empty());
+    assert_eq!(compiled.info.local_size[0], 32);
+}
+
+#[test]
+fn test_compile_module_sm120_ptx_path() {
+    let wgsl = "@compute @workgroup_size(128) fn main() {}";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm120),
+        ..Default::default()
+    };
+    let compiled = compile_module_full(&module, &opts)
+        .expect("SM120 PTX emit through module API");
+    assert!(!compiled.binary.is_empty());
+    let ptx = String::from_utf8_lossy(&compiled.binary);
+    assert!(
+        ptx.contains(".version") || ptx.contains(".target"),
+        "SM120 should produce PTX text: {ptx:.200}"
+    );
+}
+
+#[test]
+fn test_compile_module_full_shared_memory_reporting() {
+    let wgsl = r"
+var<workgroup> shared_data: array<f32, 256>;
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
+    shared_data[lid.x] = f32(lid.x);
+    workgroupBarrier();
+    let v = shared_data[63u - lid.x];
+    _ = v;
+}";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse shared mem WGSL");
+    let opts = CompileOptions::default();
+    let compiled = compile_module_full(&module, &opts)
+        .expect("shared memory shader via module API");
+    assert!(
+        compiled.info.shared_mem_bytes > 0,
+        "should report shared memory usage: {} bytes",
+        compiled.info.shared_mem_bytes
+    );
+    assert!(compiled.info.gpr_count > 0, "should report GPR usage");
+    assert_eq!(compiled.info.local_size[0], 64);
+}
