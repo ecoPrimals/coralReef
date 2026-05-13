@@ -4,11 +4,31 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101+ (Sprint 7)
+**Current status**: Phase 10 — Iteration 101+ (Sprint 8)
 
 ---
 
 ## [Unreleased]
+
+### Post-101 — Sprint 8: Diesel Engine Migration — Feature Freeze + Upstream Handoff (2026-05-13)
+
+#### Feature Freeze (diesel stack)
+- `coral-ember/lib.rs`: Added feature freeze notice — no new features, toadStool implements C3/C4/C5
+- `coral-glowplug/lib.rs`: Added feature freeze notice with key pattern references for toadStool (cylinder subprocess model, warm handoff API, diesel mode routing)
+- `coral-driver/lib.rs`: Added diesel engine migration context to Phase D status doc
+
+#### Upstream Reference (E1/E2)
+- E1 (cylinder translation): Documented subprocess isolation pattern — `sovereign.rs`, `socket/mod.rs`, `observer/vfio.rs`, `device/health.rs`
+- E2 (warm API): Documented warm handoff/capture API — `capture.rs`, `vendor_lifecycle/nvidia.rs`, `hbm2_training/`, `boot_sequence.rs`
+- E3 (FECS cold silicon init): Already shipped (Sprint 7)
+
+#### wateringHole Handoff
+- Created `CORALREEF_DIESEL_MIGRATION_HANDOFF_MAY13_2026.md` with full reference map, socket path documentation, and removal criteria
+
+#### Tests
+- 4790 passing, 0 failed, 181 ignored. Zero clippy warnings. No regressions.
+
+---
 
 ### Post-101 — Sprint 7: FECS/GPCCS Cold-Silicon Stability Proof (2026-05-12)
 

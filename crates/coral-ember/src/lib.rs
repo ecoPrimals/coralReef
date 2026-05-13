@@ -31,6 +31,11 @@
 //! `toadstool-ember` for new development. toadStool Phase C is **COMPLETE**
 //! (S245-S250) — removal gated on Phase D dispatch validation.
 //!
+//! **Feature freeze** (diesel engine migration, May 13 2026): No new features.
+//! toadStool implements VFIO fd holding (C4), MMIO/falcon RPCs (C3), and
+//! warm-fecs pipeline (C5). coralReef retains this crate for backward
+//! compatibility until toadStool Phase D cutover is validated on hardware.
+//!
 //! ---
 //!
 //! coral-ember — Immortal VFIO fd holder for safe daemon restarts.

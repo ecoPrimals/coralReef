@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: May 12, 2026  
-**Phase**: 10 — Iteration 101+ (Sprint 7: FECS/GPCCS cold-silicon stability proof — retry with PMC GR reset, structured GrBootOutcome, all boot paths recovery-aware; toadStool Phase C COMPLETE; 4790 tests, zero debt)
+**Last updated**: May 13, 2026  
+**Phase**: 10 — Iteration 101+ (Sprint 8: Diesel engine migration feature freeze + upstream handoff. E1/E2/E3 all resolved. coral-ember/glowplug/driver hardware runtime feature-frozen; toadStool Phase C COMPLETE; 4790 tests, zero debt)
 
 ---
 

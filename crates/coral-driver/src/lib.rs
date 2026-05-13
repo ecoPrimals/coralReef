@@ -100,7 +100,7 @@
 //!     /dev/dri/renderD*  /dev/vfio/* ← Linux DRM / VFIO
 //! ```
 //!
-//! ## Phase D Status
+//! ## Phase D Status (Diesel Engine Migration)
 //!
 //! toadStool Phase C is **COMPLETE** (S245-S250) — hardware modules (`drm`,
 //! `nv`, `amd`, `vfio`, `mmio`, `gsp`) are absorbed into toadStool's
@@ -109,6 +109,13 @@
 //! the direct-dispatch path once toadStool's `compute.dispatch.execute`
 //! IPC is validated end-to-end. Compiler-adjacent modules (`error`,
 //! `hardware`, `linux_paths`) stay with coralReef.
+//!
+//! **Diesel engine migration** (May 13 2026): `coral-ember` (VFIO fd holder),
+//! `coral-glowplug` (root daemon), and `coral-driver` hardware runtime are
+//! the "diesel stack" that toadStool replaces. Feature-frozen in coralReef.
+//! toadStool C1-C7 implements: cylinder subprocess isolation, device.swap,
+//! ember.mmio/falcon RPCs, VFIO fd holding, warm-fecs pipeline, coralctl parity.
+//! barracuda rewires file-by-file as toadStool lands each C-item.
 
 pub mod error;
 pub mod hardware;

@@ -34,6 +34,13 @@
 //! `toadstool-glowplug` for new development. toadStool Phase C is **COMPLETE**
 //! (S245-S250) — removal gated on Phase D dispatch validation.
 //!
+//! **Feature freeze** (diesel engine migration, May 13 2026): No new features.
+//! toadStool implements cylinder subprocess isolation (C1), device.swap/warm RPCs (C3),
+//! and coralctl CLI parity (C6). Key patterns for toadStool reference:
+//! - Cylinder subprocess model: `sovereign.rs` (boot orchestration)
+//! - Warm handoff/capture API: `capture.rs` (cold→warm→diff→recipe flow)
+//! - Diesel mode routing: `socket/mod.rs` (ECU→cylinder dispatch)
+//!
 //! ---
 //!
 //! coral-glowplug library — shared types for the sovereign PCIe device lifecycle broker.
