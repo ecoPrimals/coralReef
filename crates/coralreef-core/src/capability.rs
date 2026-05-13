@@ -76,7 +76,7 @@ pub fn self_description() -> SelfDescription {
                     "multi_stage_ml": {
                         "supported": true,
                         "pattern": "sequential_compile_and_dispatch",
-                        "description": "Call shader.compile.wgsl N times with distinct stage WGSL (tokenizer, attention, FFN), then dispatch sequentially via gpu.dispatch provider. Memory layout and inter-stage barriers are caller responsibility.",
+                        "description": "Call shader.compile.wgsl N times with distinct stage WGSL (tokenizer, attention, FFN), then dispatch sequentially via compute.dispatch provider (toadStool). Memory layout and inter-stage barriers are caller responsibility.",
                         "max_concurrent_compiles": 64,
                     },
                 }),
@@ -96,10 +96,11 @@ pub fn self_description() -> SelfDescription {
             },
         ],
         requires: vec![Capability {
-            id: "gpu.dispatch".into(),
+            id: "compute.dispatch".into(),
             version: format!(">={}", env!("CARGO_PKG_VERSION")).into(),
             metadata: serde_json::json!({
-                "reason": "QMD submission for compiled shaders",
+                "reason": "dispatch compiled shader binaries on GPU hardware",
+                "legacy_id": "gpu.dispatch",
             }),
         }],
         transports: Vec::new(),
@@ -173,7 +174,7 @@ mod tests {
         for id in &ids {
             let domain = id.split('.').next().unwrap_or("");
             assert!(
-                ["shader", "gpu"].contains(&domain),
+                ["shader", "compute"].contains(&domain),
                 "capability domain must be self-relevant, got: {id} (primal: {our_name})"
             );
         }
@@ -197,8 +198,8 @@ mod tests {
     fn self_description_requires_dispatch() {
         let desc = self_description();
         assert!(
-            desc.requires.iter().any(|c| c.id == "gpu.dispatch"),
-            "must require gpu.dispatch capability"
+            desc.requires.iter().any(|c| c.id == "compute.dispatch"),
+            "must require compute.dispatch capability"
         );
     }
 
@@ -279,7 +280,7 @@ mod tests {
             "unix:///run/user/1000/biomeos/coralreef-default.sock"
         );
         assert!(desc.provides.iter().any(|c| c.id == "shader.compile"));
-        assert!(desc.requires.iter().any(|c| c.id == "gpu.dispatch"));
+        assert!(desc.requires.iter().any(|c| c.id == "compute.dispatch"));
     }
 
     #[test]

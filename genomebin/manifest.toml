@@ -36,7 +36,7 @@ provided = [
     "auth.mode",
     "auth.peer_info",
 ]
-consumed = ["gpu.dispatch"]
+consumed = ["compute.dispatch"]
 
 [capabilities.gpu_targets]
 nvidia = ["sm35", "sm70", "sm75", "sm80", "sm86", "sm89", "sm120"]

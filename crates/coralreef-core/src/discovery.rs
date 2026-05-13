@@ -1,39 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! GPU targets for shader compilation — **not** a general “discovery primal”.
+//! GPU targets for shader compilation — **not** a general "discovery primal".
 //!
-//! This module implements **local helpers** so coralReef can choose backends and
-//! render nodes. That is within the `shader.*` domain (knowing which GPUs exist for
-//! compilation and device bring-up). It does **not** register JSON-RPC methods in a
-//! foreign namespace (e.g. no `discovery.*` server surface owned by coralReef).
+//! This module reads peer discovery JSON files to learn what GPU targets are
+//! available for compilation. It matches providers that advertise GPU-related
+//! capabilities (`gpu.dispatch`, `compute.dispatch.*`, `gpu.*`, `compute.hardware.*`).
 //!
-//! Follows the ecoPrimals **Node Atomic** pattern: prefer reading the shared
-//! discovery directory for peers that advertise GPU capabilities; only if that
-//! yields nothing does coralReef fall back to local DRM render-node enumeration.
-//! Self-advertisement of coralReef’s own transports is handled by the binary
-//! (`write_discovery_file` in `main.rs`), per wateringHole / `PRIMAL_SELF_KNOWLEDGE_STANDARD`.
+//! Follows the ecoPrimals **Node Atomic** pattern: discover by capability, not
+//! by primal name. toadStool (or any future GPU provider) advertises its
+//! capabilities and device metadata in the shared discovery directory.
 //!
 //! ## Discovery flow
 //!
 //! ```text
-//! coralReef → discovery_dir/*.json → find "gpu.dispatch" capability
+//! coralReef → discovery_dir/*.json → find GPU capability (compute.dispatch.*, gpu.*, etc.)
 //!         → embedded device entries in discovery JSON
 //!         → GpuDeviceDescriptor { vendor, arch, render_node_path }
-//!
-//!         (fallback if no ecosystem provider)
-//!         → DRM render node scan → DrmDeviceInfo { driver, path }
 //! ```
 //!
-//! No primal names are hardcoded. coralReef only matches capability ids such as
-//! `"gpu.dispatch"` — providers are identified at runtime from their discovery files.
-
+//! No primal names are hardcoded. Providers are identified at runtime from
+//! their discovery files by capability id matching.
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Vendor-agnostic GPU device descriptor.
 ///
-/// Can be populated from either ecosystem discovery or direct DRM scan.
-/// Contains enough metadata for coralReef to select the correct
-/// compilation target and open the correct render node.
+/// Populated from ecosystem discovery (peer JSON files in the shared
+/// discovery directory). Contains enough metadata for coralReef to select
+/// the correct compilation target.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GpuDeviceDescriptor {
     /// GPU vendor (`"nvidia"`, `"amd"`, `"intel"`).
@@ -185,7 +178,12 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
                         &provides_ids
                     };
                     let has_gpu_cap = caps.iter().any(|c| {
-                        c == "gpu.dispatch" || c.starts_with("gpu-") || c == "science.gpu.dispatch"
+                        c == "gpu.dispatch"
+                            || c.starts_with("gpu.")
+                            || c.starts_with("gpu-")
+                            || c.starts_with("compute.dispatch")
+                            || c.starts_with("compute.hardware")
+                            || c == "science.gpu.dispatch"
                     });
 
                     if has_gpu_cap {
@@ -428,5 +426,55 @@ mod tests {
     fn discover_from_drm_returns_empty() {
         let devices = discover_from_drm();
         assert!(devices.is_empty());
+    }
+
+    #[test]
+    fn discover_from_ecosystem_toadstool_compute_dispatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = serde_json::json!({
+            "provides": [
+                {"id": "compute.dispatch.submit", "version": "0.1.0"},
+                {"id": "compute.dispatch.capabilities", "version": "0.1.0"},
+                {"id": "gpu.query_info", "version": "0.1.0"}
+            ],
+            "devices": [
+                {
+                    "vendor": "nvidia",
+                    "arch": "sm70",
+                    "render_node": "/dev/dri/renderD128",
+                    "driver": "vfio-pci"
+                }
+            ]
+        });
+        let path = dir.path().join("toadstool.json");
+        let mut f = std::fs::File::create(&path).unwrap();
+        write!(f, "{entry}").unwrap();
+
+        let result = discover_from_ecosystem(dir.path());
+        assert!(result.is_some());
+        let devices = result.unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].vendor, "nvidia");
+        assert_eq!(devices[0].arch.as_deref(), Some("sm70"));
+    }
+
+    #[test]
+    fn discover_from_ecosystem_compute_hardware_caps() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = serde_json::json!({
+            "provides": ["compute.hardware.enumerate"],
+            "devices": [
+                { "vendor": "amd", "arch": "rdna2" }
+            ]
+        });
+        let path = dir.path().join("compute-provider.json");
+        let mut f = std::fs::File::create(&path).unwrap();
+        write!(f, "{entry}").unwrap();
+
+        let result = discover_from_ecosystem(dir.path());
+        assert!(result.is_some());
+        let devices = result.unwrap();
+        assert_eq!(devices[0].vendor, "amd");
+        assert_eq!(devices[0].arch.as_deref(), Some("rdna2"));
     }
 }
