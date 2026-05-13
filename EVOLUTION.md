@@ -3,7 +3,7 @@
 # coralReef — Compiler Evolution
 
 **Last updated**: May 13, 2026 (Phase 10 — Iteration 101+, Sprint 9+)
-**Phase**: 10 — Sprint 9+: Post-excision evolution — discovery aligned with toadStool, cross-primal leaks eliminated, deps current. Sprint 9: Diesel engine excision — pure compiler primal (489+ .rs files excised). Zero unsafe. 3130 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Phase**: 10 — Sprint 9+: Post-excision evolution — HMMA tensor-core GEMM codegen shipped (mma.sync SM80+). IPC wire-compat aliases added (source→wgsl_source, binary→binary_b64, info→shader_info). Texture format coverage expanded (4→10 TexelFormat variants, full naga StorageFormat mapping). Deep debt cleanup: lib.rs (868→630), newton.rs (849→568), hardcoded primal names eliminated, ECOSYSTEM_AUTH_MODE added. Discovery aligned with toadStool, cross-primal leaks eliminated, deps current. Sprint 9: Diesel engine excision — pure compiler primal (489+ .rs files excised). Zero unsafe. 3154 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3130 tests (3 ignored). Zero clippy warnings.
+Pure Rust. Zero unsafe. 3154 tests (3 ignored). Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
@@ -21,7 +21,8 @@ Pure Rust. Zero unsafe. 3130 tests (3 ignored). Zero clippy warnings.
 - f64 transcendental software lowering (Newton-Raphson, MUFU)
 - FMA contraction enforcement (`FmaPolicy::Separate` splits FFma→FMul+FAdd)
 - SM120/Blackwell PTX emitter (compute, atomics, subgroups, barriers)
-- IPC: `shader.compile.*` + `health.*` + `identity.get` + `capability.register`
+- **Tensor-core GEMM codegen** (`compile_gemm`): PTX `mma.sync.aligned` for SM80+ (f16, f16→f32 mixed-precision, TF32)
+- IPC: `shader.compile.*` + `shader.compile.gemm` + `health.*` + `identity.get` + `capability.register`
 - Ecosystem discovery: capability-based GPU target resolution via toadStool
 
 ### What coralReef does NOT do (as of Sprint 9 excision)
@@ -519,7 +520,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 9+: 3130 tests passing, 3 ignored. Zero unsafe. Zero clippy warnings.
+Sprint 9+: 3154 tests passing, 3 ignored. Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.

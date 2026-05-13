@@ -6,7 +6,7 @@
 //! capabilities (`gpu.dispatch`, `compute.dispatch.*`, `gpu.*`, `compute.hardware.*`).
 //!
 //! Follows the ecoPrimals **Node Atomic** pattern: discover by capability, not
-//! by primal name. toadStool (or any future GPU provider) advertises its
+//! by primal name. The `compute.dispatch` provider advertises its
 //! capabilities and device metadata in the shared discovery directory.
 //!
 //! ## Discovery flow
@@ -225,7 +225,9 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
 /// compiler primal and discovers GPU targets only through ecosystem discovery
 /// JSON files.
 fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
-    tracing::debug!("no ecosystem GPU provider found; hardware enumeration delegated to compute.dispatch provider");
+    tracing::debug!(
+        "no ecosystem GPU provider found; hardware enumeration delegated to compute.dispatch provider"
+    );
     Vec::new()
 }
 

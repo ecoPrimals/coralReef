@@ -536,8 +536,7 @@ fn test_compile_module_empty_entry_points_rejected() {
 #[test]
 fn test_compile_module_minimal_compute() {
     let wgsl = "@compute @workgroup_size(1) fn main() {}";
-    let module =
-        naga::front::wgsl::parse_str(wgsl).expect("parse minimal WGSL");
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse minimal WGSL");
     let opts = CompileOptions::default();
     let result = compile_module(&module, &opts);
     assert!(
@@ -549,11 +548,9 @@ fn test_compile_module_minimal_compute() {
 #[test]
 fn test_compile_module_full_returns_metadata() {
     let wgsl = "@compute @workgroup_size(64) fn main() {}";
-    let module =
-        naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
     let opts = CompileOptions::default();
-    let compiled = compile_module_full(&module, &opts)
-        .expect("module_full compile");
+    let compiled = compile_module_full(&module, &opts).expect("module_full compile");
     assert!(!compiled.binary.is_empty(), "binary should be non-empty");
     assert_eq!(compiled.info.local_size[0], 64, "workgroup_size x");
 }
@@ -561,8 +558,7 @@ fn test_compile_module_full_returns_metadata() {
 #[test]
 fn test_compile_module_matches_wgsl_output() {
     let wgsl = "@compute @workgroup_size(1) fn main() {}";
-    let module =
-        naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
     let opts = CompileOptions::default();
     let from_wgsl = compile_wgsl(wgsl, &opts).expect("wgsl compile");
     let from_module = compile_module(&module, &opts).expect("module compile");
@@ -575,8 +571,7 @@ fn test_compile_module_matches_wgsl_output() {
 #[test]
 fn test_compile_module_amd_target() {
     let wgsl = "@compute @workgroup_size(1) fn main() {}";
-    let module =
-        naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
     let opts = CompileOptions {
         target: GpuTarget::Amd(AmdArch::Rdna2),
         ..Default::default()
@@ -591,8 +586,7 @@ fn test_compile_module_amd_target() {
 #[test]
 fn test_compile_module_intel_unsupported() {
     let wgsl = "@compute @workgroup_size(1) fn main() {}";
-    let module =
-        naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
+    let module = naga::front::wgsl::parse_str(wgsl).expect("parse WGSL");
     let opts = CompileOptions {
         target: GpuTarget::Intel(IntelArch::XeHpg),
         ..Default::default()
@@ -619,8 +613,8 @@ fn main() {
         fp64_software: true,
         ..Default::default()
     };
-    let compiled = compile_module_full(&module, &opts)
-        .expect("f64 software lowering through module API");
+    let compiled =
+        compile_module_full(&module, &opts).expect("f64 software lowering through module API");
     assert!(!compiled.binary.is_empty());
     assert!(compiled.info.gpr_count > 0);
 }
@@ -640,8 +634,7 @@ fn main() {
         fma_policy: FmaPolicy::Fused,
         ..Default::default()
     };
-    let compiled = compile_module_full(&module, &opts)
-        .expect("fused FMA through module API");
+    let compiled = compile_module_full(&module, &opts).expect("fused FMA through module API");
     assert!(!compiled.binary.is_empty());
     assert_eq!(compiled.info.local_size[0], 32);
 }
@@ -654,8 +647,7 @@ fn test_compile_module_sm120_ptx_path() {
         target: GpuTarget::Nvidia(NvArch::Sm120),
         ..Default::default()
     };
-    let compiled = compile_module_full(&module, &opts)
-        .expect("SM120 PTX emit through module API");
+    let compiled = compile_module_full(&module, &opts).expect("SM120 PTX emit through module API");
     assert!(!compiled.binary.is_empty());
     let ptx = String::from_utf8_lossy(&compiled.binary);
     assert!(
@@ -677,8 +669,8 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 }";
     let module = naga::front::wgsl::parse_str(wgsl).expect("parse shared mem WGSL");
     let opts = CompileOptions::default();
-    let compiled = compile_module_full(&module, &opts)
-        .expect("shared memory shader via module API");
+    let compiled =
+        compile_module_full(&module, &opts).expect("shared memory shader via module API");
     assert!(
         compiled.info.shared_mem_bytes > 0,
         "should report shared memory usage: {} bytes",
@@ -702,16 +694,14 @@ fn kernel_b() {}
         entry_point: Some("kernel_a".into()),
         ..Default::default()
     };
-    let compiled_a = compile_module_full(&module, &opts_a)
-        .expect("compile kernel_a by name");
+    let compiled_a = compile_module_full(&module, &opts_a).expect("compile kernel_a by name");
     assert_eq!(compiled_a.info.local_size[0], 32);
 
     let opts_b = CompileOptions {
         entry_point: Some("kernel_b".into()),
         ..Default::default()
     };
-    let compiled_b = compile_module_full(&module, &opts_b)
-        .expect("compile kernel_b by name");
+    let compiled_b = compile_module_full(&module, &opts_b).expect("compile kernel_b by name");
     assert_eq!(compiled_b.info.local_size[0], 128);
 }
 
@@ -723,12 +713,17 @@ fn test_compile_module_entry_point_not_found() {
         entry_point: Some("nonexistent_kernel".into()),
         ..Default::default()
     };
-    let err = compile_module_full(&module, &opts)
-        .expect_err("should fail for missing entry point");
+    let err = compile_module_full(&module, &opts).expect_err("should fail for missing entry point");
     assert!(matches!(err, CompileError::InvalidInput(_)));
     let msg = err.to_string();
-    assert!(msg.contains("nonexistent_kernel"), "error should name the missing EP: {msg}");
-    assert!(msg.contains("main"), "error should list available EPs: {msg}");
+    assert!(
+        msg.contains("nonexistent_kernel"),
+        "error should name the missing EP: {msg}"
+    );
+    assert!(
+        msg.contains("main"),
+        "error should list available EPs: {msg}"
+    );
 }
 
 #[test]
@@ -744,8 +739,8 @@ fn compute_main() {}
 ";
     let module = naga::front::wgsl::parse_str(wgsl).expect("parse mixed-stage WGSL");
     let opts = CompileOptions::default();
-    let compiled = compile_module_full(&module, &opts)
-        .expect("should select compute EP by default");
+    let compiled =
+        compile_module_full(&module, &opts).expect("should select compute EP by default");
     assert_eq!(
         compiled.info.local_size[0], 256,
         "should have selected compute_main (wg=256), not vert_main"
@@ -784,5 +779,102 @@ fn test_compile_module_validation_disabled_skips_check() {
         ..Default::default()
     };
     let result = compile_module_full(&module, &opts);
-    assert!(result.is_ok(), "valid module should compile with validation disabled");
+    assert!(
+        result.is_ok(),
+        "valid module should compile with validation disabled"
+    );
+}
+
+// --- HMMA / tensor-core GEMM codegen tests ---
+
+#[test]
+fn test_compile_gemm_f16f32_sm80() {
+    let shape = GemmShape { m: 16, n: 8, k: 16 };
+    let target = GpuTarget::Nvidia(NvArch::Sm80);
+    let result = compile_gemm(shape, GemmPrecision::F16F32, target);
+    let compiled = result.expect("compile_gemm should succeed for SM80 f16f32");
+    assert_eq!(compiled.format, BinaryFormat::Ptx);
+    let ptx = String::from_utf8(compiled.binary).expect("PTX should be valid UTF-8");
+    assert!(ptx.contains("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"));
+    assert!(ptx.contains(".target sm_80"));
+}
+
+#[test]
+fn test_compile_gemm_rejects_pre_sm80() {
+    let shape = GemmShape { m: 16, n: 8, k: 16 };
+    let target = GpuTarget::Nvidia(NvArch::Sm70);
+    let err =
+        compile_gemm(shape, GemmPrecision::F16F32, target).expect_err("SM70 should be rejected");
+    assert!(
+        matches!(err, CompileError::UnsupportedArch(_)),
+        "expected UnsupportedArch, got: {err}"
+    );
+}
+
+#[test]
+fn test_compile_gemm_rejects_amd_target() {
+    let shape = GemmShape { m: 16, n: 8, k: 16 };
+    let target = GpuTarget::Amd(AmdArch::Rdna3);
+    let err = compile_gemm(shape, GemmPrecision::F16F32, target)
+        .expect_err("AMD target should be rejected");
+    assert!(
+        matches!(err, CompileError::UnsupportedArch(_)),
+        "expected UnsupportedArch, got: {err}"
+    );
+}
+
+#[test]
+fn test_compile_gemm_rejects_misaligned_k() {
+    let shape = GemmShape { m: 16, n: 8, k: 15 };
+    let target = GpuTarget::Nvidia(NvArch::Sm80);
+    let err = compile_gemm(shape, GemmPrecision::F16F32, target)
+        .expect_err("K=15 should be rejected (not aligned to 16)");
+    assert!(
+        matches!(err, CompileError::InvalidInput(_)),
+        "expected InvalidInput, got: {err}"
+    );
+}
+
+#[test]
+fn test_compile_gemm_rejects_zero_dimensions() {
+    let target = GpuTarget::Nvidia(NvArch::Sm80);
+    for shape in [
+        GemmShape { m: 0, n: 8, k: 16 },
+        GemmShape { m: 16, n: 0, k: 16 },
+        GemmShape { m: 16, n: 8, k: 0 },
+    ] {
+        let err = compile_gemm(shape, GemmPrecision::F16F32, target)
+            .expect_err("zero dimension should be rejected");
+        assert!(
+            matches!(err, CompileError::InvalidInput(_)),
+            "expected InvalidInput, got: {err}"
+        );
+    }
+}
+
+#[test]
+fn test_compile_gemm_sm120_blackwell() {
+    let shape = GemmShape { m: 16, n: 8, k: 32 };
+    let target = GpuTarget::Nvidia(NvArch::Sm120);
+    let compiled = compile_gemm(shape, GemmPrecision::F16F32, target)
+        .expect("compile_gemm should succeed for SM120");
+    let ptx = String::from_utf8(compiled.binary).expect("PTX should be valid UTF-8");
+    assert!(ptx.contains(".target sm_120"));
+    let mma_count = ptx
+        .lines()
+        .filter(|l| l.trim_start().starts_with("mma.sync.aligned"))
+        .count();
+    assert_eq!(mma_count, 2, "K=32/16 should produce 2 MMA instructions");
+}
+
+#[test]
+fn test_compile_gemm_tf32_requires_k_aligned_to_8() {
+    let target = GpuTarget::Nvidia(NvArch::Sm80);
+    let ok_shape = GemmShape { m: 16, n: 8, k: 8 };
+    compile_gemm(ok_shape, GemmPrecision::Tf32, target).expect("TF32 with K=8 should succeed");
+
+    let bad_shape = GemmShape { m: 16, n: 8, k: 12 };
+    let err = compile_gemm(bad_shape, GemmPrecision::Tf32, target)
+        .expect_err("TF32 with K=12 should fail (not aligned to 8)");
+    assert!(matches!(err, CompileError::InvalidInput(_)));
 }

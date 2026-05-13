@@ -93,7 +93,7 @@ pub trait ShaderModel {
     ///
     /// True for SM50-SM89, false for SM35 (no 64-bit MUFU) and SM120+
     /// (Blackwell emits the instructions but produces wrong results).
-    /// Aligns with `GenerationProfile::has_hardware_f64_rcp` in toadStool's cylinder.
+    /// Aligns with the dispatch provider's `GenerationProfile::has_hardware_f64_rcp`.
     fn has_hardware_f64_rcp(&self) -> bool {
         !self.is_blackwell() && self.sm() >= 50
     }

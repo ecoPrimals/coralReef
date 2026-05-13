@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 13, 2026  
-**Phase**: 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal. Discovery aligned with toadStool capabilities. Cross-primal leaks eliminated. 3130 tests, zero unsafe, zero debt)
+**Phase**: 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — HMMA tensor-core GEMM codegen, IPC wire-compat aliases, texture format coverage expanded. Pure compiler primal. 3154 tests, zero unsafe, zero debt)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to toadStool |
 | coralGpu | — | *Excised Sprint 9* — dispatch delegated to toadStool |
 | Code structure | A+ | Smart refactoring: error.rs 928→mod(412)+vfio(523) (Iter 101), nv/mod.rs 857→747+fecs_init(124) (Iter 101), pfifo.rs 882→695+bar2_init(199) (Iter 101), ioctl 929→655 (Iter 97), channel 896→594 (Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 3130 passing, 0 failed, 3 ignored, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests (atomics, barriers, subgroups, inclusive/exclusive scans), ISA target + SPH coverage, compile_module coverage (f64/FMA/SM120/shared mem/entry-point-selection/validation) |
+| Tests | A+ | 3154 passing, 0 failed, 3 ignored, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests (atomics, barriers, subgroups, inclusive/exclusive scans), ISA target + SPH coverage, compile_module coverage (f64/FMA/SM120/shared mem/entry-point-selection/validation), HMMA GEMM unit + integration tests, serde wire-compat alias roundtrip tests, texture format coverage tests |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |

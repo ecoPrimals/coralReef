@@ -2,7 +2,7 @@
 
 # Shader Compile Wire Contract
 
-**Last updated**: April 12, 2026 (Iteration 80)
+**Last updated**: May 13, 2026 (Sprint 9+)
 **Audience**: Spring teams, barraCuda, neuralSpring, toadStool, primalSpring
 **Transport**: JSON-RPC 2.0 (newline-delimited over UDS/TCP) or tarpc (bincode)
 
@@ -27,6 +27,19 @@ capability-based discovery via `capability.list`.
 
 ---
 
+## Wire Compatibility Aliases
+
+Canonical field names are authoritative. Legacy aliases are accepted on
+deserialization for backward compatibility:
+
+| Canonical (serialize) | Legacy alias (deserialize) | Struct |
+|-----------------------|---------------------------|--------|
+| `wgsl_source` | `source` | `CompileWgslRequest`, `MultiDeviceCompileRequest` |
+| `binary_b64` | `binary` | `CompileResponse` |
+| `shader_info` | `info` | `CompileResponse` |
+
+---
+
 ## Methods
 
 | Method | Input | Output | Description |
@@ -34,6 +47,7 @@ capability-based discovery via `capability.list`.
 | `shader.compile.wgsl` | `CompileWgslRequest` | `CompileResponse` | Compile WGSL → native GPU binary |
 | `shader.compile.spirv` | `CompileRequest` | `CompileResponse` | Compile SPIR-V → native GPU binary |
 | `shader.compile.wgsl.multi` | `MultiDeviceCompileRequest` | `MultiDeviceCompileResponse` | Compile one WGSL source for multiple GPU targets |
+| `shader.compile.gemm` | `GemmRequest` | `CompileResponse` | Compile tensor-core GEMM kernel (SM80+ mma.sync) |
 | `shader.compile.status` | *(none)* | `HealthResponse` | Compiler health/status |
 | `shader.compile.capabilities` | *(none)* | `CompileCapabilitiesResponse` | Supported architectures + f64 capabilities |
 | `health.check` | *(none)* | `HealthCheckResponse` | Full health probe (wateringHole standard) |
@@ -80,16 +94,18 @@ capability-based discovery via `capability.list`.
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "binary": "<base64-encoded native GPU binary>",
+    "binary_b64": "<base64-encoded native GPU binary>",
     "size": 1024,
-    "arch": "sm86",
+    "target": "sm86",
     "status": "success",
-    "info": {
-      "gpr_count": 24,
+    "shader_info": {
+      "gprs": 24,
       "instr_count": 142,
-      "shared_mem_bytes": 0,
-      "barrier_count": 0,
-      "workgroup_size": [256, 1, 1]
+      "shared_memory": 0,
+      "barriers": 0,
+      "workgroup": [256, 1, 1],
+      "wave_size": 32,
+      "local_memory": 0
     }
   }
 }
@@ -203,26 +219,26 @@ request. This is for multi-GPU systems — not for compiling different shaders.
       {
         "card_index": 0,
         "arch": "sm70",
-        "binary": "<base64>",
+        "binary_b64": "<base64>",
         "size": 1024,
         "error": null,
-        "info": { "gpr_count": 28, "instr_count": 160, "shared_mem_bytes": 0, "barrier_count": 0, "workgroup_size": [64, 1, 1] }
+        "shader_info": { "gprs": 28, "instr_count": 160, "shared_memory": 0, "barriers": 0, "workgroup": [64, 1, 1], "wave_size": 32, "local_memory": 0 }
       },
       {
         "card_index": 1,
         "arch": "sm86",
-        "binary": "<base64>",
+        "binary_b64": "<base64>",
         "size": 960,
         "error": null,
-        "info": { "gpr_count": 24, "instr_count": 142, "shared_mem_bytes": 0, "barrier_count": 0, "workgroup_size": [64, 1, 1] }
+        "shader_info": { "gprs": 24, "instr_count": 142, "shared_memory": 0, "barriers": 0, "workgroup": [64, 1, 1], "wave_size": 32, "local_memory": 0 }
       },
       {
         "card_index": 2,
         "arch": "rdna2",
-        "binary": "<base64>",
+        "binary_b64": "<base64>",
         "size": 512,
         "error": null,
-        "info": { "gpr_count": 32, "instr_count": 80, "shared_mem_bytes": 0, "barrier_count": 0, "workgroup_size": [64, 1, 1] }
+        "shader_info": { "gprs": 32, "instr_count": 80, "shared_memory": 0, "barriers": 0, "workgroup": [64, 1, 1], "wave_size": 64, "local_memory": 0 }
       }
     ],
     "success_count": 3,
@@ -231,7 +247,7 @@ request. This is for multi-GPU systems — not for compiling different shaders.
 }
 ```
 
-Per-target failures are reported inline (`binary: null`, `error: "message"`),
+Per-target failures are reported inline (`binary_b64: null`, `error: "message"`),
 not as top-level JSON-RPC errors. A request-level error (empty source, no
 targets) returns a JSON-RPC error.
 

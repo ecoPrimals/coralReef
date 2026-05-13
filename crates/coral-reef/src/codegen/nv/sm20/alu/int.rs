@@ -461,7 +461,9 @@ impl SM20Op for OpIMadSp {
                     match src1.unsigned() {
                         U24 => 1_u8,
                         U16Lo => 0,
-                        _ => crate::codegen::ice!("SM20 legalization rejects IMadSp src1 non-U16Lo/U24"),
+                        _ => crate::codegen::ice!(
+                            "SM20 legalization rejects IMadSp src1 non-U16Lo/U24"
+                        ),
                     },
                 );
                 e.set_bit(7, src0.sign());
@@ -472,7 +474,9 @@ impl SM20Op for OpIMadSp {
                         U24 => 1,
                         U16Lo => 2,
                         U16Hi => 3,
-                        _ => crate::codegen::ice!("IMadSp src0 unsigned() is always U32/U24/U16Lo/U16Hi"),
+                        _ => crate::codegen::ice!(
+                            "IMadSp src0 unsigned() is always U32/U24/U16Lo/U16Hi"
+                        ),
                     },
                 );
                 e.set_field(
@@ -481,8 +485,12 @@ impl SM20Op for OpIMadSp {
                         U32 => 0_u8,
                         U24 => 1,
                         U16Lo => 2,
-                        U16Hi => crate::codegen::ice!("SM20 legalization rejects IMadSp src2 U16Hi"),
-                        _ => crate::codegen::ice!("IMadSp src2 unsigned() has no other variants here"),
+                        U16Hi => {
+                            crate::codegen::ice!("SM20 legalization rejects IMadSp src2 U16Hi")
+                        }
+                        _ => crate::codegen::ice!(
+                            "IMadSp src2 unsigned() has no other variants here"
+                        ),
                     },
                 );
             }

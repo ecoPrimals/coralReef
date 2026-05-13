@@ -58,7 +58,10 @@ pub struct CompileRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileWgslRequest {
     /// WGSL source code (shared via `Arc<str>` across pipeline stages).
-    #[serde(deserialize_with = "deserialize_arc_str")]
+    ///
+    /// Canonical wire name: `"wgsl_source"`. Accepts `"source"` as alias
+    /// for callers using the shorthand form.
+    #[serde(alias = "source", deserialize_with = "deserialize_arc_str")]
     pub wgsl_source: Arc<str>,
     /// Target GPU architecture name (e.g. `sm70`, `sm86`, `rdna2`). Optional; defaults to sm70.
     #[serde(default = "default_arch")]
@@ -84,12 +87,15 @@ pub struct CompileWgslRequest {
 /// Uses `bytes::Bytes` for zero-copy IPC payloads — `Bytes::from(Vec<u8>)`
 /// takes ownership of the allocation without copying.
 ///
-/// Includes [`CompilationInfoResponse`] so callers (barraCuda, toadStool) can
+/// Includes [`CompilationInfoResponse`] so dispatch and routing callers can
 /// construct QMD / dispatch descriptors without re-parsing the binary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileResponse {
     /// Compiled GPU binary, base64-encoded on the wire.
-    #[serde(rename = "binary_b64")]
+    ///
+    /// Canonical wire name: `"binary_b64"`. Accepts `"binary"` as alias
+    /// for callers using the legacy field name.
+    #[serde(rename = "binary_b64", alias = "binary")]
     pub binary: Bytes,
     /// Size in bytes.
     pub size: usize,
@@ -100,14 +106,17 @@ pub struct CompileResponse {
     #[serde(default)]
     pub status: Option<String>,
     /// Compilation metadata for dispatch descriptor construction.
-    #[serde(rename = "shader_info", default)]
+    ///
+    /// Canonical wire name: `"shader_info"`. Accepts `"info"` as alias
+    /// for callers using the legacy field name.
+    #[serde(rename = "shader_info", alias = "info", default)]
     pub info: Option<CompilationInfoResponse>,
     /// Wall-clock compilation time in milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compile_time_ms: Option<f64>,
 }
 
-/// Compilation metadata needed by the dispatch layer (toadStool, coralDriver).
+/// Compilation metadata needed by the dispatch layer (`compute.dispatch` provider).
 ///
 /// Maps 1:1 from the compiler's internal `CompilationInfo`. Serialized as
 /// part of every `CompileResponse` so callers can build GPU dispatch
@@ -293,7 +302,9 @@ pub struct DeviceTarget {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiDeviceCompileRequest {
     /// WGSL source code (shared via `Arc<str>` across all targets).
-    #[serde(deserialize_with = "deserialize_arc_str")]
+    ///
+    /// Canonical wire name: `"wgsl_source"`. Accepts `"source"` as alias.
+    #[serde(alias = "source", deserialize_with = "deserialize_arc_str")]
     pub wgsl_source: Arc<str>,
     /// Target devices to compile for.
     pub targets: Vec<DeviceTarget>,

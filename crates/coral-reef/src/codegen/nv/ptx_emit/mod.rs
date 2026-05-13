@@ -27,6 +27,7 @@ mod expr_arith;
 mod expr_cast;
 mod expr_eval;
 mod expr_misc;
+pub mod gemm;
 mod math;
 mod pointers;
 mod statements;
@@ -362,7 +363,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
         let result = emit_compute_ptx(wgsl, 120).expect("compile");
         let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
-        assert!(ptx.contains("atom.global.add.u32"), "Expected atom.global.add.u32 in:\n{ptx}");
+        assert!(
+            ptx.contains("atom.global.add.u32"),
+            "Expected atom.global.add.u32 in:\n{ptx}"
+        );
     }
 
     #[test]
@@ -380,7 +384,10 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 ";
         let result = emit_compute_ptx(wgsl, 120).expect("compile");
         let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
-        assert!(ptx.contains("atom.shared.max.u32"), "Expected atom.shared.max.u32 in:\n{ptx}");
+        assert!(
+            ptx.contains("atom.shared.max.u32"),
+            "Expected atom.shared.max.u32 in:\n{ptx}"
+        );
     }
 
     #[test]
@@ -396,7 +403,10 @@ fn main() {
 ";
         let result = emit_compute_ptx(wgsl, 120).expect("compile");
         let ptx = std::str::from_utf8(&result.binary).expect("PTX output is valid UTF-8");
-        assert!(ptx.contains("atom.global.cas.u32"), "Expected atom.global.cas.u32 in:\n{ptx}");
+        assert!(
+            ptx.contains("atom.global.cas.u32"),
+            "Expected atom.global.cas.u32 in:\n{ptx}"
+        );
     }
 
     #[test]
@@ -419,14 +429,15 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
         assert!(ptx.contains("bar.sync"), "Expected bar.sync in:\n{ptx}");
     }
 
-    fn build_scan_module(
-        collective_op: naga::CollectiveOperation,
-    ) -> (naga::Module, usize) {
+    fn build_scan_module(collective_op: naga::CollectiveOperation) -> (naga::Module, usize) {
         use naga::*;
 
         let mut module = Module::default();
         let u32_ty = module.types.insert(
-            Type { name: None, inner: TypeInner::Scalar(Scalar::U32) },
+            Type {
+                name: None,
+                inner: TypeInner::Scalar(Scalar::U32),
+            },
             Span::UNDEFINED,
         );
         let buf_ty = module.types.insert(
@@ -441,11 +452,17 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
             Span::UNDEFINED,
         );
         let result_ty = module.types.insert(
-            Type { name: None, inner: TypeInner::Scalar(Scalar::U32) },
+            Type {
+                name: None,
+                inner: TypeInner::Scalar(Scalar::U32),
+            },
             Span::UNDEFINED,
         );
         let arg_ty = module.types.insert(
-            Type { name: None, inner: TypeInner::Scalar(Scalar::U32) },
+            Type {
+                name: None,
+                inner: TypeInner::Scalar(Scalar::U32),
+            },
             Span::UNDEFINED,
         );
         let gv = module.global_variables.append(
@@ -454,7 +471,10 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
                 space: AddressSpace::Storage {
                     access: StorageAccess::LOAD | StorageAccess::STORE,
                 },
-                binding: Some(ResourceBinding { group: 0, binding: 0 }),
+                binding: Some(ResourceBinding {
+                    group: 0,
+                    binding: 0,
+                }),
                 ty: buf_ty,
                 init: None,
             },
@@ -466,20 +486,21 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
             ..Default::default()
         };
 
-        let lane_expr = func.expressions.append(
-            Expression::FunctionArgument(0),
-            Span::UNDEFINED,
-        );
+        let lane_expr = func
+            .expressions
+            .append(Expression::FunctionArgument(0), Span::UNDEFINED);
         let scan_result = func.expressions.append(
             Expression::SubgroupOperationResult { ty: result_ty },
             Span::UNDEFINED,
         );
-        let gv_expr = func.expressions.append(
-            Expression::GlobalVariable(gv),
-            Span::UNDEFINED,
-        );
+        let gv_expr = func
+            .expressions
+            .append(Expression::GlobalVariable(gv), Span::UNDEFINED);
         let access = func.expressions.append(
-            Expression::Access { base: gv_expr, index: lane_expr },
+            Expression::Access {
+                base: gv_expr,
+                index: lane_expr,
+            },
             Span::UNDEFINED,
         );
 
@@ -497,7 +518,10 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
             Span::UNDEFINED,
         );
         func.body.push(
-            Statement::Store { pointer: access, value: scan_result },
+            Statement::Store {
+                pointer: access,
+                value: scan_result,
+            },
             Span::UNDEFINED,
         );
 
@@ -522,8 +546,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 
     #[test]
     fn ptx_subgroup_inclusive_scan_add() {
-        let (module, ep_idx) =
-            build_scan_module(naga::CollectiveOperation::InclusiveScan);
+        let (module, ep_idx) = build_scan_module(naga::CollectiveOperation::InclusiveScan);
         let ep_ref = &module.entry_points[ep_idx];
         let mut emitter = PtxEmitter::new(&module, ep_ref, 120);
         let ptx = emitter.emit().expect("emit scan");
@@ -535,8 +558,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 
     #[test]
     fn ptx_subgroup_exclusive_scan_add() {
-        let (module, ep_idx) =
-            build_scan_module(naga::CollectiveOperation::ExclusiveScan);
+        let (module, ep_idx) = build_scan_module(naga::CollectiveOperation::ExclusiveScan);
         let ep_ref = &module.entry_points[ep_idx];
         let mut emitter = PtxEmitter::new(&module, ep_ref, 120);
         let ptx = emitter.emit().expect("emit exclusive scan");
@@ -565,8 +587,14 @@ fn main() {
         assert!(result.is_ok(), "ImageStore should compile: {result:?}");
         let compiled = result.unwrap();
         let ptx = String::from_utf8_lossy(&compiled.binary);
-        assert!(ptx.contains(".surfref"), "should declare surface: {ptx:.200}");
-        assert!(ptx.contains("sust.b.2d"), "should emit sust.b.2d: {ptx:.400}");
+        assert!(
+            ptx.contains(".surfref"),
+            "should declare surface: {ptx:.200}"
+        );
+        assert!(
+            ptx.contains("sust.b.2d"),
+            "should emit sust.b.2d: {ptx:.400}"
+        );
     }
 
     #[test]
@@ -587,6 +615,117 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         assert!(result.is_ok(), "ImageLoad should compile: {result:?}");
         let compiled = result.unwrap();
         let ptx = String::from_utf8_lossy(&compiled.binary);
-        assert!(ptx.contains("suld.b.2d"), "should emit suld.b.2d: {ptx:.400}");
+        assert!(
+            ptx.contains("suld.b.2d"),
+            "should emit suld.b.2d: {ptx:.400}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_store_rg32float() {
+        let wgsl = r"
+@group(0) @binding(0)
+var tex: texture_storage_2d<rg32float, write>;
+
+@compute @workgroup_size(1)
+fn main() {
+    textureStore(tex, vec2<u32>(0u, 0u), vec4<f32>(1.0, 2.0, 0.0, 0.0));
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "rg32float store: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("sust.b.2d.v2.b32"),
+            "should emit v2.b32 for rg32float: {ptx:.400}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_store_r32uint() {
+        let wgsl = r"
+@group(0) @binding(0)
+var tex: texture_storage_2d<r32uint, write>;
+
+@compute @workgroup_size(1)
+fn main() {
+    textureStore(tex, vec2<u32>(0u, 0u), vec4<u32>(42u, 0u, 0u, 0u));
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "r32uint store: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("sust.b.2d.b32"),
+            "should emit b32 for r32uint: {ptx:.400}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_store_rgba16float() {
+        let wgsl = r"
+@group(0) @binding(0)
+var tex: texture_storage_2d<rgba16float, write>;
+
+@compute @workgroup_size(1)
+fn main() {
+    textureStore(tex, vec2<u32>(0u, 0u), vec4<f32>(1.0, 0.5, 0.25, 0.125));
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "rgba16float store: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("sust.b.2d.v4.b16"),
+            "should emit v4.b16 for rgba16float: {ptx:.400}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_load_r32float() {
+        let wgsl = r"
+@group(0) @binding(0)
+var tex: texture_storage_2d<r32float, read>;
+@group(0) @binding(1)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let v = textureLoad(tex, vec2<i32>(i32(gid.x), 0i));
+    out[gid.x] = v.x;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "r32float load: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("suld.b.2d.b32"),
+            "should emit b32 for r32float: {ptx:.400}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_store_bgra8unorm() {
+        let wgsl = r"
+@group(0) @binding(0)
+var tex: texture_storage_2d<bgra8unorm, write>;
+
+@compute @workgroup_size(1)
+fn main() {
+    textureStore(tex, vec2<u32>(0u, 0u), vec4<f32>(0.0, 1.0, 0.0, 1.0));
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "bgra8unorm store: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("sust.b.2d.v4.b8"),
+            "should emit v4.b8 for bgra8unorm: {ptx:.400}"
+        );
     }
 }

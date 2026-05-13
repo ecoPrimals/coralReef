@@ -95,9 +95,10 @@ pub fn dispatch_jsonrpc(
             Ok(resp)
         }
         "auth.peer_info" => {
-            let peer_info = caller.peer.as_ref().map(|p| {
-                serde_json::json!({ "uid": p.uid, "pid": p.pid })
-            });
+            let peer_info = caller
+                .peer
+                .as_ref()
+                .map(|p| serde_json::json!({ "uid": p.uid, "pid": p.pid }));
             let resp = serde_json::json!({
                 "peer": peer_info,
                 "origin": format!("{:?}", caller.origin).to_lowercase(),

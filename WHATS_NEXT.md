@@ -4,22 +4,34 @@
 
 **Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
 
-**Last completed**: Sprint 9+ — Post-excision evolution. Discovery filter aligned with toadStool capabilities (`compute.dispatch.*`, `gpu.*`, `compute.hardware.*`). Cross-primal name leaks eliminated (`beardog_socket()` → `security_provider_socket_legacy()`). 42 dependency patch updates. 4 new `compile_module` coverage tests (f64 lowering, FMA, SM120 PTX, shared memory).
+**Last completed**: Sprint 9+ — Post-excision evolution. HMMA tensor-core GEMM codegen shipped (`compile_gemm` API, `mma.sync.aligned` SM80+). IPC wire-compat aliases added (`source` → `wgsl_source`, `binary` → `binary_b64`, `info` → `shader_info`). Texture format coverage expanded (4→10 `TexelFormat` variants: R8, R16, R32, Rg8, Rg16, Rg32, Rgba8, Bgra8, Rgba16, Rgba32; explicit `StorageFormat` mapping). Discovery filter aligned with toadStool capabilities. Cross-primal name leaks eliminated. 42 dependency patch updates.
 
-**Tests**: 3130 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3154 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 13, 2026.
 
-**Next focus**: PTX emitter completion for SM120/Blackwell (texture instructions). Coverage push toward 90% on remaining 7 compiler crates. `naga::Module` ingest path hardening.
+**Next focus**: `ImageSample`/`ImageQuery` PTX emission. Coverage push toward 90%. WGSL cooperative matrix support (blocked on WGSL spec adoption).
 
 ---
 
 ## Current Priorities (Sprint 9+)
 
-1. PTX emitter completion for SM120/Blackwell (texture instructions, cooperative groups)
+1. `ImageSample` / `ImageQuery` PTX emission (texture sampling + dimension queries)
 2. Coverage push toward 90% on 7 remaining compiler crates
 3. `naga::Module` ingest path hardening (multiple entry points, validation)
 4. Ecosystem discovery integration testing with live toadStool instance
+
+### HMMA Codegen Status
+
+`compile_gemm()` API is live — generates PTX `mma.sync.aligned` kernels for SM80+ with
+f16, f16→f32 mixed-precision, and TF32 operand modes. This is the HMMA path available to
+the compute trio (barraCuda's GEMM router + toadStool's sovereign dispatch).
+
+**WGSL→HMMA automatic lowering** (detecting matmul patterns in arbitrary WGSL shaders and
+replacing with tensor-core instructions) is not currently feasible: WGSL has no cooperative
+matrix primitives, and naga does not expose `OpCooperativeMatrixMulAdd` from SPIR-V.
+Automatic pattern detection in the IR (matching nested loops as GEMM) is research-level
+complexity. The dedicated `compile_gemm` API is the practical path.
 
 ---
 

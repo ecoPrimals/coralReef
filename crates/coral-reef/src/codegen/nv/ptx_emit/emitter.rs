@@ -247,16 +247,43 @@ impl<'a> PtxEmitter<'a> {
                 };
                 let texel_format = match class {
                     naga::ImageClass::Storage { format, .. } => match format {
+                        naga::StorageFormat::R8Unorm
+                        | naga::StorageFormat::R8Snorm
+                        | naga::StorageFormat::R8Uint
+                        | naga::StorageFormat::R8Sint => TexelFormat::R8,
+                        naga::StorageFormat::R16Uint
+                        | naga::StorageFormat::R16Sint
+                        | naga::StorageFormat::R16Float
+                        | naga::StorageFormat::R16Unorm
+                        | naga::StorageFormat::R16Snorm => TexelFormat::R16,
+                        naga::StorageFormat::R32Uint
+                        | naga::StorageFormat::R32Sint
+                        | naga::StorageFormat::R32Float => TexelFormat::R32,
+                        naga::StorageFormat::Rg8Unorm
+                        | naga::StorageFormat::Rg8Snorm
+                        | naga::StorageFormat::Rg8Uint
+                        | naga::StorageFormat::Rg8Sint => TexelFormat::Rg8,
+                        naga::StorageFormat::Rg16Uint
+                        | naga::StorageFormat::Rg16Sint
+                        | naga::StorageFormat::Rg16Float
+                        | naga::StorageFormat::Rg16Unorm
+                        | naga::StorageFormat::Rg16Snorm => TexelFormat::Rg16,
+                        naga::StorageFormat::Rg32Uint
+                        | naga::StorageFormat::Rg32Sint
+                        | naga::StorageFormat::Rg32Float => TexelFormat::Rg32,
                         naga::StorageFormat::Rgba8Unorm
                         | naga::StorageFormat::Rgba8Snorm
                         | naga::StorageFormat::Rgba8Uint
                         | naga::StorageFormat::Rgba8Sint => TexelFormat::Rgba8,
+                        naga::StorageFormat::Bgra8Unorm => TexelFormat::Bgra8,
                         naga::StorageFormat::Rgba16Uint
                         | naga::StorageFormat::Rgba16Sint
-                        | naga::StorageFormat::Rgba16Float => TexelFormat::Rgba16,
-                        naga::StorageFormat::R32Uint
-                        | naga::StorageFormat::R32Sint
-                        | naga::StorageFormat::R32Float => TexelFormat::R32,
+                        | naga::StorageFormat::Rgba16Float
+                        | naga::StorageFormat::Rgba16Unorm
+                        | naga::StorageFormat::Rgba16Snorm => TexelFormat::Rgba16,
+                        naga::StorageFormat::Rgba32Uint
+                        | naga::StorageFormat::Rgba32Sint
+                        | naga::StorageFormat::Rgba32Float => TexelFormat::Rgba32,
                         _ => TexelFormat::Rgba32,
                     },
                     _ => TexelFormat::Rgba32,

@@ -25,7 +25,10 @@ use std::sync::OnceLock;
 pub const PERMISSION_DENIED: i32 = -32_001;
 
 /// JSON-RPC error code: caller identity could not be established.
-#[allow(dead_code, reason = "reserved for enforced mode when security provider ships auth.verify_ionic")]
+#[allow(
+    dead_code,
+    reason = "reserved for enforced mode when security provider ships auth.verify_ionic"
+)]
 pub const UNAUTHORIZED: i32 = -32_000;
 
 /// Access level for a JSON-RPC method.
@@ -87,7 +90,10 @@ pub struct CallerContext {
 
 /// How the caller connected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "Unix and Remote constructed when peer creds are wired")]
+#[allow(
+    dead_code,
+    reason = "Unix and Remote constructed when peer creds are wired"
+)]
 pub enum ConnectionOrigin {
     /// Local Unix domain socket.
     Unix,
@@ -115,7 +121,10 @@ impl CallerContext {
     /// when the composition explicitly provides them. Until then, origin
     /// alone distinguishes local from remote.
     #[must_use]
-    #[allow(dead_code, reason = "used when Unix socket accept wires caller context")]
+    #[allow(
+        dead_code,
+        reason = "used when Unix socket accept wires caller context"
+    )]
     pub const fn unix() -> Self {
         Self {
             bearer_token: None,
@@ -155,12 +164,16 @@ pub enum EnforcementMode {
 }
 
 impl EnforcementMode {
-    /// Resolve from `CORALREEF_AUTH_MODE` env var.
-    /// Falls back to `PRIMALSPRING_AUTH_MODE` for ecosystem consistency.
-    /// Defaults to `Permissive` if unset or unrecognized.
+    /// Resolve from environment variables (first match wins):
+    /// 1. `CORALREEF_AUTH_MODE` — primal-specific override
+    /// 2. `ECOSYSTEM_AUTH_MODE` — ecosystem-wide standard
+    /// 3. `PRIMALSPRING_AUTH_MODE` — legacy ecosystem alias
+    ///
+    /// Defaults to `Permissive` if all are unset or unrecognized.
     #[must_use]
     pub fn from_env() -> Self {
         let val = std::env::var("CORALREEF_AUTH_MODE")
+            .or_else(|_| std::env::var("ECOSYSTEM_AUTH_MODE"))
             .or_else(|_| std::env::var("PRIMALSPRING_AUTH_MODE"))
             .unwrap_or_default();
         match val.to_lowercase().as_str() {
@@ -183,7 +196,10 @@ impl EnforcementMode {
 #[derive(Debug)]
 pub struct GateDenied {
     /// JSON-RPC error code (carried for diagnostic/test introspection).
-    #[allow(dead_code, reason = "available for test assertions and future structured logging")]
+    #[allow(
+        dead_code,
+        reason = "available for test assertions and future structured logging"
+    )]
     pub code: i32,
     /// Human-readable error message.
     pub message: String,
@@ -279,8 +295,14 @@ mod tests {
     #[test]
     fn health_methods_are_public() {
         assert_eq!(classify_method("health.check"), MethodAccessLevel::Public);
-        assert_eq!(classify_method("health.liveness"), MethodAccessLevel::Public);
-        assert_eq!(classify_method("health.readiness"), MethodAccessLevel::Public);
+        assert_eq!(
+            classify_method("health.liveness"),
+            MethodAccessLevel::Public
+        );
+        assert_eq!(
+            classify_method("health.readiness"),
+            MethodAccessLevel::Public
+        );
     }
 
     #[test]
@@ -290,8 +312,14 @@ mod tests {
 
     #[test]
     fn capabilities_list_is_public() {
-        assert_eq!(classify_method("capabilities.list"), MethodAccessLevel::Public);
-        assert_eq!(classify_method("capability.list"), MethodAccessLevel::Public);
+        assert_eq!(
+            classify_method("capabilities.list"),
+            MethodAccessLevel::Public
+        );
+        assert_eq!(
+            classify_method("capability.list"),
+            MethodAccessLevel::Public
+        );
     }
 
     #[test]
@@ -303,19 +331,34 @@ mod tests {
 
     #[test]
     fn lifecycle_status_is_public() {
-        assert_eq!(classify_method("lifecycle.status"), MethodAccessLevel::Public);
+        assert_eq!(
+            classify_method("lifecycle.status"),
+            MethodAccessLevel::Public
+        );
     }
 
     #[test]
     fn shader_methods_are_protected() {
-        assert_eq!(classify_method("shader.compile.wgsl"), MethodAccessLevel::Protected);
-        assert_eq!(classify_method("shader.compile.spirv"), MethodAccessLevel::Protected);
-        assert_eq!(classify_method("shader.compile.wgsl.multi"), MethodAccessLevel::Protected);
+        assert_eq!(
+            classify_method("shader.compile.wgsl"),
+            MethodAccessLevel::Protected
+        );
+        assert_eq!(
+            classify_method("shader.compile.spirv"),
+            MethodAccessLevel::Protected
+        );
+        assert_eq!(
+            classify_method("shader.compile.wgsl.multi"),
+            MethodAccessLevel::Protected
+        );
     }
 
     #[test]
     fn btsp_negotiate_is_protected() {
-        assert_eq!(classify_method("btsp.negotiate"), MethodAccessLevel::Protected);
+        assert_eq!(
+            classify_method("btsp.negotiate"),
+            MethodAccessLevel::Protected
+        );
     }
 
     #[test]

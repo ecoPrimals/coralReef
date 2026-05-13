@@ -441,8 +441,7 @@ impl PtxEmitter<'_> {
                 )
                 .expect("write to String");
             }
-            naga::CollectiveOperation::InclusiveScan
-            | naga::CollectiveOperation::ExclusiveScan => {
+            naga::CollectiveOperation::InclusiveScan | naga::CollectiveOperation::ExclusiveScan => {
                 let scan_op = Self::scan_op_str(op, val_scalar)?;
                 self.emit_warp_scan(
                     &val,
@@ -589,7 +588,9 @@ impl PtxEmitter<'_> {
 
     fn scan_identity(op: naga::SubgroupOperation, scalar: naga::Scalar) -> &'static str {
         match op {
-            naga::SubgroupOperation::Add | naga::SubgroupOperation::Or | naga::SubgroupOperation::Xor => "0",
+            naga::SubgroupOperation::Add
+            | naga::SubgroupOperation::Or
+            | naga::SubgroupOperation::Xor => "0",
             naga::SubgroupOperation::Mul => "1",
             naga::SubgroupOperation::And => "0xFFFFFFFF",
             naga::SubgroupOperation::Min => {
@@ -622,7 +623,9 @@ impl PtxEmitter<'_> {
             ));
         };
         let surf_idx = self.surface_index(gv_handle).ok_or_else(|| {
-            CompileError::InvalidInput("ImageStore target is not a recognized surface binding".into())
+            CompileError::InvalidInput(
+                "ImageStore target is not a recognized surface binding".into(),
+            )
         })?;
         let dim_suffix = self.surfaces[surf_idx].dim.ptx_suffix();
         let type_suffix = self.surfaces[surf_idx].texel_format.ptx_type();
@@ -632,14 +635,21 @@ impl PtxEmitter<'_> {
 
         let coord_str = match &coord {
             super::types::PtxVal::Vec(components) if components.len() >= 2 => {
-                format!("{{{}, {}}}", components[0].fmt_operand(), components[1].fmt_operand())
+                format!(
+                    "{{{}, {}}}",
+                    components[0].fmt_operand(),
+                    components[1].fmt_operand()
+                )
             }
             _ => format!("{{{}}}", coord.fmt_operand()),
         };
 
         let val_str = match &val {
             super::types::PtxVal::Vec(components) => {
-                let parts: Vec<String> = components.iter().map(super::types::PtxVal::fmt_operand).collect();
+                let parts: Vec<String> = components
+                    .iter()
+                    .map(super::types::PtxVal::fmt_operand)
+                    .collect();
                 format!("{{{}}}", parts.join(", "))
             }
             _ => format!("{{{}}}", val.fmt_operand()),
@@ -653,7 +663,10 @@ impl PtxEmitter<'_> {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments, reason = "scan emission needs all parameters")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "scan emission needs all parameters"
+    )]
     fn emit_warp_scan(
         &mut self,
         val: &PtxVal,

@@ -413,7 +413,9 @@ impl SM32Op for OpIMadSp {
                         U16Lo => 2,
                         U16Hi => 3,
                         S32 | S24 | S16Hi | S16Lo => {
-                            crate::codegen::ice!("src0.unsigned() removes signed IMadSpSrcType variants")
+                            crate::codegen::ice!(
+                                "src0.unsigned() removes signed IMadSpSrcType variants"
+                            )
                         }
                     },
                 );
@@ -424,7 +426,9 @@ impl SM32Op for OpIMadSp {
                         U32 => 0_u8,
                         U24 => 1,
                         U16Lo => 2,
-                        U16Hi => crate::codegen::ice!("SM32 legalization rejects IMadSp src2 U16Hi"),
+                        U16Hi => {
+                            crate::codegen::ice!("SM32 legalization rejects IMadSp src2 U16Hi")
+                        }
                         _ => crate::codegen::ice!(
                             "IMadSp src2 unsigned() is U32/U24/U16Lo after legalization"
                         ),
@@ -438,7 +442,9 @@ impl SM32Op for OpIMadSp {
                     match src1.unsigned() {
                         U24 => 1_u8,
                         U16Lo => 0,
-                        _ => crate::codegen::ice!("SM32 legalization rejects IMadSp src1 non-U16Lo/U24"),
+                        _ => crate::codegen::ice!(
+                            "SM32 legalization rejects IMadSp src1 non-U16Lo/U24"
+                        ),
                     },
                 );
             }

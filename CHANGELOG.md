@@ -13,18 +13,30 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 ### Post-101 — Sprint 9+: Post-Excision Evolution (2026-05-13)
 
 #### Changed
+- **`lib.rs` refactored**: 868→630 lines. GEMM types + `compile_gemm` extracted to `src/gemm.rs` (112L). Preamble injection extracted to `src/preamble.rs` (149L).
+- **`newton.rs` refactored**: 849→568 lines. Tests extracted to `newton_tests.rs` (278L).
+- **Hardcoded primal names eliminated**: `service/types.rs`, `shader_model.rs`, `func_builtins.rs`, `discovery.rs` doc comments genericized (replaced "toadStool", "coralDriver" with capability-based references).
+- **`ECOSYSTEM_AUTH_MODE`** added as primary env var for method gate enforcement; `PRIMALSPRING_AUTH_MODE` kept as legacy fallback.
 - **Discovery filter evolved**: Now matches toadStool capability names (`compute.dispatch.*`, `gpu.*`, `compute.hardware.*`) in addition to legacy `gpu.dispatch`
 - **Requires declaration**: `gpu.dispatch` → `compute.dispatch` (with `legacy_id` metadata for backward compat)
 - **Cross-primal leaks eliminated**: `beardog_socket()` → `security_provider_socket_legacy()`; doc comments no longer reference peer primal internal architecture
 - **All workspace deps updated** to latest patch versions (42 updates)
+- **Texture format coverage expanded**: `TexelFormat` enum expanded from 4 to 10 variants (`R8`, `R16`, `R32`, `Rg8`, `Rg16`, `Rg32`, `Rgba8`, `Bgra8`, `Rgba16`, `Rgba32`). `StorageFormat` → `TexelFormat` classifier in `emitter.rs` now explicitly handles all naga format variants instead of silently falling through to Rgba32.
+- **IPC wire compatibility aliases**: `CompileWgslRequest::wgsl_source` now accepts `"source"` as serde alias. `CompileResponse` fields accept legacy names (`"binary"` → `binary_b64`, `"info"` → `shader_info`). Both `CompileWgslRequest` and `MultiDeviceCompileRequest` carry the alias.
 
 #### Added
+- **HMMA codegen for tensor-core GEMM**: `compile_gemm()` API generates PTX `mma.sync.aligned` kernels for NVIDIA SM80+ (Ampere, Ada, Blackwell). Supports `F16`, `F16F32` (mixed-precision), and `TF32` operand precisions. Tile shapes: `m16n8k16` (f16) and `m16n8k8` (TF32). New types: `GemmShape`, `GemmPrecision`.
+- `codegen/nv/ptx_emit/gemm.rs`: Standalone PTX GEMM emitter with K-loop unrolling, accumulator zeroing, and fragment load/store
+- 5 unit tests (f16f32 basic, TF32 basic, f16 accumulate, multi-K iteration, SM120 Blackwell)
+- 7 integration tests (SM80 f16f32, pre-SM80 rejection, AMD rejection, misaligned K, zero dimensions, SM120 Blackwell multi-tile, TF32 K-alignment)
 - **`naga::Module` direct ingest H2**: Entry point selection via `CompileOptions::entry_point`, module validation via `naga::valid::Validator` (opt-out with `validate: false`)
 - PTX emit path (`emit_compute_ptx_module`) now accepts entry point name for SM100+ targets
 - 2 new ecosystem discovery tests (toadStool-style `compute.dispatch.*` JSON, `compute.hardware.*`)
 - 4 new `compile_module` tests (f64 software lowering, FMA fused, SM120 PTX path, shared memory reporting)
 - 5 new entry point + validation tests (EP selection by name, missing EP error, compute-stage preference, validation rejection, validation bypass)
-- Total: **3130 tests** (was 3115)
+- 5 new texture format tests (rg32float store, r32uint store, rgba16float store, r32float load, bgra8unorm store)
+- 3 new serde wire-compat tests (source alias, multi-device source alias, legacy field alias roundtrip)
+- Total: **3154 tests** (was 3143, was 3130, was 3115 at excision). Zero files >800 lines in production code.
 
 ---
 

@@ -88,7 +88,9 @@ impl SM32Op for OpLd {
                     MemSpace::Local => 0x7a0,
                     MemSpace::Shared => 0x7a4,
                     MemSpace::Global(_) => {
-                        crate::codegen::ice!("Local|Shared arm: Global was matched in outer MemSpace")
+                        crate::codegen::ice!(
+                            "Local|Shared arm: Global was matched in outer MemSpace"
+                        )
                     }
                 };
                 e.set_opcode(opc, 2);
@@ -173,7 +175,9 @@ impl SM32Op for OpSt {
                     MemSpace::Local => 0x7a8,
                     MemSpace::Shared => 0x7ac,
                     MemSpace::Global(_) => {
-                        crate::codegen::ice!("Local|Shared arm: Global was matched in outer MemSpace")
+                        crate::codegen::ice!(
+                            "Local|Shared arm: Global was matched in outer MemSpace"
+                        )
                     }
                 };
                 e.set_opcode(opc, 2);

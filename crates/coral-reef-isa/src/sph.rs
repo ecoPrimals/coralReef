@@ -151,7 +151,10 @@ mod tests {
 
     #[test]
     fn test_sph_max_barriers() {
-        let sph = SphBuilder::new().num_barriers(16).num_gprs(16).shared_mem(0);
+        let sph = SphBuilder::new()
+            .num_barriers(16)
+            .num_gprs(16)
+            .shared_mem(0);
         let encoded = sph.encode();
         assert_eq!(get_field_from_bytes(&encoded, 144, 5), 16);
     }
@@ -159,9 +162,15 @@ mod tests {
     #[test]
     fn test_sph_large_shared_mem() {
         let shared = 96 * 1024;
-        let sph = SphBuilder::new().num_gprs(32).num_barriers(0).shared_mem(shared);
+        let sph = SphBuilder::new()
+            .num_gprs(32)
+            .num_barriers(0)
+            .shared_mem(shared);
         let encoded = sph.encode();
-        assert_eq!(get_field_from_bytes(&encoded, 149, 11), u64::from(shared / 256));
+        assert_eq!(
+            get_field_from_bytes(&encoded, 149, 11),
+            u64::from(shared / 256)
+        );
     }
 
     #[test]

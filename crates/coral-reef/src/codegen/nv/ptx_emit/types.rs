@@ -85,29 +85,44 @@ impl ImageDim {
     }
 }
 
-/// Texel format (determines PTX element type width).
+/// Texel format (determines PTX element type width and component count).
+///
+/// Maps naga `StorageFormat` variants to the PTX surface instruction's
+/// type suffix (e.g. `v4.b8` for RGBA8, `b32` for R32).
 #[derive(Debug, Clone, Copy)]
 pub enum TexelFormat {
+    R8,
+    R16,
+    R32,
+    Rg8,
+    Rg16,
+    Rg32,
     Rgba8,
+    Bgra8,
     Rgba16,
     Rgba32,
-    R32,
 }
 
 impl TexelFormat {
     pub(crate) fn ptx_type(self) -> &'static str {
         match self {
-            Self::Rgba8 => "v4.b8",
+            Self::R8 => "b8",
+            Self::R16 => "b16",
+            Self::R32 => "b32",
+            Self::Rg8 => "v2.b8",
+            Self::Rg16 => "v2.b16",
+            Self::Rg32 => "v2.b32",
+            Self::Rgba8 | Self::Bgra8 => "v4.b8",
             Self::Rgba16 => "v4.b16",
             Self::Rgba32 => "v4.b32",
-            Self::R32 => "b32",
         }
     }
 
     pub(crate) fn component_count(self) -> usize {
         match self {
-            Self::Rgba8 | Self::Rgba16 | Self::Rgba32 => 4,
-            Self::R32 => 1,
+            Self::R8 | Self::R16 | Self::R32 => 1,
+            Self::Rg8 | Self::Rg16 | Self::Rg32 => 2,
+            Self::Rgba8 | Self::Bgra8 | Self::Rgba16 | Self::Rgba32 => 4,
         }
     }
 }

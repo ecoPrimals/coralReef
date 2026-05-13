@@ -502,6 +502,36 @@ fn test_compile_wgsl_request_defaults_from_json() {
 }
 
 #[test]
+fn test_compile_wgsl_request_source_alias() {
+    let json = r#"{"source":"@compute @workgroup_size(1) fn main() {}"}"#;
+    let req: CompileWgslRequest = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        req.wgsl_source.as_ref(),
+        "@compute @workgroup_size(1) fn main() {}"
+    );
+}
+
+#[test]
+fn test_multi_device_request_source_alias() {
+    let json = r#"{"source":"fn main() {}","targets":[{"card_index":0,"arch":"sm_70"}]}"#;
+    let req: MultiDeviceCompileRequest = serde_json::from_str(json).unwrap();
+    assert_eq!(req.wgsl_source.as_ref(), "fn main() {}");
+}
+
+#[test]
+fn test_compile_response_legacy_field_aliases() {
+    let json = r#"{
+        "binary": [1, 2, 3],
+        "size": 3,
+        "info": {"gprs": 16, "instr_count": 50, "shared_memory": 0, "barriers": 0, "workgroup": [1,1,1], "wave_size": 32, "local_memory": 0}
+    }"#;
+    let resp: CompileResponse = serde_json::from_str(json).unwrap();
+    assert_eq!(resp.binary.as_ref(), &[1, 2, 3]);
+    assert!(resp.info.is_some());
+    assert_eq!(resp.info.unwrap().gpr_count, 16);
+}
+
+#[test]
 fn test_compile_response_serde_roundtrip() {
     let resp = CompileResponse {
         binary: Bytes::from(vec![0x01, 0x02, 0x03]),
@@ -520,16 +550,37 @@ fn test_compile_response_serde_roundtrip() {
         compile_time_ms: Some(42.0),
     };
     let json = serde_json::to_string(&resp).unwrap();
-    assert!(json.contains("\"binary_b64\""), "wire field must be binary_b64");
+    assert!(
+        json.contains("\"binary_b64\""),
+        "wire field must be binary_b64"
+    );
     assert!(json.contains("\"target\""), "wire field must be target");
-    assert!(json.contains("\"shader_info\""), "wire field must be shader_info");
+    assert!(
+        json.contains("\"shader_info\""),
+        "wire field must be shader_info"
+    );
     assert!(json.contains("\"gprs\""), "wire field must be gprs");
-    assert!(json.contains("\"shared_memory\""), "wire field must be shared_memory");
+    assert!(
+        json.contains("\"shared_memory\""),
+        "wire field must be shared_memory"
+    );
     assert!(json.contains("\"barriers\""), "wire field must be barriers");
-    assert!(json.contains("\"workgroup\""), "wire field must be workgroup");
-    assert!(json.contains("\"wave_size\""), "wire field must include wave_size");
-    assert!(json.contains("\"local_memory\""), "wire field must include local_memory");
-    assert!(json.contains("\"compile_time_ms\""), "wire field must include compile_time_ms");
+    assert!(
+        json.contains("\"workgroup\""),
+        "wire field must be workgroup"
+    );
+    assert!(
+        json.contains("\"wave_size\""),
+        "wire field must include wave_size"
+    );
+    assert!(
+        json.contains("\"local_memory\""),
+        "wire field must include local_memory"
+    );
+    assert!(
+        json.contains("\"compile_time_ms\""),
+        "wire field must include compile_time_ms"
+    );
     let roundtrip: CompileResponse = serde_json::from_str(&json).unwrap();
     assert_eq!(roundtrip.binary.as_ref(), resp.binary.as_ref());
     assert_eq!(roundtrip.size, resp.size);
@@ -624,7 +675,10 @@ fn test_device_compile_result_error_skips_binary_in_json() {
         info: None,
     };
     let json = serde_json::to_string(&result).unwrap();
-    assert!(!json.contains("\"binary_b64\""), "None binary should be skipped");
+    assert!(
+        !json.contains("\"binary_b64\""),
+        "None binary should be skipped"
+    );
     assert!(json.contains("unsupported arch"));
     let roundtrip: DeviceCompileResult = serde_json::from_str(&json).unwrap();
     assert!(roundtrip.binary.is_none());
@@ -824,8 +878,14 @@ fn test_compile_capabilities_response_serde_roundtrip() {
         subgroup_ops: Some(true),
     };
     let json = serde_json::to_string(&resp).expect("serialize");
-    assert!(json.contains("\"targets\""), "Gate 1: wire field must be targets");
-    assert!(!json.contains("\"supported_archs\""), "supported_archs must not appear on wire");
+    assert!(
+        json.contains("\"targets\""),
+        "Gate 1: wire field must be targets"
+    );
+    assert!(
+        !json.contains("\"supported_archs\""),
+        "supported_archs must not appear on wire"
+    );
     let rt: CompileCapabilitiesResponse = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(rt.supported_archs, resp.supported_archs);
     assert!(rt.f64_transcendentals.sin);
