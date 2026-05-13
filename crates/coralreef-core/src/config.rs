@@ -142,23 +142,23 @@ pub fn discovery_dir() -> std::io::Result<PathBuf> {
     Ok(base.join(ecosystem_namespace()))
 }
 
-/// Resolve the `BearDog` security-provider socket path.
+/// Resolve the security-domain provider socket path.
 ///
-/// The composition launcher sets `$BEARDOG_SOCKET` to the concrete path.
+/// The composition launcher sets `$BTSP_PROVIDER_SOCKET` (preferred) or
+/// `$BEARDOG_SOCKET` (legacy alias) to the concrete path.
 /// Returns `None` when unset or empty (standalone/dev mode).
-#[must_use]
-pub fn beardog_socket() -> Option<PathBuf> {
-    non_empty_env_path("BEARDOG_SOCKET")
-}
-
-/// Resolve the BTSP provider socket path.
-///
-/// The composition launcher sets `$BTSP_PROVIDER_SOCKET` — typically the
-/// same as `$BEARDOG_SOCKET` since `BearDog` hosts BTSP.
-/// Returns `None` when unset or empty.
 #[must_use]
 pub fn btsp_provider_socket() -> Option<PathBuf> {
     non_empty_env_path("BTSP_PROVIDER_SOCKET")
+}
+
+/// Legacy alias: composition launcher may set `$BEARDOG_SOCKET`.
+///
+/// Prefer [`btsp_provider_socket`] — this reads the legacy env var name
+/// that some composition launchers still emit.
+#[must_use]
+pub fn security_provider_socket_legacy() -> Option<PathBuf> {
+    non_empty_env_path("BEARDOG_SOCKET")
 }
 
 /// Resolve the Songbird discovery socket path.
@@ -174,7 +174,7 @@ pub fn discovery_socket() -> Option<PathBuf> {
 /// Retrieve the family seed (Tier 1 crypto derivation input).
 ///
 /// Set by the composition launcher as `$FAMILY_SEED`. The value is
-/// opaque hex — coralReef only needs to forward it to `BearDog` for
+/// opaque hex — coralReef forwards it to the security-domain provider for
 /// purpose-key derivation and artifact signing.
 /// Returns `None` when unset or empty.
 #[must_use]
@@ -311,9 +311,9 @@ mod tests {
     }
 
     #[test]
-    fn beardog_socket_returns_none_when_unset() {
+    fn security_provider_legacy_returns_none_when_unset() {
         if std::env::var("BEARDOG_SOCKET").is_err() {
-            assert!(beardog_socket().is_none());
+            assert!(security_provider_socket_legacy().is_none());
         }
     }
 

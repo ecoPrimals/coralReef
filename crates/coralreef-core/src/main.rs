@@ -223,7 +223,7 @@ fn log_composition_env() {
     let vars = [
         (
             "BEARDOG_SOCKET",
-            config::beardog_socket().map(|p| p.display().to_string()),
+            config::security_provider_socket_legacy().map(|p| p.display().to_string()),
         ),
         (
             "BTSP_PROVIDER_SOCKET",

@@ -8,7 +8,7 @@
 //!
 //! ## Key Export Pattern
 //!
-//! Per `BTSP_PROTOCOL_STANDARD` v1.0, the security provider (`BearDog`) returns a
+//! Per `BTSP_PROTOCOL_STANDARD` v1.0, the security-domain provider returns a
 //! `handshake_key` in the `btsp.session.create` response. When present, Phase 3
 //! derives real AEAD keys via HKDF-SHA256. When absent, the null cipher fallback
 //! keeps everything working on plaintext.

@@ -15,7 +15,7 @@
 //!
 //! Caller identity is extracted from `SO_PEERCRED` on Unix sockets (via
 //! `rustix`) or inferred from connection origin. Token verification is a
-//! trait interface that `BearDog` fills in later (`auth.verify_ionic`).
+//! trait interface that the security-domain provider fills in later (`auth.verify_ionic`).
 //!
 //! Per `primalSpring/wateringHole/METHOD_GATE_STANDARD.md` v1.0.
 
@@ -25,7 +25,7 @@ use std::sync::OnceLock;
 pub const PERMISSION_DENIED: i32 = -32_001;
 
 /// JSON-RPC error code: caller identity could not be established.
-#[allow(dead_code, reason = "reserved for enforced mode when BearDog ships auth.verify_ionic")]
+#[allow(dead_code, reason = "reserved for enforced mode when security provider ships auth.verify_ionic")]
 pub const UNAUTHORIZED: i32 = -32_000;
 
 /// Access level for a JSON-RPC method.

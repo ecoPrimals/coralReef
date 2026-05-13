@@ -10,7 +10,7 @@
 //! ## Architecture
 //!
 //! JSON-RPC dispatch is pure `serde_json` — no jsonrpsee, no `async-trait`, no hyper.
-//! Matches ecosystem standard (songBird `TowerAtomic`, bearDog `HandlerRegistry`).
+//! Matches ecosystem JSON-RPC 2.0 standard (tower-atomic handler pattern).
 //!
 //! ## Platform-agnostic transport (ecoBin compliance)
 //!

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! BTSP (biomeOS Transport Security Protocol) Phase 2: `BearDog` delegation.
+//! BTSP (biomeOS Transport Security Protocol) Phase 2: security-domain delegation.
 //!
 //! Per wateringHole `BTSP_PROTOCOL_STANDARD` v1.0 and `PRIMAL_SELF_KNOWLEDGE_STANDARD`
 //! v1.1: when `FAMILY_ID` is set (production mode), every incoming socket connection
@@ -7,17 +7,17 @@
 //!
 //! ## Architecture
 //!
-//! Consumer primals (coralReef) delegate the handshake to the security-domain
-//! provider (`BearDog`) via `btsp.session.create` over newline-delimited JSON-RPC
-//! on a Unix socket. Discovery is capability-based: we look for a `crypto` domain
-//! socket, never hardcoding a primal name.
+//! Consumer primals delegate the handshake to the security-domain provider via
+//! `btsp.session.create` over newline-delimited JSON-RPC on a Unix socket.
+//! Discovery is capability-based: we look for a `security` domain socket or
+//! `btsp.session.create` capability, never hardcoding a primal name.
 //!
 //! ## Degraded Mode
 //!
 //! When `FAMILY_ID` is set but the security provider is unreachable or its
 //! session layer is incomplete, the guard logs a warning and **accepts** the
-//! connection. This prevents a hard dependency on `BearDog` availability during
-//! the Phase 2 rollout window.
+//! connection. This prevents a hard dependency on security provider availability
+//! during the Phase 2 rollout window.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -122,8 +122,8 @@ impl BtspOutcome {
 
 /// First byte that indicates plain JSON-RPC (no BTSP handshake expected).
 ///
-/// Per bearDog `ProtocolDetector` convention: a leading `{` means the peer
-/// is sending newline-delimited JSON-RPC directly (e.g. biomeOS capability.call
+/// Per ecosystem `ProtocolDetector` convention: a leading `{` means the peer
+/// is sending newline-delimited JSON-RPC directly (e.g. ecosystem capability.call
 /// forwarding). Any other leading byte triggers BTSP handshake.
 const PLAIN_JSONRPC_MARKER: u8 = b'{';
 
@@ -233,8 +233,8 @@ fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
         return Some(path);
     }
 
-    if let Some(path) = config::beardog_socket().filter(|p| p.exists()) {
-        tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET");
+    if let Some(path) = config::security_provider_socket_legacy().filter(|p| p.exists()) {
+        tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET (legacy)");
         return Some(path);
     }
 
