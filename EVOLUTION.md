@@ -3,33 +3,52 @@
 # coralReef — Compiler Evolution
 
 **Last updated**: May 13, 2026 (Phase 10 — Iteration 101+, Sprint 9+)
-**Phase**: 10 — Sprint 9+: Post-excision evolution — discovery aligned with toadStool, cross-primal leaks eliminated, deps current. Sprint 9: Diesel engine excision — pure compiler primal (489+ .rs files excised). Zero unsafe. 3129 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Phase**: 10 — Sprint 9+: Post-excision evolution — discovery aligned with toadStool, cross-primal leaks eliminated, deps current. Sprint 9: Diesel engine excision — pure compiler primal (489+ .rs files excised). Zero unsafe. 3130 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 
 ## Current Position
 
-coralReef compiles WGSL, SPIR-V, and GLSL to native GPU binaries for NVIDIA
-(SM35–SM120, including Blackwell) and AMD (GCN5/RDNA2–RDNA4). Pure Rust; transitive
-libc only via tokio/mio (deferred to mio#1735 rustix migration).
-3129 tests (3 ignored), zero unsafe, pure compiler primal (diesel excised Sprint 9).
-93/93 cross-spring WGSL shaders compile to SM70 SASS, plus 5/5 GLSL
-compute shaders and 10/10 SPIR-V roundtrip tests passing. Multi-GPU
-sovereignty: driver preference (vfio-first), nvidia-drm probing with
-UVM delegation, ecosystem discovery, cross-vendor parity testing, zero DEBT
-markers. Multi-device compile API
-(`shader.compile.wgsl.multi`), FMA contraction enforcement
-(`FmaPolicy::Separate` splits FFma→FMul+FAdd), `PCIe` topology awareness,
-FMA hardware capability reporting per architecture.
-`FirmwareInventory` + `compute_viable()` for PMU/GSP-aware dispatch viability.
-`NvDrmDevice` delegates to `NvUvmComputeDevice` for full compute dispatch.
-`KernelCacheEntry` + `dispatch_precompiled()` wire barraCuda kernel cache.
-All DRM ioctls use `drm_ioctl_named` with operation-specific error messages.
-`unsafe` confined to kernel ABI boundary in `coral-driver`.
-VFIO PFIFO channel creation via BAR0 — full Volta hardware channel init with
-V2 MMU 5-level page tables, RAMFC population, TSG+channel runlist, PCCSR
-bind/enable. RAMUSERD offsets corrected (GP_GET@0x88, GP_PUT@0x8C).
-USERMODE doorbell at BAR0+0x810090.
+coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
+binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
+
+Pure Rust. Zero unsafe. 3130 tests (3 ignored). Zero clippy warnings.
+
+### What coralReef does
+- Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
+- `naga::Module` direct ingest with entry point selection + validation
+- Multi-device compile API (`shader.compile.wgsl.multi`)
+- f64 transcendental software lowering (Newton-Raphson, MUFU)
+- FMA contraction enforcement (`FmaPolicy::Separate` splits FFma→FMul+FAdd)
+- SM120/Blackwell PTX emitter (compute, atomics, subgroups, barriers)
+- IPC: `shader.compile.*` + `health.*` + `identity.get` + `capability.register`
+- Ecosystem discovery: capability-based GPU target resolution via toadStool
+
+### What coralReef does NOT do (as of Sprint 9 excision)
+- No hardware dispatch — delegated to toadStool via IPC
+- No DRM/VFIO/UVM device management — toadStool domain
+- No GPU lifecycle (bind/unbind/swap/warm) — toadStool domain
+- No firmware loading — toadStool domain
+
+### Sprint 9 Excision Narrative
+
+In Sprint 9 (May 13, 2026), coralReef excised its entire "diesel engine" stack:
+`coral-ember` (VFIO fd lifecycle), `coral-glowplug` (device orchestration daemon),
+`coral-driver` (DRM/VFIO/nouveau GPU driver layer), and `coral-gpu` (unified
+compile+dispatch facade). Total: **489+ .rs files, 153K lines deleted.**
+
+**Why**: coralReef had grown into a compiler + driver hybrid. The Compute Trio
+architecture mandates separation: coralReef compiles, toadStool dispatches,
+barraCuda routes. Keeping driver code in coralReef created coupling, unsafe code
+requirements, and architectural confusion.
+
+**What moved**: All hardware-facing code moved conceptually to toadStool. The
+reference implementations are preserved in git history for toadStool's absorption
+(see `infra/wateringHole/handoffs/CORALREEF_DIESEL_MIGRATION_HANDOFF_MAY13_2026.md`).
+
+**Result**: coralReef is now `#![forbid(unsafe_code)]` on all crates, has zero
+hardware dependencies, zero platform-specific ioctls, and is purely a compiler
+that discovers GPU targets via ecosystem capability JSON.
 
 ---
 
@@ -499,27 +518,29 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
-Iteration 92: 4686 tests passing, 177 ignored. ~65% line coverage (8 crates above 90%). Wire Standard L3 alignment complete. Full modernization audit: zero async_trait/lazy_static/Box<dyn Error>/bare allows.
 
-Zero clippy warnings (default + all-features). Zero doc warnings. Zero files over 1000 LOC.
-Zero-copy transport via bytes::Bytes (including KernelCacheEntry.binary).
-OrExit\<T\> for zero-panic binary validation. IpcServiceError for structured IPC errors.
-coral-glowplug JSON-RPC 2.0 compliant with `device.lend`/`device.reclaim` VFIO broker,
-`mailbox.*` posted-command firmware interaction, `ring.*` multi-ring GPU dispatch.
-Ember ring-keeper: `RingMeta` persistence across glowplug restarts.
-GpuPersonality trait-based system. `VfioLease` RAII test harness.
-VFIO sovereign dispatch: BAR0 + DMA + GPFIFO + PFIFO channel + V2 MMU + sync.
-GP_PUT H1 cache flush experiment: proven insufficient — root cause is cold silicon (PFIFO/GPCCS not initialized).
-NVIDIA UVM dispatch: GPFIFO submission, USERD doorbell, completion polling.
-IPC: `shader.compile.*` + `health.*` + `trace.*` + `identity.get` + `capability.register` + `ipc.heartbeat` + `mailbox.*` + `ring.*` + `ember.ring_meta.*` — JSON-RPC 2.0 + tarpc + Unix socket (wateringHole compliant).
-Wire contract documented (SHADER\_COMPILE\_WIRE\_CONTRACT.md). CompilationInfo in IPC responses.
-Hardware: 2× Titan V (VFIO sovereign) + RTX 4070 (nvidia-drm/UVM, dedicated display GPU).
-8 of 9 crates enforce #[deny(unsafe_code)]. deny.toml C/FFI ban list enforced.
-All pure Rust. Sovereignty is a runtime choice.*
+Sprint 9+: 3130 tests passing, 3 ignored. Zero unsafe. Zero clippy warnings.
+Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
+
+Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.
+IpcServiceError for structured IPC errors. JSON-RPC 2.0 + tarpc + Unix socket.
+Wire contract documented (SHADER\_COMPILE\_WIRE\_CONTRACT.md). CompilationInfo in IPC.
+`naga::Module` direct ingest with entry point selection + module validation.
+deny.toml C/FFI ban list enforced. All pure Rust. Sovereignty is a compile choice.*
+
+**Historical note**: Iterations 37–80 (above) include entries for excised diesel
+engine work (coral-driver, coral-ember, coral-glowplug). This code was deleted in
+Sprint 9. The iteration log is preserved as a fossil record of the architecture's
+evolution from monolithic to trio-separated.
 
 ---
 
-## Titan V Sovereignty Evolution
+## Titan V Sovereignty Evolution (HISTORICAL — now toadStool domain)
+
+> **Note**: This section documents work that was performed in coralReef iterations
+> 41–57 and has since been excised (Sprint 9). Hardware sovereignty — VFIO binding,
+> PFIFO channel init, HBM2 training, PMU firmware — is now exclusively toadStool's
+> domain. Preserved here as fossil record for architectural context.
 
 ### Phase 1: Boot Preemption (COMPLETE — Iteration 56)
 

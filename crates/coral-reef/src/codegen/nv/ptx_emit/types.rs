@@ -58,6 +58,60 @@ pub struct SharedVar {
     pub(crate) offset: u32,
 }
 
+/// Per image/texture binding for surface operations.
+#[derive(Debug)]
+pub struct SurfaceBinding {
+    pub(crate) binding: u32,
+    pub(crate) gv_handle: naga::Handle<naga::GlobalVariable>,
+    pub(crate) dim: ImageDim,
+    pub(crate) texel_format: TexelFormat,
+}
+
+/// Image dimensionality for surface instructions.
+#[derive(Debug, Clone, Copy)]
+pub enum ImageDim {
+    D1,
+    D2,
+    D3,
+}
+
+impl ImageDim {
+    pub(crate) fn ptx_suffix(self) -> &'static str {
+        match self {
+            Self::D1 => "1d",
+            Self::D2 => "2d",
+            Self::D3 => "3d",
+        }
+    }
+}
+
+/// Texel format (determines PTX element type width).
+#[derive(Debug, Clone, Copy)]
+pub enum TexelFormat {
+    Rgba8,
+    Rgba16,
+    Rgba32,
+    R32,
+}
+
+impl TexelFormat {
+    pub(crate) fn ptx_type(self) -> &'static str {
+        match self {
+            Self::Rgba8 => "v4.b8",
+            Self::Rgba16 => "v4.b16",
+            Self::Rgba32 => "v4.b32",
+            Self::R32 => "b32",
+        }
+    }
+
+    pub(crate) fn component_count(self) -> usize {
+        match self {
+            Self::Rgba8 | Self::Rgba16 | Self::Rgba32 => 4,
+            Self::R32 => 1,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MemSpaceKind {
     Global,

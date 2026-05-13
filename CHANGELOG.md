@@ -24,7 +24,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - 2 new ecosystem discovery tests (toadStool-style `compute.dispatch.*` JSON, `compute.hardware.*`)
 - 4 new `compile_module` tests (f64 software lowering, FMA fused, SM120 PTX path, shared memory reporting)
 - 5 new entry point + validation tests (EP selection by name, missing EP error, compute-stage preference, validation rejection, validation bypass)
-- Total: **3129 tests** (was 3115)
+- Total: **3130 tests** (was 3115)
 
 ---
 

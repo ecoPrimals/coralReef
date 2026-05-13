@@ -184,8 +184,13 @@ impl PtxEmitter<'_> {
                 value,
                 result,
             } => self.emit_atomic(pointer, fun, value, result),
+            naga::Statement::ImageStore {
+                image,
+                coordinate,
+                array_index: _,
+                value,
+            } => self.emit_image_store(image, coordinate, value),
             naga::Statement::Call { .. }
-            | naga::Statement::ImageStore { .. }
             | naga::Statement::ImageAtomic { .. }
             | naga::Statement::RayQuery { .. }
             | naga::Statement::WorkGroupUniformLoad { .. } => Err(CompileError::NotImplemented(
@@ -603,6 +608,49 @@ impl PtxEmitter<'_> {
             }
             _ => "0",
         }
+    }
+
+    fn emit_image_store(
+        &mut self,
+        image: naga::Handle<naga::Expression>,
+        coordinate: naga::Handle<naga::Expression>,
+        value: naga::Handle<naga::Expression>,
+    ) -> Result<(), CompileError> {
+        let naga::Expression::GlobalVariable(gv_handle) = self.func.expressions[image] else {
+            return Err(CompileError::NotImplemented(
+                "ImageStore to non-global image".into(),
+            ));
+        };
+        let surf_idx = self.surface_index(gv_handle).ok_or_else(|| {
+            CompileError::InvalidInput("ImageStore target is not a recognized surface binding".into())
+        })?;
+        let dim_suffix = self.surfaces[surf_idx].dim.ptx_suffix();
+        let type_suffix = self.surfaces[surf_idx].texel_format.ptx_type();
+
+        let coord = self.eval_expr(coordinate)?;
+        let val = self.eval_expr(value)?;
+
+        let coord_str = match &coord {
+            super::types::PtxVal::Vec(components) if components.len() >= 2 => {
+                format!("{{{}, {}}}", components[0].fmt_operand(), components[1].fmt_operand())
+            }
+            _ => format!("{{{}}}", coord.fmt_operand()),
+        };
+
+        let val_str = match &val {
+            super::types::PtxVal::Vec(components) => {
+                let parts: Vec<String> = components.iter().map(super::types::PtxVal::fmt_operand).collect();
+                format!("{{{}}}", parts.join(", "))
+            }
+            _ => format!("{{{}}}", val.fmt_operand()),
+        };
+
+        writeln!(
+            self.body,
+            "    sust.b.{dim_suffix}.{type_suffix}.zero [_surf{surf_idx}, {coord_str}], {val_str};",
+        )
+        .expect("write to String");
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments, reason = "scan emission needs all parameters")]

@@ -6,7 +6,7 @@
 
 **Last completed**: Sprint 9+ — Post-excision evolution. Discovery filter aligned with toadStool capabilities (`compute.dispatch.*`, `gpu.*`, `compute.hardware.*`). Cross-primal name leaks eliminated (`beardog_socket()` → `security_provider_socket_legacy()`). 42 dependency patch updates. 4 new `compile_module` coverage tests (f64 lowering, FMA, SM120 PTX, shared memory).
 
-**Tests**: 3129 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3130 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 13, 2026.
 

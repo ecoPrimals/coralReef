@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use crate::error::CompileError;
 
 use super::PtxEmitter;
-use super::types::{BufferBinding, PtxVal, SharedVar};
+use super::types::{BufferBinding, ImageDim, PtxVal, SharedVar, SurfaceBinding, TexelFormat};
 
 #[allow(
     clippy::elidable_lifetime_names,
@@ -19,6 +19,7 @@ impl<'a> PtxEmitter<'a> {
             sm,
             workgroup_size: ep.workgroup_size,
             bindings: Vec::new(),
+            surfaces: Vec::new(),
             shared_vars: Vec::new(),
             r32_next: 0,
             rd64_next: 0,
@@ -230,6 +231,58 @@ impl<'a> PtxEmitter<'a> {
         }
     }
 
+    fn collect_surfaces(&mut self) {
+        let mut surfaces = Vec::new();
+        for (handle, gv) in self.module.global_variables.iter() {
+            if gv.space != naga::AddressSpace::Handle {
+                continue;
+            }
+            let ty_inner = &self.module.types[gv.ty].inner;
+            if let naga::TypeInner::Image { dim, class, .. } = *ty_inner {
+                let binding_idx = gv.binding.as_ref().map_or(0, |b| b.binding);
+                let image_dim = match dim {
+                    naga::ImageDimension::D1 => ImageDim::D1,
+                    naga::ImageDimension::D2 | naga::ImageDimension::Cube => ImageDim::D2,
+                    naga::ImageDimension::D3 => ImageDim::D3,
+                };
+                let texel_format = match class {
+                    naga::ImageClass::Storage { format, .. } => match format {
+                        naga::StorageFormat::Rgba8Unorm
+                        | naga::StorageFormat::Rgba8Snorm
+                        | naga::StorageFormat::Rgba8Uint
+                        | naga::StorageFormat::Rgba8Sint => TexelFormat::Rgba8,
+                        naga::StorageFormat::Rgba16Uint
+                        | naga::StorageFormat::Rgba16Sint
+                        | naga::StorageFormat::Rgba16Float => TexelFormat::Rgba16,
+                        naga::StorageFormat::R32Uint
+                        | naga::StorageFormat::R32Sint
+                        | naga::StorageFormat::R32Float => TexelFormat::R32,
+                        _ => TexelFormat::Rgba32,
+                    },
+                    _ => TexelFormat::Rgba32,
+                };
+                surfaces.push(SurfaceBinding {
+                    binding: binding_idx,
+                    gv_handle: handle,
+                    dim: image_dim,
+                    texel_format,
+                });
+            }
+        }
+        surfaces.sort_by_key(|s| s.binding);
+        self.surfaces = surfaces;
+    }
+
+    fn write_surface_decls(&self, out: &mut String) {
+        for (i, surf) in self.surfaces.iter().enumerate() {
+            writeln!(out, ".global .surfref _surf{i};").expect("write to String");
+            let _ = surf; // binding info used at dispatch time by driver
+        }
+        if !self.surfaces.is_empty() {
+            writeln!(out).expect("write to String");
+        }
+    }
+
     fn collect_shared_vars(&mut self) {
         let mut offset = 0u32;
         for (handle, gv) in self.module.global_variables.iter() {
@@ -254,12 +307,17 @@ impl<'a> PtxEmitter<'a> {
         self.bindings.iter().position(|b| b.gv_handle == gv)
     }
 
+    pub(super) fn surface_index(&self, gv: naga::Handle<naga::GlobalVariable>) -> Option<usize> {
+        self.surfaces.iter().position(|s| s.gv_handle == gv)
+    }
+
     pub(super) fn shared_var(&self, gv: naga::Handle<naga::GlobalVariable>) -> Option<&SharedVar> {
         self.shared_vars.iter().find(|s| s.gv_handle == gv)
     }
 
     pub(super) fn emit(&mut self) -> Result<String, CompileError> {
         self.collect_bindings();
+        self.collect_surfaces();
         self.collect_shared_vars();
         self.init_locals();
         self.precompute_builtins()?;
@@ -269,6 +327,7 @@ impl<'a> PtxEmitter<'a> {
 
         let mut out = String::with_capacity(512 + self.body.len());
         self.write_header(&mut out);
+        self.write_surface_decls(&mut out);
         self.write_params(&mut out);
         writeln!(out, "{{").expect("write to String");
         self.write_reg_decls(&mut out);

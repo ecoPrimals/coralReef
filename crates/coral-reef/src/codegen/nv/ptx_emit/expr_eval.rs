@@ -173,6 +173,13 @@ impl PtxEmitter<'_> {
                 Ok(self.alloc_for_scalar(scalar))
             }
             naga::Expression::SubgroupBallotResult => Ok(self.alloc_r32()),
+            naga::Expression::ImageLoad {
+                image,
+                coordinate,
+                array_index: _,
+                sample: _,
+                level: _,
+            } => self.eval_image_load(image, coordinate),
             _ => Err(CompileError::NotImplemented(
                 format!("PTX expression: {expr:?}").into(),
             )),
@@ -180,5 +187,57 @@ impl PtxEmitter<'_> {
 
         self.values.insert(h, result.clone());
         Ok(result)
+    }
+
+    fn eval_image_load(
+        &mut self,
+        image: naga::Handle<naga::Expression>,
+        coordinate: naga::Handle<naga::Expression>,
+    ) -> Result<PtxVal, CompileError> {
+        let naga::Expression::GlobalVariable(gv_handle) = self.func.expressions[image] else {
+            return Err(CompileError::NotImplemented(
+                "ImageLoad from non-global image".into(),
+            ));
+        };
+        let surf_idx = self.surface_index(gv_handle).ok_or_else(|| {
+            CompileError::InvalidInput(
+                "ImageLoad source is not a recognized surface binding".into(),
+            )
+        })?;
+        let dim_suffix = self.surfaces[surf_idx].dim.ptx_suffix();
+        let type_suffix = self.surfaces[surf_idx].texel_format.ptx_type();
+        let comp_count = self.surfaces[surf_idx].texel_format.component_count();
+
+        let coord = self.eval_expr(coordinate)?;
+
+        let coord_str = match &coord {
+            super::types::PtxVal::Vec(components) if components.len() >= 2 => {
+                format!(
+                    "{{{}, {}}}",
+                    components[0].fmt_operand(),
+                    components[1].fmt_operand()
+                )
+            }
+            _ => format!("{{{}}}", coord.fmt_operand()),
+        };
+
+        let dst_components: Vec<PtxVal> = (0..comp_count).map(|_| self.alloc_r32()).collect();
+        let dst_str = dst_components
+            .iter()
+            .map(PtxVal::fmt_operand)
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        writeln!(
+            self.body,
+            "    suld.b.{dim_suffix}.{type_suffix}.zero {{{dst_str}}}, [_surf{surf_idx}, {coord_str}];",
+        )
+        .expect("write to String");
+
+        if comp_count == 1 {
+            Ok(dst_components.into_iter().next().expect("component exists"))
+        } else {
+            Ok(PtxVal::Vec(dst_components))
+        }
     }
 }

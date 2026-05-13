@@ -37,7 +37,7 @@ use std::collections::HashMap;
 use crate::backend::{BinaryFormat, CompilationInfo, CompiledBinary};
 use crate::error::CompileError;
 
-use types::{BufferBinding, PtxVal, SharedVar};
+use types::{BufferBinding, PtxVal, SharedVar, SurfaceBinding};
 
 /// Compile WGSL source directly to PTX for SM100+ targets.
 ///
@@ -104,6 +104,7 @@ pub struct PtxEmitter<'a> {
     pub(crate) workgroup_size: [u32; 3],
 
     pub(crate) bindings: Vec<BufferBinding>,
+    pub(crate) surfaces: Vec<SurfaceBinding>,
     pub(crate) shared_vars: Vec<SharedVar>,
 
     pub(crate) r32_next: u32,
@@ -550,7 +551,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
     }
 
     #[test]
-    fn ptx_unhandled_statement_errors() {
+    fn ptx_image_store_2d_rgba8() {
         let wgsl = r"
 @group(0) @binding(0)
 var output_tex: texture_storage_2d<rgba8unorm, write>;
@@ -561,6 +562,31 @@ fn main() {
 }
 ";
         let result = emit_compute_ptx(wgsl, 120);
-        assert!(result.is_err(), "Expected error for unhandled image store");
+        assert!(result.is_ok(), "ImageStore should compile: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(ptx.contains(".surfref"), "should declare surface: {ptx:.200}");
+        assert!(ptx.contains("sust.b.2d"), "should emit sust.b.2d: {ptx:.400}");
+    }
+
+    #[test]
+    fn ptx_image_load_2d_rgba32() {
+        let wgsl = r"
+@group(0) @binding(0)
+var input_tex: texture_storage_2d<rgba32float, read>;
+@group(0) @binding(1)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let pixel = textureLoad(input_tex, vec2<i32>(i32(gid.x), 0i));
+    out[gid.x] = pixel.x;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "ImageLoad should compile: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(ptx.contains("suld.b.2d"), "should emit suld.b.2d: {ptx:.400}");
     }
 }

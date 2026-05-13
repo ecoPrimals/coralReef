@@ -21,7 +21,7 @@ Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
 ## Project status (Iteration 101+, Sprint 9+)
 
-- **Tests**: 3129 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
+- **Tests**: 3130 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
 - **Sprint 9+ (post-excision evolution)**: Discovery filter aligned with toadStool capabilities (`compute.dispatch.*`, `gpu.*`, `compute.hardware.*`). Cross-primal name leaks eliminated. 42 dep patch updates. 4 new `compile_module` coverage tests.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
