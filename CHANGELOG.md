@@ -4,11 +4,29 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101+ (Sprint 8)
+**Current status**: Phase 10 — Iteration 101+ (Sprint 9)
 
 ---
 
 ## [Unreleased]
+
+### Post-101 — Sprint 9: Diesel Engine Excision — Pure Compiler Primal (2026-05-13)
+
+#### Removed (diesel stack)
+- **coral-ember** crate deleted (52 .rs files) — VFIO fd holder, PCIe keepalive, `ember.*` JSON-RPC → toadStool
+- **coral-glowplug** crate deleted (70 .rs files) — Root daemon, cylinder subprocesses, ECU routing → toadStool
+- **coral-driver** crate deleted (367 .rs files) — DRM/VFIO/nouveau GPU driver layer → toadStool
+- **coral-gpu** crate deleted — Unified compile+dispatch API → dispatch delegated to toadStool
+- **showcase/** directory deleted — hardware dispatch demos → toadStool domain
+
+#### Changed
+- `coralreef-core/discovery.rs`: DRM render node scan replaced with empty fallback — hardware enumeration delegated to toadStool via `compute.dispatch.capabilities` IPC
+- Workspace `unsafe_code = "deny"`: no more `unsafe` exception — `#![forbid(unsafe_code)]` on all remaining crates
+- `genomebin/manifest.toml`: updated to pure compiler (zero unsafe, 3115 tests)
+- `.gitignore`: cleaned orphaned entries
+
+#### Tests
+- 3115 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
 
 ### Post-101 — Sprint 8: Diesel Engine Migration — Feature Freeze + Upstream Handoff (2026-05-13)
 

@@ -30,7 +30,7 @@ Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 - **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen. Phase D in progress (toadStool cutover). QMD split boundary documented.
 - **BTSP Phase 3**: Complete (ChaCha20-Poly1305 AEAD encrypted transport).
 - **JH-0 MethodGate**: Pre-dispatch capability authorization live.
-- **Diesel stack (feature-frozen)**: `coral-ember`, `coral-glowplug`, `coral-driver` hardware runtime — no new features. toadStool Phase C implements equivalents (C1-C7). Removal gated on hardware validation (Titan V / K80 / RTX 5060).
+- **Diesel stack excised** (Sprint 9): `coral-ember`, `coral-glowplug`, `coral-driver`, `coral-gpu` removed. Hardware lifecycle fully delegated to toadStool. coralReef is now a pure compiler primal — zero unsafe, zero hardware ioctl.
 
 ## Architecture
 
@@ -44,10 +44,6 @@ WGSL / SPIR-V / GLSL  →  naga frontend  →  SSA IR
 |-------|------|
 | `coralreef-core` | Primal lifecycle, CLI, IPC (JSON-RPC + tarpc) |
 | `coral-reef` | Shader compiler (frontends, IR, optimizers, backends) |
-| `coral-driver` | Userspace GPU dispatch (DRM ioctl, VFIO BAR0/DMA) |
-| `coral-gpu` | Unified compile + dispatch API, multi-GPU auto-detect |
-| `coral-glowplug` | GPU device broker (VFIO mgmt, health, hot-swap) |
-| `coral-ember` | VFIO fd holder + ring-keeper (SCM_RIGHTS, watchdog) |
 | `coral-reef-isa` | ISA encoding tables (SM35–SM120, GCN5, RDNA2) |
 | `coral-reef-bitview` | Bit-level field access for GPU instruction encoding |
 | `coral-reef-stubs` | Pure Rust replacements for Mesa dependencies |
@@ -59,7 +55,7 @@ WGSL / SPIR-V / GLSL  →  naga frontend  →  SSA IR
 - **License**: AGPL-3.0-or-later. NAK-derived files retain MIT. scyBorg Provenance Trio.
 - **Rust 2024 edition**, MSRV 1.85. No C/C++/Python in production.
 - **`clippy::pedantic` + `clippy::nursery`** — zero warnings.
-- **`unsafe`** confined to `coral-driver` (kernel ioctl/mmap/MMIO), documented with `// SAFETY:`. All other crates use `#![forbid(unsafe_code)]`.
+- **`#![forbid(unsafe_code)]`** on all crates. Zero unsafe in the entire workspace.
 - **`unsafe_code = "deny"`** at workspace lint level; `coral-driver` opts out.
 - **No `.unwrap()` in library code**. `Result<T, E>` + `thiserror`. `.expect()` with reason is acceptable.
 - **Max 1000 LOC per file**. Split into cohesive submodules.

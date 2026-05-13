@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 101+ (Sprint 8: Diesel engine migration feature freeze).
+**Current position**: Phase 10 — Iteration 101+ (Sprint 9: Diesel engine excision — pure compiler primal).
 
-**Last completed**: Sprint 8 — Diesel engine migration response. Feature freeze on coral-ember/coral-glowplug/coral-driver hardware runtime. E1 (cylinder subprocess pattern) and E2 (warm handoff API) documented as toadStool reference. E3 (FECS cold silicon init) already shipped (Sprint 7). Handoff created for toadStool C1-C7 implementation. Sprint 7 shipped FECS/GPCCS cold-silicon stability proof.
+**Last completed**: Sprint 9 — Diesel engine excision. Removed coral-ember (52 .rs), coral-glowplug (70 .rs), coral-driver (367 .rs), coral-gpu, and showcase/. Hardware lifecycle fully delegated to toadStool. DRM render node scan replaced with ecosystem-only discovery. Zero unsafe in entire workspace. Sprint 8 created handoff for toadStool C1-C7.
 
-**Tests**: 4790 passing, 0 failed, 181 ignored (hardware-gated). Zero clippy warnings.
+**Tests**: 3115 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 13, 2026.
 
-**Next focus**: Phase D execution — toadStool `compute.dispatch.execute` IPC validation for dispatch cutover; barracuda rewires to toadStool sockets file-by-file. PTX emitter completion for SM120/Blackwell (texture instructions); UVM hardware validation (RTX 5060); `coral-gpu` sovereign path (replacing wgpu); coverage push toward 90%. Diesel stack removal gated on hardware validation (Titan V / K80 / RTX 5060).
+**Next focus**: PTX emitter completion for SM120/Blackwell (texture instructions). Coverage push toward 90% on remaining 7 compiler crates. `naga::Module` ingest path hardening. Ecosystem discovery integration with toadStool `compute.dispatch.capabilities` IPC.
 
 ---
 

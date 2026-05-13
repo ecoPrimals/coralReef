@@ -21,10 +21,8 @@ Three input languages feed the same pipeline via the naga frontend:
 WGSL (primary), SPIR-V (binary intermediate), and GLSL 450 compute
 (for absorbing existing GPU compute libraries).
 
-coralDriver provides userspace GPU dispatch via DRM ioctl (AMD amdgpu,
-NVIDIA nouveau) and VFIO (direct BAR0/MMIO and DMA for maximum sovereignty).
-coralGpu wraps both into a unified compile + dispatch
-API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
+Hardware dispatch is delegated to toadStool via IPC. coralReef is a pure
+compiler primal — zero FFI, zero `*-sys`, zero `extern "C"`, zero `unsafe`.
 
 ## Prerequisites
 
@@ -36,7 +34,7 @@ API. Every layer is pure Rust — zero FFI, zero `*-sys`, zero `extern "C"`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 4790 passing, 0 failed (~181 ignored hardware-gated)
+cargo test --workspace     # 3115 passing, 0 failed
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
@@ -67,14 +65,6 @@ coralReef/
 │   │           ├── spill_values/  Register spilling
 │   │           ├── builder/       IR construction helpers
 │   │           └── pipeline.rs    Full compilation pipeline
-│   ├── coral-driver/            Userspace GPU dispatch (DRM ioctl)
-│   │   └── src/
-│   │       ├── drm.rs           Pure Rust DRM interface (inline asm syscalls)
-│   │       ├── amd/             amdgpu: GEM, PM4, command submission, fence
-│   │       └── nv/              nouveau: channel, GEM, QMD, pushbuf submit
-│   ├── coral-glowplug/         GPU device broker (VFIO, mailbox, multi-ring)
-│   ├── coral-ember/            VFIO fd holder + ring-keeper (restart persistence)
-│   ├── coral-gpu/               Unified GPU compute abstraction
 │   ├── coral-reef-bitview/     Bit-level field access for GPU encoding
 │   ├── coral-reef-isa/         ISA tables, latency model
 │   ├── coral-reef-stubs/       Pure-Rust dependency replacements

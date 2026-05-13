@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10 — Iteration 101+ (Sprint 8: Diesel engine migration feature freeze; E1/E2/E3 all resolved; toadStool Phase C COMPLETE; 4790 tests, zero debt)  
+**Status**: Phase 10 — Iteration 101+ (Sprint 9: Diesel engine excision — coral-ember, coral-glowplug, coral-driver, coral-gpu removed; pure compiler primal; 3115 tests, zero unsafe, zero debt)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

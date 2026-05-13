@@ -1,9 +1,9 @@
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
-# coralReef — Compiler & Driver Evolution
+# coralReef — Compiler Evolution
 
-**Last updated**: May 13, 2026 (Phase 10 — Iteration 101+, Sprint 8)
-**Phase**: 10 — Sprint 8: Diesel engine migration feature freeze. coral-ember/coral-glowplug/coral-driver hardware runtime feature-frozen; E1 (cylinder subprocess pattern) and E2 (warm handoff API) documented as toadStool reference; E3 (FECS cold silicon init) shipped (Sprint 7). Handoff created for toadStool C1-C7 cutover. Sprint 7: FECS/GPCCS cold-silicon stability proof (`boot_gr_falcons_with_recovery`, PMC GR reset, structured `GrBootOutcome`). Sprint 6: toadStool Phase C COMPLETE, Phase D markers, FECS error hardening. Sprint 5: Pass 12 sentinel gaps. Sprint 4: PTX SM120 subgroup scans, ISA evolution. Deep debt: all firmware paths use `linux_paths` helpers, all `unreachable!()` → `ice!()`, zero production `.unwrap()`. 4790 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Last updated**: May 13, 2026 (Phase 10 — Iteration 101+, Sprint 9)
+**Phase**: 10 — Sprint 9: Diesel engine excision — pure compiler primal. coral-ember/glowplug/driver/gpu removed (489+ .rs files excised). Hardware lifecycle fully delegated to toadStool. Zero unsafe in workspace. Sprint 8: Feature freeze + toadStool handoff. Sprint 7: FECS stability proof. Sprint 6: Phase D markers. Sprint 5: Pass 12 sentinel gaps. Sprint 4: PTX SM120 subgroup scans. All `unreachable!()` → `ice!()`, zero production `.unwrap()`. 3115 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
 
 ---
 

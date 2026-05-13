@@ -219,59 +219,14 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
     }
 }
 
-/// Local enumeration of DRM render nodes when ecosystem JSON lists no GPUs.
+/// Fallback when no ecosystem discovery files advertise GPU capabilities.
 ///
-/// Standalone / dev machines without a GPU provider in the discovery dir. Uses
-/// `coral_driver` to list nodes and probe identity — appropriate for `shader.*`
-/// compilation targeting, not a separate “hardware inventory” primal.
-// Phase D transition: toadStool Phase C is COMPLETE (S245-S250). Once
-// toadStool serves device enumeration via `compute.dispatch.capabilities`
-// IPC, replace this direct coral-driver call with an IPC query. Cut over
-// when toadStool confirms the endpoint is live and tested.
-#[cfg(target_os = "linux")]
+/// Hardware enumeration (DRM render node scan) was excised as part of the
+/// diesel engine migration. toadStool owns GPU hardware discovery via
+/// `compute.dispatch.capabilities` IPC. coralReef is a pure compiler primal
+/// and discovers GPU targets only through ecosystem discovery JSON files.
 fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
-    use coral_driver::drm::enumerate_render_nodes;
-    use coral_driver::nv::identity::probe_gpu_identity;
-
-    enumerate_render_nodes()
-        .into_iter()
-        .map(|info| {
-            let identity = probe_gpu_identity(&info.path);
-
-            let vendor = match info.driver.as_str() {
-                "amdgpu" => "amd",
-                "nvidia-drm" | "nouveau" => "nvidia",
-                "i915" | "xe" => "intel",
-                _ => "unknown",
-            };
-
-            let arch = match info.driver.as_str() {
-                "amdgpu" => identity
-                    .as_ref()
-                    .and_then(coral_driver::nv::identity::GpuIdentity::amd_arch)
-                    .map(String::from)
-                    .or_else(|| Some("rdna2".to_string())),
-                "nvidia-drm" | "nouveau" => identity
-                    .as_ref()
-                    .and_then(coral_driver::nv::identity::GpuIdentity::nvidia_sm)
-                    .map(|sm| format!("sm{sm}")),
-                _ => None,
-            };
-
-            GpuDeviceDescriptor {
-                vendor: vendor.to_string(),
-                arch,
-                render_node: Some(info.path),
-                driver: Some(info.driver),
-                memory_bytes: None,
-                source: "drm-scan".to_string(),
-            }
-        })
-        .collect()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn discover_from_drm() -> Vec<GpuDeviceDescriptor> {
+    tracing::debug!("no ecosystem GPU provider found; hardware enumeration delegated to toadStool");
     Vec::new()
 }
 
@@ -469,17 +424,9 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
-    fn discover_from_drm_returns_known_drivers() {
+    fn discover_from_drm_returns_empty() {
         let devices = discover_from_drm();
-        for dev in &devices {
-            assert!(
-                ["amd", "nvidia", "intel", "unknown"].contains(&dev.vendor.as_str()),
-                "unexpected vendor: {}",
-                dev.vendor
-            );
-            assert_eq!(dev.source, "drm-scan");
-        }
+        assert!(devices.is_empty());
     }
 }

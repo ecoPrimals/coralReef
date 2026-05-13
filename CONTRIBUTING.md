@@ -28,7 +28,7 @@ coralReef follows ecoPrimals ecosystem conventions from `wateringHole/`.
 - **Formatting**: `cargo fmt` — no exceptions
 - **Max file size**: 1000 lines
 - **Test coverage**: 90%+ target (current: ~65% workspace line, measured with `cargo llvm-cov`; see `scripts/coverage.sh`)
-- **Unsafe**: zero `unsafe` in new code (except `coral-driver` kernel ABI boundaries — ioctl, mmap, MMIO — which are documented with `// SAFETY:` comments)
+- **Unsafe**: zero `unsafe` in all code — `#![forbid(unsafe_code)]` on every crate
 - **Error handling**: `Result<_, CompileError>` propagation; optimizer passes skip instead of panicking
 - **No `panic!` in new production code**: use `?`, `.ok_or()`, `debug_assert!`, or graceful fallback
 - **Naming**: Rust-idiomatic, vendor-neutral (see `CONVENTIONS.md`)

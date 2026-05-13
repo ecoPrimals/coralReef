@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 13, 2026  
-**Phase**: 10 — Iteration 101+ (Sprint 8: Diesel engine migration feature freeze + upstream handoff. E1/E2/E3 all resolved. coral-ember/glowplug/driver hardware runtime feature-frozen; toadStool Phase C COMPLETE; 4790 tests, zero debt)
+**Phase**: 10 — Iteration 101+ (Sprint 9: Diesel engine excision — pure compiler primal. coral-ember/glowplug/driver/gpu removed. Hardware lifecycle delegated to toadStool. 3115 tests, zero unsafe, zero debt)
 
 ---
 
@@ -12,21 +12,21 @@
 | Category | Grade | Notes |
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
-| UniBin compliance | A | All 3 binaries: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef`: `--rpc-bind` (NDJSON primary); `coral-ember`/`coral-glowplug`: `--port` |
+| UniBin compliance | A | Single binary: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef`: `--rpc-bind` (NDJSON primary). Diesel binaries (coral-ember/coral-glowplug) excised Sprint 9 |
 | IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat` + `btsp.negotiate` + `auth.*`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
 | f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
-| coralDriver | A+ | AMD amdgpu (GEM+PM4+CS+fence), NVIDIA nouveau (sovereign), nvidia-drm (compatible), VFIO (direct BAR0+DMA), multi-GPU scan, pure Rust |
-| coralGpu | A+ | Unified compile+dispatch, multi-GPU auto-detect, `DriverPreference` sovereign default, `enumerate_all()` |
+| coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to toadStool |
+| coralGpu | — | *Excised Sprint 9* — dispatch delegated to toadStool |
 | Code structure | A+ | Smart refactoring: error.rs 928→mod(412)+vfio(523) (Iter 101), nv/mod.rs 857→747+fecs_init(124) (Iter 101), pfifo.rs 882→695+bar2_init(199) (Iter 101), ioctl 929→655 (Iter 97), channel 896→594 (Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 4790 passing, 0 failed, 181 ignored hardware-gated, ~65% line coverage (82%+ non-hardware, 8 crates >90%), DI-enabled mock testing, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests (atomics, barriers, subgroups, inclusive/exclusive scans), ISA target + SPH coverage |
+| Tests | A+ | 3115 passing, 0 failed, 3 ignored, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests + encrypted frame loop integration test, Compute Trio wire contract shape tests, PTX emitter SM120 unit tests (atomics, barriers, subgroups, inclusive/exclusive scans), ISA target + SPH coverage |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
-| Sovereignty | A+ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero-knowledge startup, `#![forbid(unsafe_code)]` on all 9 non-driver crates, `ring` eliminated, `unsafe` confined to kernel ABI in coral-driver only (all blocks have SAFETY comments), all ioctl via `rustix`, `libc` eliminated from direct deps, `mem::zeroed()` eliminated for ioctl param structs (Iter 101), all sysfs/procfs/firmware paths use `linux_paths` helpers with env var overrides (`CORALREEF_SYSFS_ROOT`, `CORALREEF_PROC_ROOT`, `CORALREEF_NVIDIA_FIRMWARE_ROOT`) |
+| Sovereignty | A++ | Zero FFI, zero `*-sys`, zero `extern "C"`, zero `unsafe`, zero-knowledge startup, `#![forbid(unsafe_code)]` on **all** crates (diesel excision removed only `unsafe` exception), `ring` eliminated, `libc` eliminated from direct deps. Pure compiler — no kernel ioctl, no mmap, no hardware access |
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, all `unreachable!()` → `ice!()` with descriptive messages (encoder + PTX emitter + register allocator + legalization) |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml` (ecoBin v3 C/FFI bans), pure Rust ISA generator |

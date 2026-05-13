@@ -6,7 +6,7 @@ use crate::error::CompileError;
 use super::sys_regs;
 
 /// CBUF slot for driver-injected constants (grid dimensions, etc.).
-/// Must match the index used in coral-driver's dispatch path.
+/// Must match the index used in the dispatch driver's QMD path (toadStool).
 pub const DRIVER_CBUF_INDEX: u8 = 7;
 
 impl FuncTranslator<'_, '_> {

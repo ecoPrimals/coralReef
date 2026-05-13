@@ -25,9 +25,8 @@ multiple-versions = "warn"
 wildcards = "warn"
 
 # ecoBin v3.0 compliance: C-backed crates banned from application builds.
-# coralReef is a sovereign Rust GPU compiler — no C/FFI in the supply chain.
-# coral-driver uses `rustix` for kernel ABI; optional `cudarc` feature is
-# behind a feature gate and excluded from default builds.
+# coralReef is a pure compiler primal — no C/FFI in the supply chain.
+# Zero unsafe, zero hardware ioctl.
 deny = [
     # C crypto / TLS — Tower Atomic delegation (Songbird + BearDog) replaces these
     { name = "openssl-sys", reason = "ecoBin: C crypto FFI. Sovereign stack uses rustls + RustCrypto." },

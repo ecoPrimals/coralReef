@@ -14,8 +14,8 @@ binary = "coralreef"
 pie_verified = true
 ecobin_grade = "A++"
 iteration = 101
-tests = 4790
-description = "Sovereign Rust GPU shader compiler. Compiles WGSL/SPIR-V/GLSL compute shaders to native GPU binaries (NVIDIA SM35-SM120, AMD GCN5/RDNA2-4). coralDriver + coralGpu. Zero C dependencies."
+tests = 3115
+description = "Sovereign Rust GPU shader compiler. Compiles WGSL/SPIR-V/GLSL compute shaders to native GPU binaries (NVIDIA SM35-SM120, AMD GCN5/RDNA2-4). Pure compiler — zero unsafe, zero C dependencies."
 
 [capabilities]
 provided = [
@@ -55,5 +55,5 @@ tarpc = ["unix_socket", "tcp"]
 
 [security]
 btsp_phase = 3
-forbid_unsafe = ["coralreef-core", "coral-reef", "coral-reef-isa", "coral-reef-stubs", "coral-reef-bitview", "nak-ir-proc", "coral-glowplug", "coral-ember", "primal-rpc-client", "coral-gpu"]
-unsafe_exception = "coral-driver (hardware ioctl/MMIO)"
+forbid_unsafe = ["coralreef-core", "coral-reef", "coral-reef-isa", "coral-reef-stubs", "coral-reef-bitview", "nak-ir-proc", "primal-rpc-client"]
+unsafe_exception = "none — pure compiler primal, zero unsafe"

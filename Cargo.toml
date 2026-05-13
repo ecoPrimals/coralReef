@@ -9,14 +9,9 @@ members = [
     "crates/nak-ir-proc",
     "crates/primal-rpc-client",
     "tools/amd-isa-gen",
-    "crates/coral-driver",
-    "crates/coral-gpu",
-    "crates/coral-glowplug",
-    "crates/coral-ember",
 ]
 exclude = [
     "fuzz",
-    "showcase",
 ]
 
 [workspace.package]
@@ -33,9 +28,7 @@ rust-version = "1.85"
 # EVOLUTION(pure-rust-tokio): tokio → mio → libc (epoll), socket2 → libc,
 # signal-hook-registry → libc. mio#1735 (rustix migration) was DECLINED by
 # maintainers — transitive libc through tokio/mio is permanent in the tokio
-# ecosystem. Both coexist: tokio uses mio (libc), while coral-driver,
-# coral-ember, and coral-glowplug use rustix directly (linux_raw, zero libc).
-# The residual libc is purely transitive through third-party async I/O.
+# ecosystem. The residual libc is purely transitive through third-party async I/O.
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "signal", "time"] }
 
 # CLI (uniBin)
@@ -45,10 +38,8 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 
-# OS / filesystem helpers
-rustix = "1.1.4"
+# Testing
 tempfile = "3"
-toml = "0.8"
 
 # Zero-copy IPC payloads
 bytes = { version = "1", features = ["serde"] }
@@ -91,9 +82,7 @@ coral-reef-stubs = { path = "crates/coral-reef-stubs" }
 
 [workspace.lints.rust]
 missing_docs = "warn"
-# All crates inherit this deny. coral-driver overrides with
-# #![allow(unsafe_code)] — it requires unsafe for kernel ioctl/mmap/MMIO
-# with SAFETY docs. All other crates use #![forbid(unsafe_code)].
+# All remaining crates use #![forbid(unsafe_code)].
 unsafe_code = "deny"
 
 [workspace.lints.clippy]

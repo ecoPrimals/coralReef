@@ -33,7 +33,6 @@ workspace = true
 
 [dependencies]
 coral-reef = { workspace = true }
-coral-driver = { path = "../coral-driver" }
 tokio = { workspace = true, features = ["process", "fs", "net", "io-util", "time"] }
 clap = { workspace = true }
 serde = { workspace = true }

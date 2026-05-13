@@ -78,7 +78,7 @@ The `Backend` trait in `backend.rs` and `GpuTarget` enum in
 
 - **IPC payloads**: Use `bytes::Bytes` for binary data (SPIR-V, compiled shaders) in tarpc and JSON-RPC transports.
 - **API boundaries**: `CompiledKernel.binary` is `Bytes` for zero-copy sharing across IPC and threads.
-- **Compiler internals**: Return `Vec<u8>` from `compile()`; conversion to `Bytes` happens at the boundary (`coral-gpu`, IPC service).
+- **Compiler internals**: Return `Vec<u8>` from `compile()`; conversion to `Bytes` happens at the IPC service boundary.
 - **Inputs**: Prefer `impl AsRef<[u8]>` for byte inputs so callers can pass `Bytes`, `Vec<u8>`, or `&[u8]`.
 - **String literals**: Prefer `&'static str` or `Cow<str>` over `String::from` / `.to_owned()` where struct types allow.
 - **Avoid**: `.to_vec()` on byte slices when a reference is sufficient; `.to_owned()` on static strings when borrowing is possible.
