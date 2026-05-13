@@ -8,7 +8,7 @@ alwaysApply: true
 ## Language & Toolchain
 - Rust 2024 edition, `rust-version = "1.85"`. No C/C++/Python in production.
 - `clippy::pedantic` + `clippy::nursery` — ZERO warnings. `cargo clippy --all-features -- -D warnings`.
-- `#![forbid(unsafe_code)]` on all crate roots except `coral-driver` (hardware ioctl).
+- `#![forbid(unsafe_code)]` on all crate roots. Zero unsafe in workspace.
 - `#![warn(missing_docs)]` on library crates. Doctests count as tests.
 
 ## License
@@ -35,7 +35,7 @@ alwaysApply: true
 
 ## Zero-Copy & Performance
 - `bytes::Bytes` for IPC payloads. Minimize `.clone()`.
-- `unsafe` only in `coral-driver` with SAFETY comments on every block.
+- Zero `unsafe` in all code. Hardware dispatch delegated to toadStool via IPC.
 
 ## Testing
 - `cargo test --all-features` — zero failures.

@@ -2,7 +2,7 @@
 
 # IPC Composition & Compile Latency Guide
 
-**Last updated**: May 13, 2026 (Iteration 101+, Sprint 8)
+**Last updated**: May 13, 2026 (Iteration 101+, Sprint 9)
 **Audience**: Spring teams composing with coralReef (`shader.compile.*`)
 **Wire contract**: See [SHADER_COMPILE_WIRE_CONTRACT.md](SHADER_COMPILE_WIRE_CONTRACT.md)
 for exact request/response/error JSON shapes.
@@ -42,8 +42,8 @@ transport choice is immaterial.
   per op on NVIDIA. AMD f64 uses native hardware and adds negligible overhead.
 - **Multi-target** (`shader.compile.wgsl.multi`): Targets compile sequentially.
   Budget = `N × single_compile_latency`. Up to 64 targets per request.
-- **Caching**: The `coral-gpu` in-process API caches compiled kernels by source
-  hash + options. IPC callers should cache binaries on their side.
+- **Caching**: IPC callers should cache compiled binaries on their side
+  (key: source hash + target + options).
 
 ### Composition budget examples
 

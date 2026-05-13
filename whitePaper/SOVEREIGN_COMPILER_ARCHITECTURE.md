@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 # Sovereign Compiler Architecture
 
-**Status**: Implemented (NVIDIA + AMD), Sovereign Pipeline Complete
-**Date**: March 6, 2026
+**Status**: Implemented (NVIDIA + AMD compiler). Hardware dispatch (coralDriver) excised Sprint 9 — now toadStool.
+**Date**: March 6, 2026 (updated May 13, 2026: dispatch references are historical)
 
 ---
 

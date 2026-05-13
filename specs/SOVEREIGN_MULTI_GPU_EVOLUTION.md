@@ -2,9 +2,13 @@
 
 # Sovereign Multi-GPU Evolution — Pure Rust Pipeline
 
+> **HISTORICAL**: This spec documents the evolution of hardware dispatch paths
+> that were excised from coralReef in Sprint 9 (May 13, 2026). Hardware
+> dispatch is now owned by toadStool. Retained as architectural fossil record.
+
 **Version**: 0.4.0
 **Date**: May 12, 2026
-**Status**: Phase 10 — Iteration 101 (Deep Debt Resolved, Smart Refactoring, Unsafe Evolution, 4790 tests)
+**Status**: ARCHIVED — Excised Sprint 9. Hardware dispatch delegated to toadStool.
 **Hardware**: NVIDIA Titan V ×2 (GV100/SM70) + NVIDIA RTX 4070 (AD104/SM89)
 
 ---

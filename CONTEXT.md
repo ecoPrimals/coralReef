@@ -19,15 +19,16 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
-## Project status (Iteration 101+, Sprint 8)
+## Project status (Iteration 101+, Sprint 9)
 
-- **Tests**: 4790 workspace tests, 0 failed, 181 ignored hardware-gated (see `STATUS.md` / `CHANGELOG.md`).
-- **Sprint 8**: Diesel engine migration feature freeze. coral-ember/coral-glowplug/coral-driver hardware runtime feature-frozen. E1 (cylinder subprocess pattern) and E2 (warm handoff API) documented as toadStool reference. E3 (FECS cold silicon init) shipped (Sprint 7). Handoff created for toadStool C1-C7 cutover.
+- **Tests**: 3115 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
+- **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
+- **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.
 - **Sprint 6**: toadStool Phase C COMPLETE. Phase D markers. FECS error hardening (`falcon_boot()` returns Err on timeout/halt).
 - **Sprint 5**: Pass 12 sentinel gaps — `naga::Module` direct ingest API, compile deadline, FECS cold init.
-- **Debt**: Zero across all categories — no `Result<_, String>`, no `.unwrap()` in library code, no `eprintln!` in production library, no `async_trait`/`lazy_static`, all `#[expect(dead_code)]` verified. `deny.toml` enforced (ecoBin v3 C/FFI bans). `mem::zeroed()` eliminated for ioctl structs. Smart refactoring: all production files under 1000 LOC limit. All bare `unreachable!()` evolved to `ice!()`.
-- **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen. Phase D in progress (toadStool cutover). QMD split boundary documented.
+- **Debt**: Zero across all categories — no `Result<_, String>`, no `.unwrap()` in library code, no `eprintln!` in production library, no `async_trait`/`lazy_static`. `deny.toml` enforced (ecoBin v3 C/FFI bans). All production files under 1000 LOC. All bare `unreachable!()` → `ice!()`.
+- **Compute Trio**: coralReef = HOW (compiler). Wire contract frozen. toadStool owns dispatch.
 - **BTSP Phase 3**: Complete (ChaCha20-Poly1305 AEAD encrypted transport).
 - **JH-0 MethodGate**: Pre-dispatch capability authorization live.
 - **Diesel stack excised** (Sprint 9): `coral-ember`, `coral-glowplug`, `coral-driver`, `coral-gpu` removed. Hardware lifecycle fully delegated to toadStool. coralReef is now a pure compiler primal — zero unsafe, zero hardware ioctl.

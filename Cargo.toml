@@ -38,9 +38,6 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 
-# Testing
-tempfile = "3"
-
 # Zero-copy IPC payloads
 bytes = { version = "1", features = ["serde"] }
 
@@ -74,6 +71,7 @@ zeroize = { version = "1", features = ["derive"] }
 
 # Testing
 proptest = "1"
+tempfile = "3"
 
 # Internal crates
 coral-reef = { path = "crates/coral-reef" }

@@ -66,18 +66,10 @@ WGSL / SPIR-V input
   NVIDIA SASS         AMD GFX binary
        │                  │
        ▼                  ▼
-┌───────────────────────────────────┐
-│  coral-driver                      │
-│  ├ AmdDevice   DRM + PM4 dispatch │
-│  ├ NvDevice    DRM + pushbuf      │
-│  └ ComputeDevice trait            │
-└──────────────┬────────────────────┘
-               ▼
-┌───────────────────────────────────┐
-│  coral-gpu                         │
-│  GpuContext — unified API         │
-│  compile_wgsl() + dispatch()      │
-└───────────────────────────────────┘
+  IPC (JSON-RPC / tarpc)
+       │
+       ▼
+  toadStool (hardware dispatch)
 ```
 
 ## Crate Layout
@@ -86,15 +78,14 @@ WGSL / SPIR-V input
 |-------|---------|
 | `coralreef-core` | Primal lifecycle, health, IPC (JSON-RPC 2.0, tarpc), zero-copy `Bytes` |
 | `coral-reef` | Shader compiler: pluggable frontend, f64 lowering, optimizers, RA, vendor encoding |
-| `coral-driver` | Userspace GPU dispatch: AMD amdgpu DRM + NVIDIA nouveau DRM, pure Rust syscalls |
-| `coral-gpu` | Unified GPU compute: compile WGSL + dispatch on hardware in one API |
-| `coral-reef-isa` | ISA tables, instruction latencies (SM30–SM120, AMD RDNA2) |
+| `coral-reef-isa` | ISA tables, instruction latencies (SM35–SM120, AMD RDNA2) |
 | `coral-reef-stubs` | Pure-Rust dependency replacements: CFG, BitSet, dataflow, SmallVec, fxhash |
 | `coral-reef-bitview` | Bit-level field manipulation for instruction encoding |
 | `nak-ir-proc` | Proc-macro derives: `SrcsAsSlice`, `DstsAsSlice`, `DisplayOp`, `FromVariants`, `Encode` |
 | `amd-isa-gen` | Pure Rust ISA table generator from AMD XML specs |
-| `coral-glowplug` | PCIe GPU lifecycle daemon: VFIO binding, health monitoring, circuit breaker, personality hot-swap, boot sovereignty |
 | `primal-rpc-client` | Pure Rust JSON-RPC 2.0 client for inter-primal IPC |
+
+> **Note (Sprint 9)**: `coral-driver`, `coral-gpu`, `coral-glowplug`, and `coral-ember` were excised in Sprint 9. Hardware dispatch is now toadStool's domain. This spec documents the compiler architecture only.
 
 ## Sovereign Pipeline — All Silicon
 
