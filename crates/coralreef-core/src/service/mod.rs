@@ -7,13 +7,15 @@ mod compile;
 pub mod types;
 
 pub use compile::{
-    handle_compile, handle_compile_spirv, handle_compile_wgsl, handle_compile_wgsl_multi,
+    handle_compile, handle_compile_gemm, handle_compile_spirv, handle_compile_wgsl,
+    handle_compile_wgsl_multi,
 };
 pub use types::{
     CapabilityListResponse, CompileCapabilitiesResponse, CompileRequest, CompileResponse,
     CompileSpirvRequestTarpc, CompileWgslRequest, F64TranscendentalCapabilities,
-    HealthCheckResponse, HealthResponse, IdentityGetResponse, LivenessResponse,
+    GemmCompileRequest, HealthCheckResponse, HealthResponse, IdentityGetResponse, LivenessResponse,
     MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse, TarpcCompileError,
+    VersionResponse,
 };
 
 use std::borrow::Cow;
@@ -72,9 +74,11 @@ pub fn handle_capability_list() -> CapabilityListResponse {
         "shader.compile.status".into(),
         "shader.compile.capabilities".into(),
         "shader.compile.wgsl.multi".into(),
+        "shader.compile.gemm".into(),
         "health.check".into(),
         "health.liveness".into(),
         "health.readiness".into(),
+        "health.version".into(),
         "identity.get".into(),
         "capability.list".into(),
         "btsp.negotiate".into(),
@@ -174,6 +178,20 @@ pub const fn handle_health_liveness() -> LivenessResponse {
 pub fn handle_health_readiness() -> ReadinessResponse {
     ReadinessResponse {
         ready: true,
+        name: config::PRIMAL_NAME.into(),
+    }
+}
+
+/// `health.version` — build identity for post-upgrade verification.
+///
+/// Returns session label, build hash, and version so callers can confirm
+/// which binary is running without parsing `--version` CLI output.
+#[must_use]
+pub fn handle_health_version() -> VersionResponse {
+    VersionResponse {
+        session: config::PRIMAL_SESSION.into(),
+        build_hash: config::PRIMAL_BUILD_HASH.into(),
+        version: config::PRIMAL_VERSION.into(),
         name: config::PRIMAL_NAME.into(),
     }
 }

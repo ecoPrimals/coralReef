@@ -4,11 +4,11 @@
 
 **Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
 
-**Last completed**: Sprint 9+ — Subgroup operations + f64 CallResult fix. WGSL subgroup ops (`subgroupAdd`, `subgroupBroadcast`, `subgroupBallot`) now compile through `naga_translate` for SM70+ (butterfly shfl reduce for SM70, `OpRedux` for SM73+). f64 type resolution bug at function call boundaries fixed in `resolve_expr_type_handle`. Prior: HMMA GEMM, IPC aliases, texture format expansion.
+**Last completed**: Sprint 9+ — f64 nested struct member type fix, `health.version` RPC, `shader.compile.gemm` IPC wiring. Prior: subgroup ops, f64 CallResult fix, HMMA GEMM, IPC aliases, texture expansion, env var deprecation.
 
-**Tests**: 3159 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3160 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 13, 2026.
+**Last updated**: May 14, 2026.
 
 **Next focus**: `ImageSample`/`ImageQuery` PTX emission. Coverage push toward 90%. Scan operation integer type support. WGSL cooperative matrix support (blocked on WGSL spec adoption).
 

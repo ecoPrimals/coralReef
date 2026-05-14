@@ -2,7 +2,7 @@
 
 # Shader Compile Wire Contract
 
-**Last updated**: May 13, 2026 (Sprint 9+)
+**Last updated**: May 14, 2026 (Sprint 9+ — `shader.compile.gemm` wired, `health.version` added)
 **Audience**: Spring teams, barraCuda, neuralSpring, toadStool, primalSpring
 **Transport**: JSON-RPC 2.0 (newline-delimited over UDS/TCP) or tarpc (bincode)
 
@@ -53,6 +53,7 @@ deserialization for backward compatibility:
 | `health.check` | *(none)* | `HealthCheckResponse` | Full health probe (wateringHole standard) |
 | `health.liveness` | *(none)* | `LivenessResponse` | Lightweight alive check |
 | `health.readiness` | *(none)* | `ReadinessResponse` | Ready to accept work |
+| `health.version` | *(none)* | `VersionResponse` | Build identity for post-upgrade verification |
 | `identity.get` | *(none)* | `IdentityGetResponse` | Primal self-description for discovery |
 | `capability.list` | *(none)* | `CapabilityListResponse` | Wire Standard L2 capability advertisement |
 
@@ -359,6 +360,94 @@ issue parallel `shader.compile.wgsl` calls.
       "log": true,
       "composite_lowering": true
     }
+  }
+}
+```
+
+---
+
+## `shader.compile.gemm`
+
+Compiles a tensor-core GEMM kernel using `mma.sync.aligned` HMMA instructions.
+
+### Request (`GemmCompileRequest`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `m` | `u32` | *(required)* | Matrix rows (M dimension) |
+| `n` | `u32` | *(required)* | Matrix columns (N dimension) |
+| `k` | `u32` | *(required)* | Inner/reduction dimension (K dimension) |
+| `precision` | `string` | `"f16f32"` | `"f16"`, `"f16f32"`, or `"tf32"` |
+| `arch` | `string` | `"sm_80"` | Target GPU architecture (`sm_80`+) |
+
+### Tensor Layout Constraints
+
+| Constraint | Requirement |
+|------------|-------------|
+| **Matrix A** | Row-major (M x K) |
+| **Matrix B** | Column-major (K x N) |
+| **Matrix C** | Row-major (M x N) |
+| **K alignment** | Multiple of 16 (F16/F16F32) or 8 (TF32) |
+| **Pointer ABI** | `.param .u64` — three bare pointers (A, B, C) |
+| **Shared memory** | None (register-only tiling; `shared_mem_bytes: 0`) |
+| **Minimum SM** | SM80 (Ampere). Rejects SM70 and below |
+| **Tile shape** | 16x8x16 (F16/F16F32) or 16x8x8 (TF32) — warp-level MMA |
+| **M/N** | Not validated by coralReef; caller ensures global tiling |
+
+### Precision Modes
+
+| Value | Inputs | Accumulator | PTX instruction |
+|-------|--------|-------------|-----------------|
+| `f16` | f16 | f16 | `mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16` |
+| `f16f32` | f16 | f32 | `mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32` |
+| `tf32` | f32 via TF32 | f32 | `mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32` |
+
+### Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "shader.compile.gemm",
+  "params": {
+    "m": 256,
+    "n": 128,
+    "k": 64,
+    "precision": "f16f32",
+    "arch": "sm_80"
+  },
+  "id": 20
+}
+```
+
+Response is a standard `CompileResponse` with PTX binary in `binary_b64`.
+
+---
+
+## `health.version`
+
+Returns build identity for post-upgrade verification without parsing CLI output.
+
+### Response (`VersionResponse`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `session` | `string` | Build session label (from `CORALREEF_SESSION` env at compile time, or version) |
+| `build_hash` | `string` | Git commit hash (from `CORALREEF_BUILD_HASH` env at compile time, or `"dev"`) |
+| `version` | `string` | Semantic version from Cargo.toml |
+| `name` | `string` | Primal name (self-knowledge) |
+
+### Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "health.version",
+  "id": 21,
+  "result": {
+    "session": "0.1.0",
+    "build_hash": "5ae0328",
+    "version": "0.1.0",
+    "name": "coralreef-core"
   }
 }
 ```

@@ -4,11 +4,12 @@
 use std::time::Instant;
 
 use bytes::Bytes;
+use coral_reef::gemm::{GemmPrecision, GemmShape};
 use coral_reef::{AmdArch, CompileError, CompileOptions, FmaPolicy, GpuTarget, NvArch};
 
 use super::types::{
     CompilationInfoResponse, CompileRequest, CompileResponse, CompileWgslRequest,
-    DeviceCompileResult, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
+    DeviceCompileResult, GemmCompileRequest, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
 };
 
 const STATUS_SUCCESS: &str = "success";
@@ -263,5 +264,52 @@ pub fn handle_compile_wgsl_multi(
         results,
         success_count,
         total_count,
+    })
+}
+
+/// `shader.compile.gemm` — compile a tensor-core GEMM kernel.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if the target is not NVIDIA SM80+, or if
+/// dimensions are not aligned to tile boundaries.
+pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, CompileError> {
+    let target = parse_target(&req.arch)?;
+    let precision = match req.precision.to_ascii_lowercase().as_str() {
+        "f16" => GemmPrecision::F16,
+        "f16f32" | "f16_f32" => GemmPrecision::F16F32,
+        "tf32" => GemmPrecision::Tf32,
+        other => {
+            return Err(CompileError::InvalidInput(
+                format!("unknown GEMM precision: {other:?} (expected f16, f16f32, tf32)").into(),
+            ));
+        }
+    };
+    let shape = GemmShape {
+        m: req.m,
+        n: req.n,
+        k: req.k,
+    };
+
+    let t0 = Instant::now();
+    let compiled = coral_reef::gemm::compile_gemm(shape, precision, target)?;
+    let compile_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let size = compiled.binary.len();
+
+    Ok(CompileResponse {
+        binary: Bytes::from(compiled.binary),
+        size,
+        arch: Some(req.arch.clone()),
+        status: Some(STATUS_SUCCESS.to_owned()),
+        compile_time_ms: Some(compile_ms),
+        info: Some(CompilationInfoResponse {
+            gpr_count: compiled.info.gpr_count,
+            instr_count: compiled.info.instr_count,
+            shared_mem_bytes: compiled.info.shared_mem_bytes,
+            barrier_count: compiled.info.barrier_count,
+            workgroup_size: compiled.info.local_size,
+            wave_size: 32,
+            local_memory: compiled.info.local_mem_bytes,
+        }),
     })
 }

@@ -37,6 +37,20 @@ pub const PRIMAL_NAME: &str = env!("CARGO_PKG_NAME");
 /// Primal version derived from the crate version at compile time.
 pub const PRIMAL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Build hash injected via `CORALREEF_BUILD_HASH` env var at compile time.
+/// Falls back to `"dev"` for local builds without CI.
+pub const PRIMAL_BUILD_HASH: &str = match option_env!("CORALREEF_BUILD_HASH") {
+    Some(h) => h,
+    None => "dev",
+};
+
+/// Build session label injected via `CORALREEF_SESSION` env var at compile time.
+/// Falls back to the crate version if unset.
+pub const PRIMAL_SESSION: &str = match option_env!("CORALREEF_SESSION") {
+    Some(s) => s,
+    None => PRIMAL_VERSION,
+};
+
 /// Configuration validation error.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]

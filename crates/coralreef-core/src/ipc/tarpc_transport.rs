@@ -55,6 +55,9 @@ pub trait ShaderCompileTarpc {
     /// Ready to accept work (`health.readiness`).
     async fn health_readiness() -> service::ReadinessResponse;
 
+    /// Build identity for upgrade verification (`health.version`).
+    async fn health_version() -> service::VersionResponse;
+
     /// Self-description for ecosystem discovery (`identity.get`).
     async fn identity_get() -> service::IdentityGetResponse;
 
@@ -152,6 +155,10 @@ impl ShaderCompileTarpc for TarpcServer {
 
     async fn health_readiness(self, _ctx: tarpc::context::Context) -> service::ReadinessResponse {
         service::handle_health_readiness()
+    }
+
+    async fn health_version(self, _ctx: tarpc::context::Context) -> service::VersionResponse {
+        service::handle_health_version()
     }
 
     async fn identity_get(self, _ctx: tarpc::context::Context) -> service::IdentityGetResponse {

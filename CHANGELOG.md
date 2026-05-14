@@ -10,7 +10,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Post-101 — Sprint 9+: Post-Excision Evolution (2026-05-13)
+### Post-101 — Sprint 9+: Post-Excision Evolution (2026-05-14)
 
 #### Changed
 - **`lib.rs` refactored**: 868→630 lines. GEMM types + `compile_gemm` extracted to `src/gemm.rs` (112L). Preamble injection extracted to `src/preamble.rs` (149L).
@@ -40,7 +40,11 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - **f64 CallResult type resolution fix**: `resolve_expr_type_handle` now properly resolves `CallResult` expressions to the function's return type. Fixes "wrong type" errors when math functions (`sqrt`, `pow`, `exp`) operate on f64 values returned from user-defined functions.
 - 4 new subgroup tests (subgroupAdd SM70/SM120, subgroupBroadcast SM70, subgroupBallot SM70)
 - 1 new f64 CallResult type resolution test
-- Total: **3159 tests** (was 3154, was 3143, was 3130, was 3115 at excision). Zero files >800 lines in production code.
+- **f64 nested struct member type fix**: `is_f64_expr` now uses `resolve_expr_type_handle` for `AccessIndex`/`Access` expressions instead of the limited `element_scalar` helper (which lacked struct support). Fixes incorrect f32 lowering path for `sqrt`/`exp` on f64 struct member access chains (e.g., `params.inner.value`). Dead `element_scalar` function removed.
+- **`health.version` RPC**: New `health.version` method returns `{ session, build_hash, version, name }` for post-upgrade verification. Build hash injected at compile time via `CORALREEF_BUILD_HASH` env var.
+- **`shader.compile.gemm` IPC wiring**: The `compile_gemm` library API is now exposed as a JSON-RPC endpoint. Request type `GemmCompileRequest` accepts `{ m, n, k, precision, arch }`. Dispatched through the blocking pool with standard compile timeout.
+- 1 new f64 nested struct member math test
+- Total: **3160 tests** (was 3159, was 3154, was 3143, was 3130, was 3115 at excision). Zero files >800 lines in production code.
 
 ---
 

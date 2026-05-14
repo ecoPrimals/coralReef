@@ -390,6 +390,42 @@ pub struct ReadinessResponse {
     pub name: Cow<'static, str>,
 }
 
+/// `health.version` response — build identity for upgrade verification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionResponse {
+    /// Build session label (e.g., sprint identifier or release tag).
+    pub session: Cow<'static, str>,
+    /// Git commit hash or `"dev"` for local builds.
+    pub build_hash: Cow<'static, str>,
+    /// Semantic version from Cargo.toml.
+    pub version: Cow<'static, str>,
+    /// Primal name (self-knowledge).
+    pub name: Cow<'static, str>,
+}
+
+/// `shader.compile.gemm` request — tensor-core GEMM kernel generation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GemmCompileRequest {
+    /// Matrix rows (M dimension).
+    pub m: u32,
+    /// Matrix columns (N dimension).
+    pub n: u32,
+    /// Inner/reduction dimension (K dimension).
+    pub k: u32,
+    /// Precision: "f16", "f16f32", or "tf32". Defaults to "f16f32".
+    #[serde(default = "default_gemm_precision")]
+    pub precision: String,
+    /// Target GPU architecture (e.g., `sm_80`, `sm_120`).
+    #[serde(default = "default_arch")]
+    pub arch: String,
+}
+
+/// Default GEMM precision for serde deserialization.
+#[must_use]
+fn default_gemm_precision() -> String {
+    "f16f32".to_owned()
+}
+
 /// Default GPU architecture string for serde deserialization.
 #[must_use]
 pub fn default_arch() -> String {

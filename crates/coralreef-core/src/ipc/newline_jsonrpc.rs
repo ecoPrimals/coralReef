@@ -141,6 +141,15 @@ pub fn dispatch_jsonrpc(
                 Err(e) => Err(IpcServiceError::handler(e.to_string())),
             }
         }
+        "shader.compile.gemm" => {
+            let req: service::GemmCompileRequest = extract_params(params)?;
+            match service::handle_compile_gemm(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
         "health.check" => {
             let resp = service::handle_health_check();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
@@ -151,6 +160,10 @@ pub fn dispatch_jsonrpc(
         }
         "health.readiness" => {
             let resp = service::handle_health_readiness();
+            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
+        "health.version" => {
+            let resp = service::handle_health_version();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
         "identity.get" => {

@@ -1016,3 +1016,37 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         "SM120 subgroupAdd should emit redux.sync: {ptx}"
     );
 }
+
+#[test]
+fn test_f64_math_on_nested_struct_member() {
+    let wgsl = r"
+struct Inner {
+    value: f64,
+    scale: f64,
+}
+
+struct Outer {
+    inner: Inner,
+    phase: f64,
+}
+
+@group(0) @binding(0) var<storage, read_write> output: array<f64>;
+@group(0) @binding(1) var<uniform> params: Outer;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let v = sqrt(params.inner.value);
+    let e = exp(params.inner.scale);
+    output[gid.x] = v + e + params.phase;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "f64 math on nested struct members should compile: {result:?}"
+    );
+}
