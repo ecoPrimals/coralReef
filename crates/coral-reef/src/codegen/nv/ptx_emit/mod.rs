@@ -127,6 +127,10 @@ pub struct PtxEmitter<'a> {
     pub(crate) inline_depth: u32,
     /// Holds the return value of the most recently completed inlined call.
     pub(crate) inline_return_val: Option<PtxVal>,
+
+    /// Per ray-query opaque state, keyed by the expression handle that holds
+    /// the `TypeInner::RayQuery` local/variable.
+    pub(crate) ray_queries: HashMap<naga::Handle<naga::Expression>, types::RayQueryState>,
 }
 
 #[cfg(test)]
@@ -1131,6 +1135,148 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         assert!(
             ptx.contains("sust.b.2d"),
             "should emit surface store: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_ray_query_initialize_proceed() {
+        let wgsl = r"
+enable wgpu_ray_query;
+
+@group(0) @binding(0)
+var accel: acceleration_structure;
+@group(0) @binding(1)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var rq: ray_query;
+    let desc = RayDesc(0u, 0xFFu, 0.001, 1000.0, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0));
+    rayQueryInitialize(&rq, accel, desc);
+    let hit = rayQueryProceed(&rq);
+    if hit {
+        out[gid.x] = 1u;
+    } else {
+        out[gid.x] = 0u;
+    }
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(
+            result.is_ok(),
+            "RayQuery Initialize+Proceed should compile for SM120: {result:?}"
+        );
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("ray_query_initialize"),
+            "should emit RT initialize comment: {ptx:.800}"
+        );
+        assert!(
+            ptx.contains("rt.trace.proceed"),
+            "should emit RT proceed comment: {ptx:.800}"
+        );
+        assert!(
+            ptx.contains("setp.eq.u32"),
+            "should emit predicate for proceed result: {ptx:.800}"
+        );
+    }
+
+    #[test]
+    fn ptx_ray_query_get_intersection() {
+        let wgsl = r"
+enable wgpu_ray_query;
+
+@group(0) @binding(0)
+var accel: acceleration_structure;
+@group(0) @binding(1)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var rq: ray_query;
+    let desc = RayDesc(0u, 0xFFu, 0.001, 1000.0, vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, -1.0, 0.0));
+    rayQueryInitialize(&rq, accel, desc);
+    let hit = rayQueryProceed(&rq);
+    let intersection = rayQueryGetCommittedIntersection(&rq);
+    out[gid.x] = intersection.t;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(
+            result.is_ok(),
+            "RayQuery GetIntersection should compile for SM120: {result:?}"
+        );
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("rt.get_intersection.committed"),
+            "should emit get_intersection comment: {ptx:.800}"
+        );
+    }
+
+    #[test]
+    fn ptx_ray_query_terminate() {
+        let wgsl = r"
+enable wgpu_ray_query;
+
+@group(0) @binding(0)
+var accel: acceleration_structure;
+@group(0) @binding(1)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var rq: ray_query;
+    let desc = RayDesc(0u, 0xFFu, 0.01, 100.0, vec3<f32>(0.0), vec3<f32>(1.0, 0.0, 0.0));
+    rayQueryInitialize(&rq, accel, desc);
+    let hit = rayQueryProceed(&rq);
+    rayQueryTerminate(&rq);
+    out[gid.x] = 42u;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(
+            result.is_ok(),
+            "RayQuery Terminate should compile for SM120: {result:?}"
+        );
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("rt.trace.terminate"),
+            "should emit terminate comment: {ptx:.800}"
+        );
+    }
+
+    #[test]
+    fn ptx_ray_query_rejects_sm70() {
+        let wgsl = r"
+enable wgpu_ray_query;
+
+@group(0) @binding(0)
+var accel: acceleration_structure;
+@group(0) @binding(1)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var rq: ray_query;
+    let desc = RayDesc(0u, 0xFFu, 0.001, 1000.0, vec3<f32>(0.0), vec3<f32>(0.0, 0.0, 1.0));
+    rayQueryInitialize(&rq, accel, desc);
+    let hit = rayQueryProceed(&rq);
+    out[gid.x] = 0u;
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(
+            result.is_err(),
+            "RayQuery should reject SM70 (requires SM75+)"
+        );
+        let err = result.unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("SM75"),
+            "error should mention SM75 requirement: {msg}"
         );
     }
 }

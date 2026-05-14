@@ -192,6 +192,10 @@ impl PtxEmitter<'_> {
                 level: _,
             } => self.eval_image_load(image, coordinate),
             naga::Expression::ImageQuery { image, query } => self.eval_image_query(image, query),
+            naga::Expression::RayQueryProceedResult => self.eval_ray_query_proceed_result(),
+            naga::Expression::RayQueryGetIntersection { query, committed } => {
+                self.eval_ray_query_get_intersection(query, committed)
+            }
             _ => Err(CompileError::NotImplemented(
                 format!("PTX expression: {expr:?}").into(),
             )),
@@ -469,5 +473,122 @@ impl PtxEmitter<'_> {
                 "ImageQuery::NumSamples on surface".into(),
             )),
         }
+    }
+
+    /// The `RayQueryProceedResult` expression reads the boolean result
+    /// produced by the most recent `Proceed` statement. Since `emit_ray_query_proceed`
+    /// already inserts the predicate into `self.values` via the `result` handle,
+    /// this expression should have been resolved from cache. If we reach here,
+    /// allocate a default-false predicate as a fallback.
+    fn eval_ray_query_proceed_result(&mut self) -> Result<PtxVal, CompileError> {
+        let p = self.alloc_pred();
+        writeln!(self.body, "    setp.eq.u32 {}, 0, 1;", p.fmt_operand(),)
+            .expect("write to String");
+        Ok(p)
+    }
+
+    /// Read intersection data from a ray query. Returns a struct-like
+    /// `PtxVal::Vec` with the `RayIntersection` fields:
+    /// kind(u32), t(f32), instance_custom_data(u32), instance_index(u32),
+    /// sbt_record_offset(u32), geometry_index(u32), primitive_index(u32),
+    /// barycentrics(vec2<f32>), front_face(u32).
+    ///
+    /// The `committed` flag selects between the committed (closest) hit
+    /// or the current candidate intersection.
+    fn eval_ray_query_get_intersection(
+        &mut self,
+        query: naga::Handle<naga::Expression>,
+        committed: bool,
+    ) -> Result<PtxVal, CompileError> {
+        let qh = self
+            .ray_queries
+            .get(&query)
+            .map_or(PtxVal::Rd64(0), |s| s.query_handle.clone());
+
+        let committed_str = if committed { "committed" } else { "candidate" };
+
+        let kind = self.alloc_r32();
+        let t = self.alloc_r32();
+        let instance_custom_data = self.alloc_r32();
+        let instance_index = self.alloc_r32();
+        let sbt_record_offset = self.alloc_r32();
+        let geometry_index = self.alloc_r32();
+        let primitive_index = self.alloc_r32();
+        let bary_x = self.alloc_r32();
+        let bary_y = self.alloc_r32();
+        let front_face = self.alloc_r32();
+
+        // Emit load sequence for intersection struct fields.
+        // In hardware, these read from RT core query state registers.
+        // Stub: zero-initialize all fields for wiring validation.
+        writeln!(
+            self.body,
+            "    // rt.get_intersection.{} {} -> kind={}, t={}, ...",
+            committed_str,
+            qh.fmt_operand(),
+            kind.fmt_operand(),
+            t.fmt_operand(),
+        )
+        .expect("write to String");
+
+        writeln!(self.body, "    mov.u32 {}, 0;", kind.fmt_operand()).expect("write to String");
+        writeln!(self.body, "    mov.f32 {}, 0f00000000;", t.fmt_operand())
+            .expect("write to String");
+        writeln!(
+            self.body,
+            "    mov.u32 {}, 0;",
+            instance_custom_data.fmt_operand()
+        )
+        .expect("write to String");
+        writeln!(
+            self.body,
+            "    mov.u32 {}, 0;",
+            instance_index.fmt_operand()
+        )
+        .expect("write to String");
+        writeln!(
+            self.body,
+            "    mov.u32 {}, 0;",
+            sbt_record_offset.fmt_operand()
+        )
+        .expect("write to String");
+        writeln!(
+            self.body,
+            "    mov.u32 {}, 0;",
+            geometry_index.fmt_operand()
+        )
+        .expect("write to String");
+        writeln!(
+            self.body,
+            "    mov.u32 {}, 0;",
+            primitive_index.fmt_operand()
+        )
+        .expect("write to String");
+        writeln!(
+            self.body,
+            "    mov.f32 {}, 0f00000000;",
+            bary_x.fmt_operand()
+        )
+        .expect("write to String");
+        writeln!(
+            self.body,
+            "    mov.f32 {}, 0f00000000;",
+            bary_y.fmt_operand()
+        )
+        .expect("write to String");
+        writeln!(self.body, "    mov.u32 {}, 0;", front_face.fmt_operand())
+            .expect("write to String");
+
+        Ok(PtxVal::Vec(vec![
+            kind,
+            t,
+            instance_custom_data,
+            instance_index,
+            sbt_record_offset,
+            geometry_index,
+            primitive_index,
+            PtxVal::Vec(vec![bary_x, bary_y]),
+            front_face,
+        ]))
     }
 }

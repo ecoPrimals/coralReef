@@ -160,3 +160,32 @@ pub enum MemSpaceKind {
     Global,
     Shared,
 }
+
+/// Per ray-query variable tracked through the emitter.
+///
+/// Each `RayQuery`-typed local gets an opaque state slot (64-bit handle)
+/// and a result struct slot for intersection data. The actual hardware
+/// acceleration structure traversal is dispatched by toadStool at runtime;
+/// coralReef emits the PTX instruction sequence that interfaces with the
+/// RT core pipeline.
+#[derive(Debug)]
+pub struct RayQueryState {
+    pub(crate) query_handle: PtxVal,
+    pub(crate) proceed_result: Option<PtxVal>,
+}
+
+/// Fields of the `RayIntersection` struct returned by
+/// `RayQueryGetIntersection`. Matches naga's generated
+/// `special_types.ray_intersection` layout.
+#[derive(Debug, Clone)]
+pub struct RayIntersectionRegs {
+    pub(crate) kind: PtxVal,
+    pub(crate) t: PtxVal,
+    pub(crate) instance_custom_data: PtxVal,
+    pub(crate) instance_index: PtxVal,
+    pub(crate) sbt_record_offset: PtxVal,
+    pub(crate) geometry_index: PtxVal,
+    pub(crate) primitive_index: PtxVal,
+    pub(crate) barycentrics: [PtxVal; 2],
+    pub(crate) front_face: PtxVal,
+}

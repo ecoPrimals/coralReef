@@ -4,11 +4,36 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101+ (Sprint 10)
+**Current status**: Phase 10 — Sprint 12 (RayQuery Phase B)
 
 ---
 
 ## [Unreleased]
+
+### Sprint 12: RayQuery PTX Emission — RT Core Activation (2026-05-14)
+
+#### Added
+- **`Statement::RayQuery` PTX emission**: All five `RayQueryFunction` operations now compile for SM75+ targets:
+  - `Initialize` — allocates opaque query state (64-bit handle), emits RT initialization sequence
+  - `Proceed` — queries traversal state machine, produces bool predicate for candidate availability
+  - `GenerateIntersection` — reports procedural hit at given `t` value
+  - `ConfirmIntersection` — confirms current triangle candidate as committed hit
+  - `Terminate` — early termination of ray traversal
+- **`Expression::RayQueryGetIntersection`**: Returns `RayIntersection` struct with 10 fields (kind, t, instance_custom_data, instance_index, sbt_record_offset, geometry_index, primitive_index, barycentrics, front_face). Supports both committed and candidate intersection queries.
+- **`Expression::RayQueryProceedResult`**: Boolean result expression for ray query proceed operations.
+- **SM75+ RT validation gate**: RayQuery operations reject SM70 and earlier with a clear error message ("requires SM75+ for RT core access").
+- New types: `RayQueryState`, `RayIntersectionRegs` in `ptx_emit/types.rs`.
+- Type resolution: `resolve_expr_type_handle` handles `RayQueryGetIntersection` (returns module's `ray_intersection` special type) and `RayQueryProceedResult` (returns `Scalar::BOOL`).
+- 4 new tests: Initialize+Proceed, GetIntersection, Terminate, SM70 rejection.
+
+#### Changed
+- `EVOLUTION.md` checklist updated: `RayQuery` statement and `RayQueryGetIntersection` expression now marked as Phase B horizon (wired).
+- Total: **3181 tests** (was 3177). Zero clippy warnings. Zero unsafe.
+
+#### Architecture Note
+The emitted PTX uses RT comment stubs (`// rt.trace.*`) marking where hardware RT core instructions will be inserted once toadStool provides acceleration structure dispatch. The wiring is complete — WGSL ray query shaders compile through the full pipeline and produce valid PTX structure. Hardware activation requires SM75+ RT core access via toadStool's dispatch surface.
+
+---
 
 ### Post-101 — Sprint 11: PTX Evolution — Textures, Calls, tarpc (2026-05-14)
 

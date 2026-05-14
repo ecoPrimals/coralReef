@@ -4,9 +4,9 @@
 
 **Current position**: Phase 10 — Sprint 11 (pure compiler primal, full-GPU horizons defined).
 
-**Last completed**: Sprint 11 — `ImageSample` PTX (`.texref` + `tex.*`, LOD/gradient), `textureGather` (`tld4.*`), function call inlining, `ImageAtomic` (`sured.*`), `WorkGroupUniformLoad` (barrier-load-barrier), tarpc GEMM, subgroup mul documented. Prior: Sprint 10 — `ImageQuery`, math/builtin expansion, f64 fixes, HMMA GEMM.
+**Last completed**: Sprint 12 — `Statement::RayQuery` PTX emission (Initialize/Proceed/GenerateIntersection/ConfirmIntersection/Terminate) + `RayQueryGetIntersection` expression. RT core activation (Phase B) wired with SM75+ gate. Prior: Sprint 11 — ImageSample/textureGather/ImageAtomic/WorkGroupUniformLoad/function inlining/tarpc GEMM.
 
-**Tests**: 3177 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3181 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 14, 2026.
 
@@ -18,7 +18,7 @@
 
 ### Near-Term (Sprint 12–13)
 
-1. **RayQuery PTX emission** — `Statement::RayQuery` (Initialize/Proceed/GetIntersection/ConfirmIntersection/Terminate) → SM75+ inline RT instructions. Phase B of silicon exploitation.
+1. ~~**RayQuery PTX emission**~~ — **DONE** (Sprint 12). Wired with RT stubs for SM75+. Hardware activation awaits toadStool acceleration structure dispatch.
 2. Depth texture comparison (`textureSampleCompare`) PTX emission
 3. Array textures (`texture_2d_array`, `texture_cube`) and cube maps
 4. Coverage push toward 90% on remaining compiler crates

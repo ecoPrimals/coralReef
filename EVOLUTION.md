@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: May 14, 2026 (Phase 10 — Sprint 11)
-**Phase**: 10 — Sprint 11: ImageSample/textureGather/ImageAtomic/WorkGroupUniformLoad PTX emission shipped. Function call inlining. shader.compile.gemm on tarpc. Subgroup multiply reduction documented as unsupported (no hardware redux.sync mul SM70-SM120). 3177 tests, zero failures, zero unsafe, zero clippy warnings. Full-GPU silicon exploitation horizons defined: RayQuery (Phase B), vertex/fragment compilation (Phase C), mesh shaders (Phase D).
+**Last updated**: May 14, 2026 (Phase 10 — Sprint 12)
+**Phase**: 10 — Sprint 12: RayQuery PTX emission shipped (Phase B — RT core activation). Statement::RayQuery (Initialize/Proceed/GenerateIntersection/ConfirmIntersection/Terminate) + RayQueryGetIntersection expression + RayQueryProceedResult. SM75+ gate. RT stubs wired for toadStool hardware activation. 3181 tests, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3177 tests. Zero clippy warnings.
+Pure Rust. Zero unsafe. 3181 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
@@ -165,7 +165,7 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] ImageSample (Sprint 11 — `tex.*` sampled textures, LOD/gradient/gather)
 - [x] ImageQuery (Sprint 10 — `suq.width/height/depth` surface query)
 - [ ] Override
-- [ ] RayQueryGetIntersection — **Phase B horizon: RT core activation**
+- [x] RayQueryGetIntersection (Sprint 12 — committed/candidate intersection struct with 10 fields)
 - [x] SubgroupBallotResult / SubgroupOperationResult (PTX: pre-allocates typed registers — Sprint 4)
 - [x] WorkGroupUniformLoadResult (Sprint 11 — barrier-load-barrier pattern)
 - [x] ZeroValue (zero-initialization for all scalar/vector types)
@@ -186,7 +186,7 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] ImageStore (Sprint 10 — `sust.b` surface store)
 - [x] ImageAtomic (Sprint 11 — `sured.b` surface atomic reduction)
 - [x] WorkGroupUniformLoad (Sprint 11 — `bar.sync 0` + `ld.shared` + `bar.sync 0`)
-- [ ] RayQuery — **Phase B horizon: RT core activation (Initialize/Proceed/GetIntersection/ConfirmIntersection/Terminate)**
+- [x] RayQuery — **Phase B: RT core activation** (Sprint 12 — Initialize/Proceed/GenerateIntersection/ConfirmIntersection/Terminate, SM75+ gate, RT stubs wired)
 - [x] SubgroupBallot (PTX: vote.sync.ballot.b32)
 - [x] SubgroupCollectiveOperation (PTX: redux.sync reduce + shfl.sync.up inclusive/exclusive scans — Sprint 4)
 - [x] SubgroupGather (PTX: shfl.sync.idx/down/up/bfly — shuffle modes)

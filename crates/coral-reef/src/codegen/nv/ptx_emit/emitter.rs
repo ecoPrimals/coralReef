@@ -37,6 +37,7 @@ impl<'a> PtxEmitter<'a> {
             barrier_count: 0,
             inline_depth: 0,
             inline_return_val: None,
+            ray_queries: std::collections::HashMap::new(),
         }
     }
 
@@ -127,6 +128,17 @@ impl<'a> PtxEmitter<'a> {
             naga::Expression::Splat { value, .. } => self.resolve_expr_type_handle(value),
             naga::Expression::Swizzle { vector, .. } => self.resolve_expr_type_handle(vector),
             naga::Expression::ArrayLength(_) => self.scalar_type_handle(naga::Scalar::U32),
+            naga::Expression::RayQueryGetIntersection { .. } => self
+                .module
+                .special_types
+                .ray_intersection
+                .unwrap_or_else(|| {
+                    self.module.types.iter().next().map_or_else(
+                        || crate::codegen::ice!("module has no types"),
+                        |(handle, _)| handle,
+                    )
+                }),
+            naga::Expression::RayQueryProceedResult => self.scalar_type_handle(naga::Scalar::BOOL),
             _ => self.module.types.iter().next().map_or_else(
                 || {
                     crate::codegen::ice!("module has no types");
