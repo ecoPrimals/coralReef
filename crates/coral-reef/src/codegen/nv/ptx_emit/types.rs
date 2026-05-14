@@ -67,6 +67,34 @@ pub struct SurfaceBinding {
     pub(crate) texel_format: TexelFormat,
 }
 
+/// Per sampled texture binding for `tex.*` instructions.
+#[derive(Debug)]
+pub struct TextureBinding {
+    pub(crate) binding: u32,
+    pub(crate) gv_handle: naga::Handle<naga::GlobalVariable>,
+    pub(crate) dim: ImageDim,
+    pub(crate) channel_type: TexChannelType,
+    pub(crate) is_depth: bool,
+}
+
+/// Texture channel data type (determines the PTX `tex.*` return type).
+#[derive(Debug, Clone, Copy)]
+pub enum TexChannelType {
+    F32,
+    S32,
+    U32,
+}
+
+impl TexChannelType {
+    pub(crate) fn ptx_suffix(self) -> &'static str {
+        match self {
+            Self::F32 => "f32",
+            Self::S32 => "s32",
+            Self::U32 => "u32",
+        }
+    }
+}
+
 /// Image dimensionality for surface instructions.
 #[derive(Debug, Clone, Copy)]
 pub enum ImageDim {

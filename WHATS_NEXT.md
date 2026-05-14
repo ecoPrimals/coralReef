@@ -4,20 +4,20 @@
 
 **Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
 
-**Last completed**: Sprint 11 — `shader.compile.gemm` on tarpc transport (unblocks tarpc consumers), subgroup multiply reduction documented as unsupported (SM70–SM120, no hardware op). Prior: Sprint 10 — `ImageQuery` PTX emission (`suq`), 8 new math functions, 3 new builtins, `lib_tests.rs` split, f64 fixes, `health.version` RPC, HMMA GEMM, IPC aliases, texture expansion, env var deprecation.
+**Last completed**: Sprint 11 — `ImageSample` PTX emission (`.texref` + `tex.*` for sampled textures, 1D/2D/3D, LOD/gradient modes), `shader.compile.gemm` on tarpc transport, subgroup multiply reduction documented. Prior: Sprint 10 — `ImageQuery` PTX, 8 math functions, 3 builtins, `lib_tests` split, f64 fixes, HMMA GEMM, IPC aliases, texture expansion.
 
-**Tests**: 3165 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3170 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 15, 2026.
 
-**Next focus**: `ImageSample` PTX emission (`.texref` + `tex.*` instructions). Function call inlining in PTX emitter. Coverage push toward 90%. Scan operation integer type support. WGSL cooperative matrix support (blocked on WGSL spec adoption).
+**Next focus**: Function call inlining in PTX emitter (`Statement::Call`). `textureGather` PTX emission. Coverage push toward 90%. Scan operation integer type support. WGSL cooperative matrix support (blocked on WGSL spec adoption).
 
 ---
 
-## Current Priorities (Sprint 10+)
+## Current Priorities (Sprint 11+)
 
-1. `ImageSample` PTX emission (sampled textures via `.texref` + `tex.*` instructions)
-2. Function call inlining in PTX emitter (`Statement::Call`)
+1. Function call inlining in PTX emitter (`Statement::Call`)
+2. `textureGather` PTX emission (`tex.gather.*` instructions)
 3. Coverage push toward 90% on 7 remaining compiler crates
 4. `naga::Module` ingest path hardening (multiple entry points, validation)
 5. Ecosystem discovery integration testing with live toadStool instance

@@ -173,6 +173,17 @@ impl PtxEmitter<'_> {
                 Ok(self.alloc_for_scalar(scalar))
             }
             naga::Expression::SubgroupBallotResult => Ok(self.alloc_r32()),
+            naga::Expression::ImageSample {
+                image,
+                sampler: _,
+                gather,
+                coordinate,
+                array_index: _,
+                offset: _,
+                level,
+                depth_ref,
+                ..
+            } => self.eval_image_sample(image, coordinate, level, depth_ref, gather),
             naga::Expression::ImageLoad {
                 image,
                 coordinate,
@@ -239,6 +250,125 @@ impl PtxEmitter<'_> {
             Ok(dst_components.into_iter().next().expect("component exists"))
         } else {
             Ok(PtxVal::Vec(dst_components))
+        }
+    }
+
+    fn eval_image_sample(
+        &mut self,
+        image: naga::Handle<naga::Expression>,
+        coordinate: naga::Handle<naga::Expression>,
+        level: naga::SampleLevel,
+        depth_ref: Option<naga::Handle<naga::Expression>>,
+        gather: Option<naga::SwizzleComponent>,
+    ) -> Result<PtxVal, CompileError> {
+        let naga::Expression::GlobalVariable(gv_handle) = self.func.expressions[image] else {
+            return Err(CompileError::NotImplemented(
+                "ImageSample from non-global image".into(),
+            ));
+        };
+        let tex_idx = self.texture_index(gv_handle).ok_or_else(|| {
+            CompileError::InvalidInput(
+                "ImageSample source is not a recognized texture binding".into(),
+            )
+        })?;
+        let dim = self.textures[tex_idx].dim;
+        let channel_type = self.textures[tex_idx].channel_type;
+        let is_depth = self.textures[tex_idx].is_depth;
+        let dim_suffix = dim.ptx_suffix();
+        let ret_type = channel_type.ptx_suffix();
+
+        let coord = self.eval_expr(coordinate)?;
+        let coord_str = self.format_tex_coord(&coord, dim);
+
+        if gather.is_some() {
+            return Err(CompileError::NotImplemented(
+                "textureGather not yet supported in PTX emitter".into(),
+            ));
+        }
+
+        if let (true, Some(ref_expr)) = (is_depth, depth_ref) {
+            let _ref_val = self.eval_expr(ref_expr)?;
+            let dst = self.alloc_r32();
+            let discard1 = self.alloc_r32();
+            let discard2 = self.alloc_r32();
+            let discard3 = self.alloc_r32();
+            writeln!(
+                self.body,
+                "    tex.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_op}, {d1}, {d2}, {d3}}}, [_tex{tex_idx}, {coord_str}];",
+                dst_op = dst.fmt_operand(),
+                d1 = discard1.fmt_operand(),
+                d2 = discard2.fmt_operand(),
+                d3 = discard3.fmt_operand(),
+            )
+            .expect("write to String");
+            return Ok(dst);
+        }
+
+        let dst_components: Vec<PtxVal> = (0..4).map(|_| self.alloc_r32()).collect();
+        let dst_str = dst_components
+            .iter()
+            .map(PtxVal::fmt_operand)
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        match level {
+            naga::SampleLevel::Auto | naga::SampleLevel::Zero => {
+                writeln!(
+                    self.body,
+                    "    tex.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}];",
+                )
+                .expect("write to String");
+            }
+            naga::SampleLevel::Exact(lod_expr) => {
+                let lod = self.eval_expr(lod_expr)?;
+                writeln!(
+                    self.body,
+                    "    tex.level.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}], {lod_op};",
+                    lod_op = lod.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::SampleLevel::Bias(bias_expr) => {
+                let bias = self.eval_expr(bias_expr)?;
+                writeln!(
+                    self.body,
+                    "    tex.level.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}], {bias_op};",
+                    bias_op = bias.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::SampleLevel::Gradient { x, y } => {
+                let grad_x = self.eval_expr(x)?;
+                let grad_y = self.eval_expr(y)?;
+                let grad_x_str = self.format_tex_coord(&grad_x, dim);
+                let grad_y_str = self.format_tex_coord(&grad_y, dim);
+                writeln!(
+                    self.body,
+                    "    tex.grad.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}], {grad_x_str}, {grad_y_str};",
+                )
+                .expect("write to String");
+            }
+        }
+
+        Ok(PtxVal::Vec(dst_components))
+    }
+
+    fn format_tex_coord(&self, coord: &PtxVal, dim: ImageDim) -> String {
+        match coord {
+            PtxVal::Vec(components) => {
+                let needed = match dim {
+                    ImageDim::D1 => 1,
+                    ImageDim::D2 => 2,
+                    ImageDim::D3 => 3,
+                };
+                let parts: Vec<String> = components
+                    .iter()
+                    .take(needed)
+                    .map(PtxVal::fmt_operand)
+                    .collect();
+                format!("{{{}}}", parts.join(", "))
+            }
+            scalar => format!("{{{}}}", scalar.fmt_operand()),
         }
     }
 

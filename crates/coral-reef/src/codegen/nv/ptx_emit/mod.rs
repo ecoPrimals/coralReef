@@ -38,7 +38,7 @@ use std::collections::HashMap;
 use crate::backend::{BinaryFormat, CompilationInfo, CompiledBinary};
 use crate::error::CompileError;
 
-use types::{BufferBinding, PtxVal, SharedVar, SurfaceBinding};
+use types::{BufferBinding, PtxVal, SharedVar, SurfaceBinding, TextureBinding};
 
 /// Compile WGSL source directly to PTX for SM100+ targets.
 ///
@@ -106,6 +106,7 @@ pub struct PtxEmitter<'a> {
 
     pub(crate) bindings: Vec<BufferBinding>,
     pub(crate) surfaces: Vec<SurfaceBinding>,
+    pub(crate) textures: Vec<TextureBinding>,
     pub(crate) shared_vars: Vec<SharedVar>,
 
     pub(crate) r32_next: u32,
@@ -781,6 +782,151 @@ fn main() {
         assert!(
             ptx.contains("suq.width.b32"),
             "should emit suq.width for 1d: {ptx:.400}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_sample_2d_level_zero() {
+        let wgsl = r"
+@group(0) @binding(0)
+var my_tex: texture_2d<f32>;
+@group(0) @binding(1)
+var my_sampler: sampler;
+@group(0) @binding(2)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let uv = vec2<f32>(f32(gid.x) / 64.0, 0.5);
+    let color = textureSampleLevel(my_tex, my_sampler, uv, 0.0);
+    out[gid.x] = color.r;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "ImageSample 2d level: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains(".texref"),
+            "should declare .texref: {ptx:.200}"
+        );
+        assert!(
+            ptx.contains("tex.level.2d.v4.f32.f32"),
+            "should emit tex.level.2d: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_sample_1d_explicit_lod() {
+        let wgsl = r"
+@group(0) @binding(0)
+var my_tex: texture_1d<f32>;
+@group(0) @binding(1)
+var my_sampler: sampler;
+@group(0) @binding(2)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(32)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let u = f32(gid.x) / 32.0;
+    let val = textureSampleLevel(my_tex, my_sampler, u, 2.0);
+    out[gid.x] = val.r;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "ImageSample 1d lod: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("tex.level.1d.v4.f32.f32"),
+            "should emit tex.level.1d: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_sample_3d_level() {
+        let wgsl = r"
+@group(0) @binding(0)
+var vol_tex: texture_3d<f32>;
+@group(0) @binding(1)
+var vol_sampler: sampler;
+@group(0) @binding(2)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(8)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let uvw = vec3<f32>(f32(gid.x) / 8.0, 0.5, 0.5);
+    let val = textureSampleLevel(vol_tex, vol_sampler, uvw, 0.0);
+    out[gid.x] = val.r + val.g;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "ImageSample 3d: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("tex.level.3d.v4.f32.f32"),
+            "should emit tex.level.3d: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_sample_2d_gradient() {
+        let wgsl = r"
+@group(0) @binding(0)
+var grad_tex: texture_2d<f32>;
+@group(0) @binding(1)
+var grad_sampler: sampler;
+@group(0) @binding(2)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(16)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let uv = vec2<f32>(f32(gid.x) / 16.0, 0.5);
+    let ddx = vec2<f32>(1.0 / 16.0, 0.0);
+    let ddy = vec2<f32>(0.0, 1.0 / 16.0);
+    let val = textureSampleGrad(grad_tex, grad_sampler, uv, ddx, ddy);
+    out[gid.x] = val.r;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "ImageSample 2d gradient: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("tex.grad.2d.v4.f32.f32"),
+            "should emit tex.grad.2d: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_sample_uint_texture() {
+        let wgsl = r"
+@group(0) @binding(0)
+var uint_tex: texture_2d<u32>;
+@group(0) @binding(1)
+var uint_sampler: sampler;
+@group(0) @binding(2)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(32)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let uv = vec2<f32>(f32(gid.x) / 32.0, 0.5);
+    let val = textureSampleLevel(uint_tex, uint_sampler, uv, 0.0);
+    out[gid.x] = val.r;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "ImageSample u32: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains(".texref"),
+            "should declare .texref for u32 texture: {ptx:.200}"
+        );
+        assert!(
+            ptx.contains("tex.level.2d.v4.u32.u32"),
+            "should emit tex with u32 channel type: {ptx:.600}"
         );
     }
 }

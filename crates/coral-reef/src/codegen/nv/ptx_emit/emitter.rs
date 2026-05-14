@@ -5,7 +5,10 @@ use std::fmt::Write as _;
 use crate::error::CompileError;
 
 use super::PtxEmitter;
-use super::types::{BufferBinding, ImageDim, PtxVal, SharedVar, SurfaceBinding, TexelFormat};
+use super::types::{
+    BufferBinding, ImageDim, PtxVal, SharedVar, SurfaceBinding, TexChannelType, TexelFormat,
+    TextureBinding,
+};
 
 #[allow(
     clippy::elidable_lifetime_names,
@@ -20,6 +23,7 @@ impl<'a> PtxEmitter<'a> {
             workgroup_size: ep.workgroup_size,
             bindings: Vec::new(),
             surfaces: Vec::new(),
+            textures: Vec::new(),
             shared_vars: Vec::new(),
             r32_next: 0,
             rd64_next: 0,
@@ -300,12 +304,62 @@ impl<'a> PtxEmitter<'a> {
         self.surfaces = surfaces;
     }
 
+    fn collect_textures(&mut self) {
+        let mut textures = Vec::new();
+        for (handle, gv) in self.module.global_variables.iter() {
+            if gv.space != naga::AddressSpace::Handle {
+                continue;
+            }
+            let ty_inner = &self.module.types[gv.ty].inner;
+            if let naga::TypeInner::Image { dim, class, .. } = *ty_inner {
+                let (channel_type, is_depth) = match class {
+                    naga::ImageClass::Sampled { kind, .. } => {
+                        let ct = match kind {
+                            naga::ScalarKind::Float => TexChannelType::F32,
+                            naga::ScalarKind::Sint => TexChannelType::S32,
+                            naga::ScalarKind::Uint => TexChannelType::U32,
+                            _ => TexChannelType::F32,
+                        };
+                        (ct, false)
+                    }
+                    naga::ImageClass::Depth { .. } => (TexChannelType::F32, true),
+                    naga::ImageClass::Storage { .. } | naga::ImageClass::External => continue,
+                };
+                let binding_idx = gv.binding.as_ref().map_or(0, |b| b.binding);
+                let image_dim = match dim {
+                    naga::ImageDimension::D1 => ImageDim::D1,
+                    naga::ImageDimension::D2 | naga::ImageDimension::Cube => ImageDim::D2,
+                    naga::ImageDimension::D3 => ImageDim::D3,
+                };
+                textures.push(TextureBinding {
+                    binding: binding_idx,
+                    gv_handle: handle,
+                    dim: image_dim,
+                    channel_type,
+                    is_depth,
+                });
+            }
+        }
+        textures.sort_by_key(|t| t.binding);
+        self.textures = textures;
+    }
+
     fn write_surface_decls(&self, out: &mut String) {
         for (i, surf) in self.surfaces.iter().enumerate() {
             writeln!(out, ".global .surfref _surf{i};").expect("write to String");
-            let _ = surf; // binding info used at dispatch time by driver
+            let _ = surf;
         }
         if !self.surfaces.is_empty() {
+            writeln!(out).expect("write to String");
+        }
+    }
+
+    fn write_texture_decls(&self, out: &mut String) {
+        for (i, tex) in self.textures.iter().enumerate() {
+            writeln!(out, ".global .texref _tex{i};").expect("write to String");
+            let _ = tex;
+        }
+        if !self.textures.is_empty() {
             writeln!(out).expect("write to String");
         }
     }
@@ -338,6 +392,10 @@ impl<'a> PtxEmitter<'a> {
         self.surfaces.iter().position(|s| s.gv_handle == gv)
     }
 
+    pub(super) fn texture_index(&self, gv: naga::Handle<naga::GlobalVariable>) -> Option<usize> {
+        self.textures.iter().position(|t| t.gv_handle == gv)
+    }
+
     pub(super) fn shared_var(&self, gv: naga::Handle<naga::GlobalVariable>) -> Option<&SharedVar> {
         self.shared_vars.iter().find(|s| s.gv_handle == gv)
     }
@@ -345,6 +403,7 @@ impl<'a> PtxEmitter<'a> {
     pub(super) fn emit(&mut self) -> Result<String, CompileError> {
         self.collect_bindings();
         self.collect_surfaces();
+        self.collect_textures();
         self.collect_shared_vars();
         self.init_locals();
         self.precompute_builtins()?;
@@ -355,6 +414,7 @@ impl<'a> PtxEmitter<'a> {
         let mut out = String::with_capacity(512 + self.body.len());
         self.write_header(&mut out);
         self.write_surface_decls(&mut out);
+        self.write_texture_decls(&mut out);
         self.write_params(&mut out);
         writeln!(out, "{{").expect("write to String");
         self.write_reg_decls(&mut out);
