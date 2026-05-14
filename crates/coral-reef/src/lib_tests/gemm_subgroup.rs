@@ -258,3 +258,93 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         "SM120 subgroupAdd should emit redux.sync: {ptx}"
     );
 }
+
+#[test]
+fn test_subgroup_size_builtin_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(subgroup_size) sg_size: u32,
+        @builtin(num_subgroups) num_sg: u32) {
+    output[gid.x] = sg_size + num_sg;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "SubgroupSize + NumSubgroups builtins should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_size_in_reduction_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+
+@compute @workgroup_size(128)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(subgroup_size) warp_size: u32,
+        @builtin(subgroup_invocation_id) lane: u32) {
+    var val = data[gid.x];
+    let sum = subgroupAdd(val);
+    if lane == 0u {
+        data[gid.x / warp_size] = sum;
+    }
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "SubgroupSize in reduction kernel should compile: {result:?}"
+    );
+}
+
+#[test]
+fn test_sum_reduce_subgroup_f64_sm70() {
+    // Pattern from hotSpring's sum_reduce_subgroup_f64.wgsl:
+    // Uses SubgroupSize/NumSubgroups builtins with f64 data storage.
+    // The reduction itself uses f32 partial sums; f64 is for accumulation.
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+@group(0) @binding(1) var<storage, read_write> partial: array<f64>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(subgroup_size) warp_size: u32,
+        @builtin(subgroup_invocation_id) lane: u32,
+        @builtin(num_subgroups) n_warps: u32) {
+    let val = data[gid.x];
+    let warp_sum = subgroupAdd(val);
+    if lane == 0u {
+        let warp_idx = gid.x / warp_size;
+        partial[warp_idx] = f64(warp_sum);
+    }
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        fp64_software: true,
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "f64 subgroup reduction with SubgroupSize should compile: {result:?}"
+    );
+}

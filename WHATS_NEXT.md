@@ -6,7 +6,7 @@
 
 **Last completed**: Sprint 10 — `ImageQuery` PTX emission (`suq`), 8 new math functions (saturate, radians, degrees, countOneBits, countLeadingZeros, countTrailingZeros, reverseBits, smoothStep), 3 new builtins (WorkGroupSize, NumSubgroups, SubgroupId), `lib_tests.rs` split for <1000L compliance. Prior: f64 nested struct member type fix, `health.version` RPC, `shader.compile.gemm` IPC wiring, subgroup ops, f64 CallResult fix, HMMA GEMM, IPC aliases, texture expansion, env var deprecation.
 
-**Tests**: 3162 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3165 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 15, 2026.
 

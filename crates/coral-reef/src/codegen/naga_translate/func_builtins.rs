@@ -156,6 +156,61 @@ impl FuncTranslator<'_, '_> {
                 }));
                 Ok(v)
             }
+            naga::BuiltIn::SubgroupSize => {
+                // NVIDIA warp width is architecturally 32 on all SM generations.
+                let v = self.alloc_ssa_vec(RegFile::GPR, 1);
+                self.push_instr(Instr::new(OpCopy {
+                    dst: v[0].into(),
+                    src: Src::new_imm_u32(32),
+                }));
+                Ok(v)
+            }
+            naga::BuiltIn::NumSubgroups => {
+                // num_subgroups = ceil(workgroup_flat_size / 32)
+                let wg = self.workgroup_size;
+                let flat = wg[0] * wg[1] * wg[2];
+                let num_subgroups = flat.div_ceil(32);
+                let v = self.alloc_ssa_vec(RegFile::GPR, 1);
+                self.push_instr(Instr::new(OpCopy {
+                    dst: v[0].into(),
+                    src: Src::new_imm_u32(num_subgroups),
+                }));
+                Ok(v)
+            }
+            naga::BuiltIn::WorkGroupSize => {
+                let wg = self.workgroup_size;
+                let v = self.alloc_ssa_vec(RegFile::GPR, 3);
+                self.push_instr(Instr::new(OpCopy {
+                    dst: v[0].into(),
+                    src: Src::new_imm_u32(wg[0]),
+                }));
+                self.push_instr(Instr::new(OpCopy {
+                    dst: v[1].into(),
+                    src: Src::new_imm_u32(wg[1]),
+                }));
+                self.push_instr(Instr::new(OpCopy {
+                    dst: v[2].into(),
+                    src: Src::new_imm_u32(wg[2]),
+                }));
+                Ok(v)
+            }
+            naga::BuiltIn::SubgroupId => {
+                // subgroup_id = local_invocation_index / 32 = idx >> 5
+                let tid_x = self.read_sys_reg(sys_regs::SR_TID_X);
+                let tid_y = self.read_sys_reg(sys_regs::SR_TID_Y);
+                let tid_z = self.read_sys_reg(sys_regs::SR_TID_Z);
+                let wg = self.workgroup_size;
+                let yz = self.emit_imad(tid_z.into(), Src::new_imm_u32(wg[1]), tid_y.into());
+                let idx = self.emit_imad(yz.into(), Src::new_imm_u32(wg[0]), tid_x.into());
+                let v = self.alloc_ssa_vec(RegFile::GPR, 1);
+                self.push_instr(Instr::new(OpShr {
+                    dst: v[0].into(),
+                    srcs: [idx.into(), Src::new_imm_u32(5)],
+                    wrap: false,
+                    signed: false,
+                }));
+                Ok(v)
+            }
             other => Err(CompileError::NotImplemented(
                 format!("builtin {other:?} not yet supported").into(),
             )),
