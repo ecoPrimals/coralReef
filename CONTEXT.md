@@ -19,10 +19,10 @@ runtime — no hardcoded primal names, no shared code imports.
 
 Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
-## Project status (Iteration 101+, Sprint 9+)
+## Project status (Sprint 12)
 
-- **Tests**: 3165 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
-- **Sprint 9+ (post-excision evolution)**: WGSL subgroup ops (`subgroupAdd`, `subgroupBroadcast`, `subgroupBallot` → `OpRedux`/`OpShfl` in `naga_translate`). f64 `CallResult` type resolution fix (math functions on user-function return values). HMMA tensor-core GEMM codegen (`compile_gemm` API). IPC wire-compat aliases. Texture format coverage expanded (4→10 variants). Legacy env vars deprecated (`BEARDOG_SOCKET` → `BTSP_PROVIDER_SOCKET`, `PRIMALSPRING_AUTH_MODE` → `ECOSYSTEM_AUTH_MODE`). Deep debt audit: zero remaining items across all categories.
+- **Tests**: 3181 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
+- **Sprint 12 (current)**: RayQuery PTX emission (Phase B — RT core activation, SM75+). Full-GPU silicon exploitation horizons defined (Phase B/C/D). ImageSample/textureGather/ImageAtomic/WorkGroupUniformLoad shipped (Sprint 11). HMMA GEMM, subgroup ops, f64 fixes, IPC wire-compat aliases, texture format coverage. Legacy env vars deprecated. Deep debt audit: zero remaining items across all categories.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.

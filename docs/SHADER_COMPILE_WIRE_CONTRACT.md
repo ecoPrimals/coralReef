@@ -2,7 +2,7 @@
 
 # Shader Compile Wire Contract
 
-**Last updated**: May 14, 2026 (Sprint 9+ — `shader.compile.gemm` wired, `health.version` added)
+**Last updated**: May 14, 2026 (Sprint 12 — `shader.compile.gemm` wired, `health.version` added, RayQuery compilation live)
 **Audience**: Spring teams, barraCuda, neuralSpring, toadStool, primalSpring
 **Transport**: JSON-RPC 2.0 (newline-delimited over UDS/TCP) or tarpc (bincode)
 
