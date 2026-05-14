@@ -35,6 +35,8 @@ impl<'a> PtxEmitter<'a> {
             body: String::with_capacity(4096),
             shared_mem_bytes: 0,
             barrier_count: 0,
+            inline_depth: 0,
+            inline_return_val: None,
         }
     }
 
@@ -479,7 +481,7 @@ impl<'a> PtxEmitter<'a> {
         }
     }
 
-    fn alloc_for_type(&mut self, ty: naga::Handle<naga::Type>) -> PtxVal {
+    pub(super) fn alloc_for_type(&mut self, ty: naga::Handle<naga::Type>) -> PtxVal {
         match self.inner_type(ty) {
             naga::TypeInner::Scalar(s) => self.alloc_for_scalar(*s),
             naga::TypeInner::Vector { size, scalar } => {

@@ -76,8 +76,15 @@ impl PtxEmitter<'_> {
                 writeln!(self.body, "$L{end_label}:").expect("write to String");
                 Ok(())
             }
-            naga::Statement::Return { value: _ } => {
-                writeln!(self.body, "    ret;").expect("write to String");
+            naga::Statement::Return { value } => {
+                if self.inline_depth > 0 {
+                    if let Some(val_handle) = value {
+                        let val = self.eval_expr(val_handle)?;
+                        self.inline_return_val = Some(val);
+                    }
+                } else {
+                    writeln!(self.body, "    ret;").expect("write to String");
+                }
                 Ok(())
             }
             naga::Statement::ControlBarrier(_) => {
@@ -190,8 +197,12 @@ impl PtxEmitter<'_> {
                 array_index: _,
                 value,
             } => self.emit_image_store(image, coordinate, value),
-            naga::Statement::Call { .. }
-            | naga::Statement::ImageAtomic { .. }
+            naga::Statement::Call {
+                function,
+                ref arguments,
+                result,
+            } => self.emit_inline_call(function, arguments.clone(), result),
+            naga::Statement::ImageAtomic { .. }
             | naga::Statement::RayQuery { .. }
             | naga::Statement::WorkGroupUniformLoad { .. } => Err(CompileError::NotImplemented(
                 format!("PTX statement: {stmt:?}").into(),
@@ -727,5 +738,61 @@ impl PtxEmitter<'_> {
             )
             .expect("write to String");
         }
+    }
+
+    fn emit_inline_call(
+        &mut self,
+        function: naga::Handle<naga::Function>,
+        arguments: Vec<naga::Handle<naga::Expression>>,
+        result: Option<naga::Handle<naga::Expression>>,
+    ) -> Result<(), CompileError> {
+        let arg_vals: Vec<PtxVal> = arguments
+            .iter()
+            .map(|&arg| self.eval_expr(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let callee = &self.module.functions[function];
+
+        let saved_func = self.func;
+        let saved_values = std::mem::take(&mut self.values);
+        let saved_locals = std::mem::take(&mut self.locals);
+
+        self.func = callee;
+        self.inline_depth += 1;
+        self.inline_return_val = None;
+
+        for (handle, lv) in callee.local_variables.iter() {
+            let val = self.alloc_for_type(lv.ty);
+            self.zero_val(&val);
+            self.locals.insert(handle, val);
+        }
+
+        for (i, arg_val) in arg_vals.into_iter().enumerate() {
+            let arg_handle = callee.expressions.iter().find_map(|(h, expr)| match *expr {
+                naga::Expression::FunctionArgument(idx) if idx as usize == i => Some(h),
+                _ => None,
+            });
+            if let Some(h) = arg_handle {
+                self.values.insert(h, arg_val);
+            }
+        }
+
+        let callee_body = callee.body.clone();
+        self.emit_block(&callee_body)?;
+
+        let return_val = self.inline_return_val.take();
+
+        self.inline_depth -= 1;
+        self.func = saved_func;
+        self.values = saved_values;
+        self.locals = saved_locals;
+
+        if let Some(result_handle) = result {
+            if let Some(val) = return_val {
+                self.values.insert(result_handle, val);
+            }
+        }
+
+        Ok(())
     }
 }

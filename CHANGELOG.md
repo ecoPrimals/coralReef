@@ -10,17 +10,19 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Post-101 — Sprint 11: ImageSample PTX + tarpc GEMM (2026-05-14)
+### Post-101 — Sprint 11: PTX Evolution — Textures, Calls, tarpc (2026-05-14)
 
 #### Added
 - **`ImageSample` PTX emission**: Sampled textures (`texture_1d<f32>`, `texture_2d<f32>`, `texture_3d<f32>`, `texture_2d<u32>`, depth textures) now emit PTX `tex.*` instructions via `.texref` declarations. Supports `textureSampleLevel` (explicit LOD), `textureSampleGrad` (gradient-based), and depth comparison sampling. Coordinate formatting handles 1D scalar, 2D vec2, and 3D vec3.
+- **`textureGather` PTX emission**: `tld4.{r,g,b,a}.2d.v4.{type}.{type}` instructions for 2D texture gather operations. Returns 4 texels from a 2x2 footprint at the specified component.
+- **Function call inlining**: `Statement::Call` now inlines callee functions directly into PTX body. Supports arguments, return values, local variables, nested calls, and void functions. Callee expressions are evaluated in an isolated context with argument mapping.
 - New types: `TextureBinding`, `TexChannelType` (F32/S32/U32) in `ptx_emit/types.rs`.
-- 5 new tests: 2D level-zero, 1D explicit LOD, 3D volume, 2D gradient, u32 texture channel type.
-- **`shader.compile.gemm` on tarpc transport**: `ShaderCompileTarpc` trait now exposes `gemm(GemmCompileRequest)` method. tarpc consumers (bincode over TCP/Unix) can use tensor-core GEMM compilation without JSON-RPC. Includes timeout handling and panic recovery matching other compile endpoints.
+- 10 new tests: 5 ImageSample (2D level-zero, 1D explicit LOD, 3D volume, 2D gradient, u32 channel), 1 textureGather (2D component 0), 4 function call inlining (simple, multi-arg, void, nested).
+- **`shader.compile.gemm` on tarpc transport**: `ShaderCompileTarpc` trait now exposes `gemm(GemmCompileRequest)` method. tarpc consumers (bincode over TCP/Unix) can use tensor-core GEMM compilation without JSON-RPC.
 
 #### Changed
-- **Subgroup multiply reduction documented as unsupported**: The `subgroup_op_to_redux` error message now explicitly states SM70-SM120 scope and documents the architectural limitation (no hardware `redux.sync mul` on any SM generation). Callers should decompose multiply reductions manually.
-- Total: **3170 tests** (was 3165). Zero clippy warnings. Zero unsafe.
+- **Subgroup multiply reduction documented as unsupported**: Error message explicitly states SM70-SM120 scope (no hardware `redux.sync mul` on any SM generation).
+- Total: **3175 tests** (was 3165). Zero clippy warnings. Zero unsafe.
 
 ---
 

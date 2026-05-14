@@ -280,10 +280,8 @@ impl PtxEmitter<'_> {
         let coord = self.eval_expr(coordinate)?;
         let coord_str = self.format_tex_coord(&coord, dim);
 
-        if gather.is_some() {
-            return Err(CompileError::NotImplemented(
-                "textureGather not yet supported in PTX emitter".into(),
-            ));
+        if let Some(component) = gather {
+            return self.eval_texture_gather(tex_idx, &coord_str, component, channel_type);
         }
 
         if let (true, Some(ref_expr)) = (is_depth, depth_ref) {
@@ -370,6 +368,37 @@ impl PtxEmitter<'_> {
             }
             scalar => format!("{{{}}}", scalar.fmt_operand()),
         }
+    }
+
+    fn eval_texture_gather(
+        &mut self,
+        tex_idx: usize,
+        coord_str: &str,
+        component: naga::SwizzleComponent,
+        channel_type: super::types::TexChannelType,
+    ) -> Result<PtxVal, CompileError> {
+        let comp_suffix = match component {
+            naga::SwizzleComponent::X => "r",
+            naga::SwizzleComponent::Y => "g",
+            naga::SwizzleComponent::Z => "b",
+            naga::SwizzleComponent::W => "a",
+        };
+        let ret_type = channel_type.ptx_suffix();
+
+        let dst_components: Vec<PtxVal> = (0..4).map(|_| self.alloc_r32()).collect();
+        let dst_str = dst_components
+            .iter()
+            .map(PtxVal::fmt_operand)
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        writeln!(
+            self.body,
+            "    tld4.{comp_suffix}.2d.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}];",
+        )
+        .expect("write to String");
+
+        Ok(PtxVal::Vec(dst_components))
     }
 
     fn eval_image_query(

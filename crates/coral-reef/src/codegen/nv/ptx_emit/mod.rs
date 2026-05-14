@@ -121,6 +121,12 @@ pub struct PtxEmitter<'a> {
     pub(crate) body: String,
     pub(crate) shared_mem_bytes: u32,
     pub(crate) barrier_count: u32,
+
+    /// When > 0, we're inside an inlined function call. `Return` should
+    /// store its value rather than emitting `ret;`.
+    pub(crate) inline_depth: u32,
+    /// Holds the return value of the most recently completed inlined call.
+    pub(crate) inline_return_val: Option<PtxVal>,
 }
 
 #[cfg(test)]
@@ -927,6 +933,146 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         assert!(
             ptx.contains("tex.level.2d.v4.u32.u32"),
             "should emit tex with u32 channel type: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_texture_gather_2d() {
+        let wgsl = r"
+@group(0) @binding(0)
+var gather_tex: texture_2d<f32>;
+@group(0) @binding(1)
+var gather_sampler: sampler;
+@group(0) @binding(2)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(16)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let uv = vec2<f32>(f32(gid.x) / 16.0, 0.5);
+    let gathered = textureGather(0, gather_tex, gather_sampler, uv);
+    out[gid.x] = gathered.x + gathered.y + gathered.z + gathered.w;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "textureGather: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("tld4.r.2d.v4.f32.f32"),
+            "should emit tld4.r.2d for component 0: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_function_call_inline_simple() {
+        let wgsl = r"
+fn double(x: u32) -> u32 {
+    return x * 2u;
+}
+
+@group(0) @binding(0)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = double(gid.x);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "Function call inlining: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("mul.lo.u32"),
+            "should emit multiply from inlined double(): {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_function_call_inline_multi_arg() {
+        let wgsl = r"
+fn add_scaled(a: f32, b: f32, scale: f32) -> f32 {
+    return (a + b) * scale;
+}
+
+@group(0) @binding(0)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(32)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let x = f32(gid.x);
+    out[gid.x] = add_scaled(x, 1.0, 2.0);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "Multi-arg inline call: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("add.f32"),
+            "should emit add from inlined function: {ptx:.600}"
+        );
+        assert!(
+            ptx.contains("mul.f32"),
+            "should emit mul from inlined function: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_function_call_inline_void() {
+        let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> out: array<u32>;
+
+fn write_at(idx: u32, val: u32) {
+    out[idx] = val;
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    write_at(gid.x, 99u);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "Void function inline: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("st.global"),
+            "should emit store from inlined void function: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_function_call_inline_nested() {
+        let wgsl = r"
+fn square(x: u32) -> u32 {
+    return x * x;
+}
+
+fn sum_of_squares(a: u32, b: u32) -> u32 {
+    return square(a) + square(b);
+}
+
+@group(0) @binding(0)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(32)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = sum_of_squares(gid.x, gid.x + 1u);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "Nested call inlining: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("mul.lo.u32"),
+            "should emit multiplies from nested inlined calls: {ptx:.600}"
+        );
+        assert!(
+            ptx.contains("add.u32"),
+            "should emit add from outer inlined function: {ptx:.600}"
         );
     }
 }

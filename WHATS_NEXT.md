@@ -4,23 +4,23 @@
 
 **Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
 
-**Last completed**: Sprint 11 — `ImageSample` PTX emission (`.texref` + `tex.*` for sampled textures, 1D/2D/3D, LOD/gradient modes), `shader.compile.gemm` on tarpc transport, subgroup multiply reduction documented. Prior: Sprint 10 — `ImageQuery` PTX, 8 math functions, 3 builtins, `lib_tests` split, f64 fixes, HMMA GEMM, IPC aliases, texture expansion.
+**Last completed**: Sprint 11 — `ImageSample` PTX emission (`.texref` + `tex.*`, 1D/2D/3D, LOD/gradient), `textureGather` (`tld4.*`), function call inlining (`Statement::Call`), `shader.compile.gemm` on tarpc transport, subgroup multiply reduction documented. Prior: Sprint 10 — `ImageQuery` PTX, 8 math functions, 3 builtins, `lib_tests` split, f64 fixes, HMMA GEMM.
 
-**Tests**: 3170 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3175 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 15, 2026.
 
-**Next focus**: Function call inlining in PTX emitter (`Statement::Call`). `textureGather` PTX emission. Coverage push toward 90%. Scan operation integer type support. WGSL cooperative matrix support (blocked on WGSL spec adoption).
+**Next focus**: Coverage push toward 90%. `ImageAtomic` PTX emission. Scan operation integer type support. WGSL cooperative matrix support (blocked on WGSL spec adoption).
 
 ---
 
-## Current Priorities (Sprint 11+)
+## Current Priorities (Sprint 12+)
 
-1. Function call inlining in PTX emitter (`Statement::Call`)
-2. `textureGather` PTX emission (`tex.gather.*` instructions)
-3. Coverage push toward 90% on 7 remaining compiler crates
-4. `naga::Module` ingest path hardening (multiple entry points, validation)
-5. Ecosystem discovery integration testing with live toadStool instance
+1. `ImageAtomic` PTX emission (`atom.global` on image bindings)
+2. Coverage push toward 90% on 7 remaining compiler crates
+3. `naga::Module` ingest path hardening (multiple entry points, validation)
+4. Ecosystem discovery integration testing with live toadStool instance
+5. `WorkGroupUniformLoad` statement support
 
 ### HMMA Codegen Status
 
