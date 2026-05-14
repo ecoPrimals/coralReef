@@ -167,19 +167,18 @@ impl EnforcementMode {
     /// Resolve from environment variables (first match wins):
     /// 1. `CORALREEF_AUTH_MODE` — primal-specific override
     /// 2. `ECOSYSTEM_AUTH_MODE` — ecosystem-wide standard
-    /// 3. `PRIMALSPRING_AUTH_MODE` — legacy ecosystem alias
+    /// 3. `PRIMALSPRING_AUTH_MODE` — deprecated alias (warns on use)
     ///
     /// Defaults to `Permissive` if all are unset or unrecognized.
     #[must_use]
     pub fn from_env() -> Self {
-        let val = std::env::var("CORALREEF_AUTH_MODE")
-            .or_else(|_| std::env::var("ECOSYSTEM_AUTH_MODE"))
-            .or_else(|_| std::env::var("PRIMALSPRING_AUTH_MODE"))
-            .unwrap_or_default();
-        match val.to_lowercase().as_str() {
+        let (val, source) = resolve_auth_env();
+        let mode = match val.to_lowercase().as_str() {
             "enforced" | "enforce" | "strict" => Self::Enforced,
             _ => Self::Permissive,
-        }
+        };
+        tracing::debug!(mode = mode.as_str(), source, "auth mode resolved");
+        mode
     }
 
     /// Human-readable label for diagnostics and `auth.mode` responses.
@@ -190,6 +189,24 @@ impl EnforcementMode {
             Self::Enforced => "enforced",
         }
     }
+}
+
+/// Resolve auth mode from environment with deprecation warning for legacy name.
+fn resolve_auth_env() -> (String, &'static str) {
+    if let Ok(v) = std::env::var("CORALREEF_AUTH_MODE") {
+        return (v, "CORALREEF_AUTH_MODE");
+    }
+    if let Ok(v) = std::env::var("ECOSYSTEM_AUTH_MODE") {
+        return (v, "ECOSYSTEM_AUTH_MODE");
+    }
+    if let Ok(v) = std::env::var("PRIMALSPRING_AUTH_MODE") {
+        tracing::warn!(
+            "using deprecated $PRIMALSPRING_AUTH_MODE — \
+             migrate to $ECOSYSTEM_AUTH_MODE or $CORALREEF_AUTH_MODE"
+        );
+        return (v, "PRIMALSPRING_AUTH_MODE");
+    }
+    (String::new(), "default")
 }
 
 /// Result of a gate check — either allowed or denied with a JSON-RPC error.

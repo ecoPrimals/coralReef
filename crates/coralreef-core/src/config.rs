@@ -152,10 +152,12 @@ pub fn btsp_provider_socket() -> Option<PathBuf> {
     non_empty_env_path("BTSP_PROVIDER_SOCKET")
 }
 
-/// Legacy alias: composition launcher may set `$BEARDOG_SOCKET`.
+/// Deprecated legacy alias — reads `$BEARDOG_SOCKET`.
 ///
-/// Prefer [`btsp_provider_socket`] — this reads the legacy env var name
-/// that some composition launchers still emit.
+/// Prefer [`btsp_provider_socket`] (`$BTSP_PROVIDER_SOCKET`). This exists
+/// only for backward compatibility with composition launchers that have not
+/// yet migrated to the generic env var name.
+#[deprecated(since = "0.2.0", note = "use btsp_provider_socket() instead")]
 #[must_use]
 pub fn security_provider_socket_legacy() -> Option<PathBuf> {
     non_empty_env_path("BEARDOG_SOCKET")
@@ -311,6 +313,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn security_provider_legacy_returns_none_when_unset() {
         if std::env::var("BEARDOG_SOCKET").is_err() {
             assert!(security_provider_socket_legacy().is_none());

@@ -220,15 +220,14 @@ fn shutdown_join_timeout_elapsed_message(join_timeout: std::time::Duration) -> S
 
 /// Log NUCLEUS composition environment variables at startup for diagnostics.
 fn log_composition_env() {
+    #[allow(deprecated)]
+    let legacy_btsp = config::security_provider_socket_legacy().map(|p| p.display().to_string());
     let vars = [
-        (
-            "BEARDOG_SOCKET",
-            config::security_provider_socket_legacy().map(|p| p.display().to_string()),
-        ),
         (
             "BTSP_PROVIDER_SOCKET",
             config::btsp_provider_socket().map(|p| p.display().to_string()),
         ),
+        ("BEARDOG_SOCKET (deprecated)", legacy_btsp),
         (
             "DISCOVERY_SOCKET",
             config::discovery_socket().map(|p| p.display().to_string()),

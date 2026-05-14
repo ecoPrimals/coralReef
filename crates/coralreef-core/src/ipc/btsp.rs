@@ -223,7 +223,7 @@ fn resolve_socket_dir() -> PathBuf {
 ///
 /// Resolution chain (first match wins):
 /// 1. `$BTSP_PROVIDER_SOCKET` — explicit from composition launcher
-/// 2. `$BEARDOG_SOCKET` — composition launcher alias
+/// 2. `$BEARDOG_SOCKET` — deprecated alias (warns on use)
 /// 3. `{sock_dir}/{SECURITY_DOMAIN}-{family_id}.sock` — convention scan
 /// 4. `{sock_dir}/{SECURITY_DOMAIN}.sock` — unscoped fallback
 /// 5. Discovery files in `{sock_dir}/*.json` advertising `btsp.session.create`
@@ -233,8 +233,12 @@ fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
         return Some(path);
     }
 
+    #[allow(deprecated)]
     if let Some(path) = config::security_provider_socket_legacy().filter(|p| p.exists()) {
-        tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET (legacy)");
+        tracing::warn!(
+            path = %path.display(),
+            "using deprecated $BEARDOG_SOCKET — migrate to $BTSP_PROVIDER_SOCKET"
+        );
         return Some(path);
     }
 
