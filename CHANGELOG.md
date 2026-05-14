@@ -10,6 +10,16 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Post-101 — Sprint 11: tarpc GEMM + Subgroup Mul Documentation (2026-05-14)
+
+#### Added
+- **`shader.compile.gemm` on tarpc transport**: `ShaderCompileTarpc` trait now exposes `gemm(GemmCompileRequest)` method. tarpc consumers (bincode over TCP/Unix) can use tensor-core GEMM compilation without JSON-RPC. Includes timeout handling and panic recovery matching other compile endpoints.
+
+#### Changed
+- **Subgroup multiply reduction documented as unsupported**: The `subgroup_op_to_redux` error message now explicitly states SM70-SM120 scope and documents the architectural limitation (no hardware `redux.sync mul` on any SM generation). Callers should decompose multiply reductions manually.
+
+---
+
 ### Post-101 — Sprint 10: PTX Coverage Evolution + Code Quality (2026-05-15)
 
 #### Added

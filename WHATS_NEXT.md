@@ -4,7 +4,7 @@
 
 **Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
 
-**Last completed**: Sprint 10 — `ImageQuery` PTX emission (`suq`), 8 new math functions (saturate, radians, degrees, countOneBits, countLeadingZeros, countTrailingZeros, reverseBits, smoothStep), 3 new builtins (WorkGroupSize, NumSubgroups, SubgroupId), `lib_tests.rs` split for <1000L compliance. Prior: f64 nested struct member type fix, `health.version` RPC, `shader.compile.gemm` IPC wiring, subgroup ops, f64 CallResult fix, HMMA GEMM, IPC aliases, texture expansion, env var deprecation.
+**Last completed**: Sprint 11 — `shader.compile.gemm` on tarpc transport (unblocks tarpc consumers), subgroup multiply reduction documented as unsupported (SM70–SM120, no hardware op). Prior: Sprint 10 — `ImageQuery` PTX emission (`suq`), 8 new math functions, 3 new builtins, `lib_tests.rs` split, f64 fixes, `health.version` RPC, HMMA GEMM, IPC aliases, texture expansion, env var deprecation.
 
 **Tests**: 3165 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
 

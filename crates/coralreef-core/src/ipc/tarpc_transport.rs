@@ -61,6 +61,11 @@ pub trait ShaderCompileTarpc {
     /// Self-description for ecosystem discovery (`identity.get`).
     async fn identity_get() -> service::IdentityGetResponse;
 
+    /// Compile HMMA GEMM kernel for tensor-core dispatch (`shader.compile.gemm`).
+    async fn gemm(
+        request: service::GemmCompileRequest,
+    ) -> Result<service::CompileResponse, TarpcCompileError>;
+
     /// Wire Standard L2 capability/method inventory (`capability.list`).
     async fn capability_list() -> service::CapabilityListResponse;
 }
@@ -163,6 +168,26 @@ impl ShaderCompileTarpc for TarpcServer {
 
     async fn identity_get(self, _ctx: tarpc::context::Context) -> service::IdentityGetResponse {
         service::handle_identity_get()
+    }
+
+    async fn gemm(
+        self,
+        _ctx: tarpc::context::Context,
+        request: service::GemmCompileRequest,
+    ) -> Result<service::CompileResponse, TarpcCompileError> {
+        let deadline = super::newline_jsonrpc::compile_timeout();
+        let task = tokio::task::spawn_blocking(move || {
+            service::handle_compile_gemm(&request).map_err(service::TarpcCompileError::from_error)
+        });
+        match tokio::time::timeout(deadline, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => Err(TarpcCompileError {
+                message: format!("gemm compile task panicked: {e}"),
+            }),
+            Err(_elapsed) => Err(TarpcCompileError {
+                message: format!("gemm compilation exceeded {deadline:?} deadline"),
+            }),
+        }
     }
 
     async fn capability_list(

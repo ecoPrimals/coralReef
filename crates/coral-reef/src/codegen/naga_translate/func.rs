@@ -639,8 +639,12 @@ fn subgroup_op_to_redux(op: naga::SubgroupOperation) -> Result<ReduxOp, CompileE
         naga::SubgroupOperation::Xor => Ok(ReduxOp::Xor),
         naga::SubgroupOperation::Min => Ok(ReduxOp::Min(IntCmpType::I32)),
         naga::SubgroupOperation::Max => Ok(ReduxOp::Max(IntCmpType::I32)),
+        // NVIDIA `redux.sync` supports {.add, .min, .max, .and, .or, .xor} but not
+        // multiply. No SM generation (SM70–SM120) provides a hardware mul reduction.
+        // A shfl-based emulation is possible but non-trivial for overflow-correct
+        // integer multiply; callers should decompose manually.
         naga::SubgroupOperation::Mul => Err(CompileError::NotImplemented(
-            "subgroup multiply reduction has no redux hardware op".into(),
+            "subgroup multiply reduction has no redux hardware op (SM70-SM120)".into(),
         )),
     }
 }
