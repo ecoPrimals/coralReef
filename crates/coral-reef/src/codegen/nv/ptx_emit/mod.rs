@@ -1075,4 +1075,62 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             "should emit add from outer inlined function: {ptx:.600}"
         );
     }
+
+    #[test]
+    fn ptx_workgroup_uniform_load() {
+        let wgsl = r"
+var<workgroup> shared_val: u32;
+
+@group(0) @binding(0)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
+    if lid.x == 0u {
+        shared_val = 42u;
+    }
+    let uniform_val = workgroupUniformLoad(&shared_val);
+    out[lid.x] = uniform_val;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(
+            result.is_ok(),
+            "WorkGroupUniformLoad should compile: {result:?}"
+        );
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("bar.sync"),
+            "should emit barrier for workgroupUniformLoad: {ptx:.600}"
+        );
+        assert!(
+            ptx.contains("ld.shared"),
+            "should emit shared memory load: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_atomic_add_2d() {
+        let wgsl = r"
+@group(0) @binding(0)
+var atomic_tex: texture_storage_2d<r32uint, read_write>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    textureStore(atomic_tex, vec2<u32>(gid.x, 0u), vec4<u32>(1u, 0u, 0u, 0u));
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(
+            result.is_ok(),
+            "Storage texture write should compile: {result:?}"
+        );
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("sust.b.2d"),
+            "should emit surface store: {ptx:.600}"
+        );
+    }
 }

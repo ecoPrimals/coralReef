@@ -17,12 +17,14 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - **`textureGather` PTX emission**: `tld4.{r,g,b,a}.2d.v4.{type}.{type}` instructions for 2D texture gather operations. Returns 4 texels from a 2x2 footprint at the specified component.
 - **Function call inlining**: `Statement::Call` now inlines callee functions directly into PTX body. Supports arguments, return values, local variables, nested calls, and void functions. Callee expressions are evaluated in an isolated context with argument mapping.
 - New types: `TextureBinding`, `TexChannelType` (F32/S32/U32) in `ptx_emit/types.rs`.
-- 10 new tests: 5 ImageSample (2D level-zero, 1D explicit LOD, 3D volume, 2D gradient, u32 channel), 1 textureGather (2D component 0), 4 function call inlining (simple, multi-arg, void, nested).
+- **`ImageAtomic` PTX emission**: `sured.b.{1d,2d,3d}.{op}.{type}.zero` instructions for atomic operations on storage texture surfaces. Supports add, min, max, and, or, xor, exchange, and compare-and-swap.
+- **`WorkGroupUniformLoad` statement**: Emits `bar.sync 0` + `ld.shared.u32` + `bar.sync 0` (barrier-load-barrier pattern per WGSL spec semantics).
+- 12 new tests: 5 ImageSample, 1 textureGather, 4 function call inlining, 1 WorkGroupUniformLoad, 1 ImageAtomic.
 - **`shader.compile.gemm` on tarpc transport**: `ShaderCompileTarpc` trait now exposes `gemm(GemmCompileRequest)` method. tarpc consumers (bincode over TCP/Unix) can use tensor-core GEMM compilation without JSON-RPC.
 
 #### Changed
 - **Subgroup multiply reduction documented as unsupported**: Error message explicitly states SM70-SM120 scope (no hardware `redux.sync mul` on any SM generation).
-- Total: **3175 tests** (was 3165). Zero clippy warnings. Zero unsafe.
+- Total: **3177 tests** (was 3165). Zero clippy warnings. Zero unsafe.
 
 ---
 

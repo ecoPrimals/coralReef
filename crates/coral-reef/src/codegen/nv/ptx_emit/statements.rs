@@ -202,10 +202,18 @@ impl PtxEmitter<'_> {
                 ref arguments,
                 result,
             } => self.emit_inline_call(function, arguments.clone(), result),
-            naga::Statement::ImageAtomic { .. }
-            | naga::Statement::RayQuery { .. }
-            | naga::Statement::WorkGroupUniformLoad { .. } => Err(CompileError::NotImplemented(
-                format!("PTX statement: {stmt:?}").into(),
+            naga::Statement::ImageAtomic {
+                image,
+                coordinate,
+                array_index: _,
+                ref fun,
+                value,
+            } => self.emit_image_atomic(image, coordinate, fun, value),
+            naga::Statement::WorkGroupUniformLoad { pointer, result } => {
+                self.emit_workgroup_uniform_load(pointer, result)
+            }
+            naga::Statement::RayQuery { .. } => Err(CompileError::NotImplemented(
+                "PTX statement: RayQuery".into(),
             )),
         }
     }
@@ -304,6 +312,95 @@ impl PtxEmitter<'_> {
             (naga::ScalarKind::Float, 8) => "f64",
             _ => "u32",
         }
+    }
+
+    fn emit_image_atomic(
+        &mut self,
+        image: naga::Handle<naga::Expression>,
+        coordinate: naga::Handle<naga::Expression>,
+        fun: &naga::AtomicFunction,
+        value: naga::Handle<naga::Expression>,
+    ) -> Result<(), CompileError> {
+        let naga::Expression::GlobalVariable(gv_handle) = self.func.expressions[image] else {
+            return Err(CompileError::NotImplemented(
+                "ImageAtomic on non-global image".into(),
+            ));
+        };
+        let surf_idx = self.surface_index(gv_handle).ok_or_else(|| {
+            CompileError::InvalidInput(
+                "ImageAtomic target is not a recognized surface binding".into(),
+            )
+        })?;
+        let dim_suffix = self.surfaces[surf_idx].dim.ptx_suffix();
+
+        let coord = self.eval_expr(coordinate)?;
+        let val = self.eval_expr(value)?;
+        let val_scalar = self.scalar_of(value);
+        let type_suffix = Self::ptx_atom_type(val_scalar);
+
+        let coord_str = match &coord {
+            super::types::PtxVal::Vec(components) if components.len() >= 2 => {
+                format!(
+                    "{{{}, {}}}",
+                    components[0].fmt_operand(),
+                    components[1].fmt_operand()
+                )
+            }
+            _ => format!("{{{}}}", coord.fmt_operand()),
+        };
+
+        let op = Self::ptx_atom_op(fun);
+        let dst = self.alloc_for_scalar(val_scalar);
+
+        match fun {
+            naga::AtomicFunction::Exchange { compare: Some(cmp) } => {
+                let cmp_val = self.eval_expr(*cmp)?;
+                writeln!(
+                    self.body,
+                    "    sured.b.{dim_suffix}.cas.{type_suffix}.zero {}, [_surf{surf_idx}, {coord_str}], {}, {};",
+                    dst.fmt_operand(),
+                    cmp_val.fmt_operand(),
+                    val.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            _ => {
+                writeln!(
+                    self.body,
+                    "    sured.b.{dim_suffix}.{op}.{type_suffix}.zero {}, [_surf{surf_idx}, {coord_str}], {};",
+                    dst.fmt_operand(),
+                    val.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+        }
+
+        Ok(())
+    }
+
+    fn emit_workgroup_uniform_load(
+        &mut self,
+        pointer: naga::Handle<naga::Expression>,
+        result: naga::Handle<naga::Expression>,
+    ) -> Result<(), CompileError> {
+        writeln!(self.body, "    bar.sync 0;").expect("write to String");
+        self.barrier_count += 1;
+
+        let (addr, _mem_space) = self.eval_pointer(pointer)?;
+        let dst = self.alloc_r32();
+        writeln!(
+            self.body,
+            "    ld.shared.u32 {}, [{}];",
+            dst.fmt_operand(),
+            addr.fmt_operand(),
+        )
+        .expect("write to String");
+
+        writeln!(self.body, "    bar.sync 0;").expect("write to String");
+        self.barrier_count += 1;
+
+        self.values.insert(result, dst);
+        Ok(())
     }
 
     fn emit_store(
