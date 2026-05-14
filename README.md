@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — HMMA tensor-core GEMM codegen, IPC wire-compat aliases, texture format coverage expanded, discovery aligned with toadStool; pure compiler primal; 3159 tests, zero unsafe, zero debt)  
+**Status**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — WGSL subgroup ops (subgroupAdd/Broadcast/Ballot → OpRedux/OpShfl), f64 CallResult type resolution, HMMA GEMM codegen, IPC wire-compat aliases, texture format expansion, legacy env vars deprecated; pure compiler primal; 3159 tests, zero unsafe, zero debt)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: May 13, 2026  
-**Phase**: 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — HMMA tensor-core GEMM codegen, IPC wire-compat aliases, texture format coverage expanded. Pure compiler primal. 3159 tests, zero unsafe, zero debt)
+**Phase**: 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — WGSL subgroup ops, f64 CallResult type fix, HMMA GEMM codegen, IPC wire-compat aliases, texture format expansion, legacy env vars deprecated. Pure compiler primal. 3159 tests, zero unsafe, zero debt)
 
 ---
 
