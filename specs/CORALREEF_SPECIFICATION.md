@@ -2,9 +2,9 @@
 
 # coralReef — Specification
 
-**Version**: 0.8.0
-**Date**: May 12, 2026
-**Status**: Phase 10 — Sprint 9+ (Pure compiler primal, diesel excised, 3160 tests, zero unsafe)
+**Version**: 0.9.0
+**Date**: May 14, 2026
+**Status**: Phase 10 — Sprint 11 (Pure compiler primal, 3177 tests, zero unsafe)
 
 ---
 
@@ -175,6 +175,88 @@ Adopted from barraCuda's `Fp64Strategy`:
 | 9 | Full sovereignty — zero FFI, zero C, all Rust | **Complete** |
 | 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 9+ — 3160 tests, zero unsafe, zero debt** |
 
+## Full-GPU Silicon Exploitation — Future Horizons
+
+coralReef currently targets compute shaders, engaging ~55% of GPU silicon
+(shader cores + tensor cores). The long-term vision is **full silicon
+exploitation** — every hardware unit on the GPU doing useful work, whether
+for physics simulation, game rendering, scientific visualization, or any
+domain where the math runs on parallel hardware.
+
+This aligns with ludoSpring's Symphony Architecture: the GPU is an orchestra
+where shader cores, tensor cores, RT cores, TMUs, ROPs, and the rasterizer
+all play simultaneously. coralReef is the composer that writes the score
+for every section.
+
+### GPU Hardware Units — Current and Future Coverage
+
+| GPU Unit | Silicon % | Current | Future | coralReef Work |
+|----------|-----------|---------|--------|---------------|
+| Shader cores (CUDA/CU) | ~40% | Compute shaders | + Vertex/Fragment/Mesh shaders | Graphics-stage compilation |
+| Tensor cores | ~15% | HMMA GEMM (`compile_gemm`) | Cooperative matrix in WGSL | WGSL spec evolution |
+| RT cores | ~10% | Not targeted | RayQuery in compute | `Statement::RayQuery` PTX emission |
+| TMUs | ~10% | `ImageSample`/`textureGather` | Compute lookup tables, biome maps | Already started (Sprint 11) |
+| ROPs | ~8% | Not targeted | Blend/output in graphics pipeline | Graphics pipeline compilation |
+| Rasterizer | ~5% | Not targeted | Triangle scan conversion | Vertex shader + SPH emission |
+| L2 cache | ~8% | Implicit | Persistent frame state, double buffers | toadStool dispatch strategy |
+| Memory controllers | ~4% | Implicit | Bandwidth-limited streaming | Compile-time memory layout hints |
+
+### Evolution Phases
+
+| Phase | Silicon Engaged | What Ships | Ecosystem Impact |
+|-------|----------------|-----------|-----------------|
+| **Phase A (current)** | ~55% (shader + tensor) | Compute shaders SM37-SM120, HMMA GEMM, subgroups, f64, ImageSample/Store/Query/Gather, function inlining | hotSpring QCD, barraCuda math, ludoSpring GPU physics |
+| **Phase B (near)** | ~65% (+ RT cores) | `RayQuery` in compute shaders: `Initialize`, `Proceed`, `GetIntersection` → PTX `optix.*` / inline RT | Spatial queries, line-of-sight, nearest-neighbor, `game.gpu.batch_raycast` |
+| **Phase C (medium)** | ~85% (+ rasterizer + ROPs + TMUs) | Vertex + Fragment shader compilation: graphics builtins, SPH headers, interpolation, derivatives, `discard` | Full render pipeline, petalTongue 3D sovereign rendering, ludoSpring game visuals |
+| **Phase D (far)** | ~95% (+ mesh/task) | Mesh shaders, task shaders, full modern graphics pipeline | AAA-equivalent rendering without vendor SDK |
+
+### Phase B: RayQuery — RT Core Activation
+
+naga's `Statement::RayQuery` carries:
+- `Initialize { acceleration_structure, descriptor }` — cast a ray into a BVH
+- `Proceed { result }` — advance to next intersection candidate
+- `GenerateIntersection { hit_t }` — add candidate hit
+- `ConfirmIntersection` — confirm triangle intersection
+- `Terminate` — stop query
+
+PTX emission targets `optix.*` intrinsics for SM75+ or inline ray tracing
+instructions. This keeps shaders in the compute domain while activating RT
+cores for hardware-accelerated spatial queries.
+
+Use cases that unlock immediately:
+- ludoSpring `game.gpu.batch_raycast` — GPU raycasting for visibility, pathfinding
+- hotSpring spatial queries — particle neighbor detection via BVH
+- petalTongue 3D visualization — ambient occlusion, shadow probes
+
+### Phase C: Graphics Pipeline — Full Render
+
+Vertex and fragment shader compilation requires:
+
+1. **Graphics-stage entry points**: `@vertex` and `@fragment` in WGSL (naga already parses these)
+2. **Shader Program Header (SPH)**: NVIDIA graphics pipelines require SPH metadata (GPR count, output topology, attribute mapping) — infrastructure partially exists
+3. **Graphics builtins**: `@builtin(position)`, `@location(N)`, interpolation qualifiers
+4. **Fragment operations**: `dpdx`/`dpdy` derivatives, `discard`, depth writes
+5. **Render state**: Pipeline state objects (blend, depth, stencil) — toadStool domain
+
+Once vertex + fragment compilation ships, the Symphony model from ludoSpring
+becomes fully sovereign: CPU game logic + GPU compute physics + GPU render
+visuals, all compiled by coralReef, dispatched by toadStool, with zero vendor
+SDK in the loop.
+
+### The Universal Principle
+
+Real physics simulations and videogame physics are both math dispatched to
+parallel hardware. The rasterizer is a special-purpose computer that answers
+"which pixels does this triangle cover?" — a pure function. Fragment shading
+is "what color is this pixel?" — another pure function. There is no
+fundamental difference between a lattice QCD HMC trajectory and a game
+physics frame: both are parallel math with a time budget.
+
+coralReef's role is to compile that math — all of it — to every piece of
+silicon available. The ecosystem (toadStool dispatch, barraCuda routing,
+ludoSpring/hotSpring/petalTongue domain logic) orchestrates the symphony.
+coralReef writes the score.
+
 ## Evolution Policy
 
 FFI is acceptable as scaffolding in early passes. Every FFI
@@ -186,5 +268,5 @@ plan, pass definitions, and dependency tracking.
 
 ---
 
-**Date**: May 12, 2026
-**Version**: 0.8.0
+**Date**: May 14, 2026
+**Version**: 0.9.0

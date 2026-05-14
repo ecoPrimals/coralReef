@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: May 13, 2026 (Phase 10 — Iteration 101+, Sprint 9+)
-**Phase**: 10 — Sprint 9+: Post-excision evolution — HMMA tensor-core GEMM codegen shipped (mma.sync SM80+). IPC wire-compat aliases added (source→wgsl_source, binary→binary_b64, info→shader_info). Texture format coverage expanded (4→10 TexelFormat variants, full naga StorageFormat mapping). Deep debt cleanup: lib.rs (868→630), newton.rs (849→568), hardcoded primal names eliminated, ECOSYSTEM_AUTH_MODE added. Discovery aligned with toadStool, cross-primal leaks eliminated, deps current. Sprint 9: Diesel engine excision — pure compiler primal (489+ .rs files excised). Zero unsafe. 3160 tests, zero failures. Compute Trio (HOW domain). Wire contract frozen. JH-0 MethodGate live.
+**Last updated**: May 14, 2026 (Phase 10 — Sprint 11)
+**Phase**: 10 — Sprint 11: ImageSample/textureGather/ImageAtomic/WorkGroupUniformLoad PTX emission shipped. Function call inlining. shader.compile.gemm on tarpc. Subgroup multiply reduction documented as unsupported (no hardware redux.sync mul SM70-SM120). 3177 tests, zero failures, zero unsafe, zero clippy warnings. Full-GPU silicon exploitation horizons defined: RayQuery (Phase B), vertex/fragment compilation (Phase C), mesh shaders (Phase D).
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3160 tests (4 ignored). Zero clippy warnings.
+Pure Rust. Zero unsafe. 3177 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
@@ -160,13 +160,15 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] Swizzle (vector component reorder)
 - [x] Unary (Negate, Not, BitwiseNot)
 - [x] ArrayLength (buffer_size / element_stride via CBuf descriptor)
-- [ ] CallResult
-- [ ] ImageLoad / ImageSample / ImageQuery
+- [x] CallResult (Sprint 9 — type resolution for f64 math on function return values)
+- [x] ImageLoad (Sprint 10 — `suld.b` surface load)
+- [x] ImageSample (Sprint 11 — `tex.*` sampled textures, LOD/gradient/gather)
+- [x] ImageQuery (Sprint 10 — `suq.width/height/depth` surface query)
 - [ ] Override
-- [ ] RayQueryGetIntersection
+- [ ] RayQueryGetIntersection — **Phase B horizon: RT core activation**
 - [x] SubgroupBallotResult / SubgroupOperationResult (PTX: pre-allocates typed registers — Sprint 4)
-- [ ] WorkGroupUniformLoadResult
-- [ ] ZeroValue
+- [x] WorkGroupUniformLoadResult (Sprint 11 — barrier-load-barrier pattern)
+- [x] ZeroValue (zero-initialization for all scalar/vector types)
 
 ### Statements
 
@@ -181,8 +183,10 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] WorkGroupBarrier (BAR.SYNC)
 - [x] Atomic (Add, Sub, And, Or, Xor, Min, Max, Exchange, CompareExchange) via OpAtom
 - [ ] Barrier (other barrier types)
-- [ ] ImageStore
-- [ ] RayQuery
+- [x] ImageStore (Sprint 10 — `sust.b` surface store)
+- [x] ImageAtomic (Sprint 11 — `sured.b` surface atomic reduction)
+- [x] WorkGroupUniformLoad (Sprint 11 — `bar.sync 0` + `ld.shared` + `bar.sync 0`)
+- [ ] RayQuery — **Phase B horizon: RT core activation (Initialize/Proceed/GetIntersection/ConfirmIntersection/Terminate)**
 - [x] SubgroupBallot (PTX: vote.sync.ballot.b32)
 - [x] SubgroupCollectiveOperation (PTX: redux.sync reduce + shfl.sync.up inclusive/exclusive scans — Sprint 4)
 - [x] SubgroupGather (PTX: shfl.sync.idx/down/up/bfly — shuffle modes)
@@ -260,9 +264,22 @@ early returns with standard control flow to ensure expr_map insertion.
 
 | Feature | Notes |
 |---------|-------|
-| Remaining math functions | Trig inverses, hyperbolic, bit ops, matrix ops |
-| Image/texture ops | Not needed for compute shaders |
-| Subgroup ops | Future: wave-level parallelism |
+| ~~Remaining math functions~~ | **Done** (Sprint 4–11) — trig, hyperbolic, bit ops |
+| ~~Image/texture ops~~ | **Done** (Sprint 10–11) — ImageLoad/Store/Query/Sample/Gather/Atomic |
+| ~~Subgroup ops~~ | **Done** (Sprint 4) — ballot, reduce, shuffle, inclusive/exclusive scan |
+| Matrix math | Transpose, Determinant, Inverse |
+| Pack/Unpack | 2x16float, 4x8snorm, etc. |
+| ExtractBits/InsertBits | Bit manipulation builtins |
+| Ldexp/Frexp/Modf | Special float builtins |
+
+### Tier 4 — Full Silicon Exploitation (horizons)
+
+| Feature | Phase | Notes |
+|---------|-------|-------|
+| RayQuery | B | RT core activation: Initialize/Proceed/GetIntersection/Terminate |
+| Vertex shader compilation | C | Graphics-stage entry points, SPH emission, attribute mapping |
+| Fragment shader compilation | C | dpdx/dpdy, discard, depth writes, blend state |
+| Mesh/Task shaders | D | Modern graphics pipeline without vendor SDK |
 
 ---
 
@@ -520,7 +537,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 9+: 3160 tests passing, 4 ignored. Zero unsafe. Zero clippy warnings.
+Sprint 11: 3177 tests passing. Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.
@@ -533,6 +550,51 @@ deny.toml C/FFI ban list enforced. All pure Rust. Sovereignty is a compile choic
 engine work (coral-driver, coral-ember, coral-glowplug). This code was deleted in
 Sprint 9. The iteration log is preserved as a fossil record of the architecture's
 evolution from monolithic to trio-separated.
+
+---
+
+## Full-GPU Silicon Exploitation — Future Horizons
+
+coralReef currently compiles compute shaders, tensor-core GEMM kernels, and
+image/texture operations — engaging roughly 55% of available GPU silicon (shader
+cores + tensor cores + TMUs via ImageSample/textureGather). The long-term
+vision is **full silicon exploitation** where every hardware unit does useful
+work: shader cores, tensor cores, RT cores, TMUs, ROPs, and the rasterizer.
+
+### Phase B — RayQuery (RT Core Activation)
+
+naga already parses `Statement::RayQuery` with five operations: `Initialize`,
+`Proceed`, `GenerateIntersection`, `ConfirmIntersection`, `Terminate`. PTX
+emission will target SM75+ inline ray tracing instructions. Use cases:
+
+- ludoSpring `game.gpu.batch_raycast` — GPU visibility and pathfinding
+- hotSpring spatial neighbor detection via BVH acceleration structures
+- petalTongue ambient occlusion and shadow probes for 3D visualization
+
+### Phase C — Graphics Pipeline (Vertex + Fragment Compilation)
+
+Vertex and fragment shader compilation unlocks the rasterizer, ROPs, and full
+TMU pipeline. Requirements: graphics-stage entry points (`@vertex`, `@fragment`
+in WGSL — naga already parses these), Shader Program Header (SPH) for NVIDIA
+graphics pipelines, graphics builtins (`@builtin(position)`, `@location(N)`,
+interpolation), fragment operations (`dpdx`/`dpdy`, `discard`, depth writes).
+
+Once shipped, the Symphony Architecture from ludoSpring becomes fully
+sovereign: CPU game logic + GPU compute physics + GPU render visuals, all
+compiled by coralReef, dispatched by toadStool, with zero vendor SDK.
+
+### Phase D — Mesh/Task Shaders
+
+Modern graphics pipeline without vendor SDK: mesh shaders for programmable
+primitive assembly, task shaders for adaptive LOD and culling.
+
+### The Universal Principle
+
+Real physics simulations and videogame physics are both math dispatched to
+parallel hardware. The rasterizer answers "which pixels does this triangle
+cover?" — a pure function. Fragment shading answers "what color is this pixel?"
+— another pure function. coralReef's role is to compile all of it to every
+piece of silicon available. The ecosystem orchestrates the symphony.
 
 ---
 

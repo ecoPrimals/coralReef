@@ -2,25 +2,39 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
+**Current position**: Phase 10 — Sprint 11 (pure compiler primal, full-GPU horizons defined).
 
 **Last completed**: Sprint 11 — `ImageSample` PTX (`.texref` + `tex.*`, LOD/gradient), `textureGather` (`tld4.*`), function call inlining, `ImageAtomic` (`sured.*`), `WorkGroupUniformLoad` (barrier-load-barrier), tarpc GEMM, subgroup mul documented. Prior: Sprint 10 — `ImageQuery`, math/builtin expansion, f64 fixes, HMMA GEMM.
 
-**Tests**: 3177 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3177 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 15, 2026.
+**Last updated**: May 14, 2026.
 
-**Next focus**: Coverage push toward 90%. Depth texture comparison. Array textures and cube maps. Scan operation integer type support.
+**Next focus**: RayQuery PTX emission (Phase B — RT core activation). Depth texture comparison. Array textures and cube maps.
 
 ---
 
 ## Current Priorities (Sprint 12+)
 
-1. Coverage push toward 90% on 7 remaining compiler crates
-2. `naga::Module` ingest path hardening (multiple entry points, validation)
-3. Ecosystem discovery integration testing with live toadStool instance
-4. Depth texture comparison (`textureSampleCompare`) PTX emission
-5. Array textures and cube maps
+### Near-Term (Sprint 12–13)
+
+1. **RayQuery PTX emission** — `Statement::RayQuery` (Initialize/Proceed/GetIntersection/ConfirmIntersection/Terminate) → SM75+ inline RT instructions. Phase B of silicon exploitation.
+2. Depth texture comparison (`textureSampleCompare`) PTX emission
+3. Array textures (`texture_2d_array`, `texture_cube`) and cube maps
+4. Coverage push toward 90% on remaining compiler crates
+5. `naga::Module` ingest path hardening (multiple entry points, validation)
+6. Ecosystem discovery integration testing with live toadStool instance
+
+### Medium-Term Horizons (Sprint 14+)
+
+7. **Vertex + Fragment shader compilation** — graphics-stage entry points, SPH emission, graphics builtins, `dpdx`/`dpdy`, `discard`. Phase C: activates rasterizer + ROPs + full TMU pipeline.
+8. Remaining math builtins: Ldexp/Frexp/Modf, Transpose/Determinant/Inverse, Pack/Unpack, ExtractBits/InsertBits
+9. Scan operation integer type support (subgroup reduce for i32/u32)
+
+### Far Horizons
+
+10. **Mesh/Task shaders** — modern graphics pipeline without vendor SDK. Phase D.
+11. Full Symphony Architecture integration: CPU game logic + GPU compute physics + GPU render visuals, all sovereign.
 
 ### HMMA Codegen Status
 
