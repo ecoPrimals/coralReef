@@ -4,11 +4,25 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Iteration 101+ (Sprint 9+)
+**Current status**: Phase 10 — Iteration 101+ (Sprint 10)
 
 ---
 
 ## [Unreleased]
+
+### Post-101 — Sprint 10: PTX Coverage Evolution + Code Quality (2026-05-15)
+
+#### Added
+- **`ImageQuery` PTX emission**: `textureDimensions()` on storage textures now emits `suq.width.b32`/`suq.height.b32`/`suq.depth.b32` via the PTX emitter. Supports 1D, 2D, and 3D storage texture queries.
+- **8 new math functions** in PTX emitter: `saturate`, `radians`, `degrees`, `countOneBits` (`popc`), `countLeadingZeros` (`clz`), `countTrailingZeros` (`brev` + `clz`), `reverseBits` (`brev`), `smoothStep` (polynomial).
+- **3 new builtin variables**: `WorkGroupSize` (`%ntid`), `NumSubgroups` (`ntid.x / WARP_SZ`), `SubgroupId` (`tid.x / WARP_SZ`).
+- 2 new ImageQuery tests (1D size, 2D size).
+
+#### Changed
+- **`lib_tests.rs` split** (1052→4 files): Split monolithic test file into `lib_tests/{mod,compile,options,module,gemm_subgroup}.rs` submodules (largest: 441L). Resolves workspace <1000 line rule violation.
+- Total: **3162 tests** (was 3160). Zero files >1000 lines. Zero clippy warnings. Zero unsafe.
+
+---
 
 ### Post-101 — Sprint 9+: Post-Excision Evolution (2026-05-14)
 

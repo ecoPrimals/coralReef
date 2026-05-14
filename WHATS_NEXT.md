@@ -4,22 +4,23 @@
 
 **Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
 
-**Last completed**: Sprint 9+ — f64 nested struct member type fix, `health.version` RPC, `shader.compile.gemm` IPC wiring. Prior: subgroup ops, f64 CallResult fix, HMMA GEMM, IPC aliases, texture expansion, env var deprecation.
+**Last completed**: Sprint 10 — `ImageQuery` PTX emission (`suq`), 8 new math functions (saturate, radians, degrees, countOneBits, countLeadingZeros, countTrailingZeros, reverseBits, smoothStep), 3 new builtins (WorkGroupSize, NumSubgroups, SubgroupId), `lib_tests.rs` split for <1000L compliance. Prior: f64 nested struct member type fix, `health.version` RPC, `shader.compile.gemm` IPC wiring, subgroup ops, f64 CallResult fix, HMMA GEMM, IPC aliases, texture expansion, env var deprecation.
 
-**Tests**: 3160 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3162 passing, 0 failed, 4 ignored. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 14, 2026.
+**Last updated**: May 15, 2026.
 
-**Next focus**: `ImageSample`/`ImageQuery` PTX emission. Coverage push toward 90%. Scan operation integer type support. WGSL cooperative matrix support (blocked on WGSL spec adoption).
+**Next focus**: `ImageSample` PTX emission (`.texref` + `tex.*` instructions). Function call inlining in PTX emitter. Coverage push toward 90%. Scan operation integer type support. WGSL cooperative matrix support (blocked on WGSL spec adoption).
 
 ---
 
-## Current Priorities (Sprint 9+)
+## Current Priorities (Sprint 10+)
 
-1. `ImageSample` / `ImageQuery` PTX emission (texture sampling + dimension queries)
-2. Coverage push toward 90% on 7 remaining compiler crates
-3. `naga::Module` ingest path hardening (multiple entry points, validation)
-4. Ecosystem discovery integration testing with live toadStool instance
+1. `ImageSample` PTX emission (sampled textures via `.texref` + `tex.*` instructions)
+2. Function call inlining in PTX emitter (`Statement::Call`)
+3. Coverage push toward 90% on 7 remaining compiler crates
+4. `naga::Module` ingest path hardening (multiple entry points, validation)
+5. Ecosystem discovery integration testing with live toadStool instance
 
 ### HMMA Codegen Status
 

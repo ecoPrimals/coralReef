@@ -728,4 +728,59 @@ fn main() {
             "should emit v4.b8 for bgra8unorm: {ptx:.400}"
         );
     }
+
+    #[test]
+    fn ptx_image_query_size_2d() {
+        let wgsl = r"
+@group(0) @binding(0)
+var tex: texture_storage_2d<rgba8unorm, read>;
+
+@group(0) @binding(1)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let dims = textureDimensions(tex);
+    out[0] = dims.x;
+    out[1] = dims.y;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "ImageQuery size 2d: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("suq.width.b32"),
+            "should emit suq.width: {ptx:.400}"
+        );
+        assert!(
+            ptx.contains("suq.height.b32"),
+            "should emit suq.height for 2d: {ptx:.400}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_query_size_1d() {
+        let wgsl = r"
+@group(0) @binding(0)
+var tex: texture_storage_1d<r32uint, read>;
+
+@group(0) @binding(1)
+var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let w = textureDimensions(tex);
+    out[0] = w;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "ImageQuery size 1d: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("suq.width.b32"),
+            "should emit suq.width for 1d: {ptx:.400}"
+        );
+    }
 }

@@ -175,6 +175,56 @@ impl PtxEmitter<'_> {
                     .expect("write to String");
                 Ok(r)
             }
+            naga::BuiltIn::WorkGroupSize => {
+                let mut components = Vec::with_capacity(3);
+                for dim_label in ["x", "y", "z"] {
+                    let r = self.alloc_r32();
+                    writeln!(
+                        self.body,
+                        "    mov.u32 {}, %ntid.{dim_label};",
+                        r.fmt_operand()
+                    )
+                    .expect("write to String");
+                    components.push(r);
+                }
+                Ok(PtxVal::Vec(components))
+            }
+            naga::BuiltIn::NumSubgroups => {
+                let nx = self.alloc_r32();
+                let warp = self.alloc_r32();
+                let result = self.alloc_r32();
+                writeln!(self.body, "    mov.u32 {}, %ntid.x;", nx.fmt_operand())
+                    .expect("write to String");
+                writeln!(self.body, "    mov.u32 {}, WARP_SZ;", warp.fmt_operand())
+                    .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    div.u32 {}, {}, {};",
+                    result.fmt_operand(),
+                    nx.fmt_operand(),
+                    warp.fmt_operand()
+                )
+                .expect("write to String");
+                Ok(result)
+            }
+            naga::BuiltIn::SubgroupId => {
+                let tid = self.alloc_r32();
+                let warp = self.alloc_r32();
+                let result = self.alloc_r32();
+                writeln!(self.body, "    mov.u32 {}, %tid.x;", tid.fmt_operand())
+                    .expect("write to String");
+                writeln!(self.body, "    mov.u32 {}, WARP_SZ;", warp.fmt_operand())
+                    .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    div.u32 {}, {}, {};",
+                    result.fmt_operand(),
+                    tid.fmt_operand(),
+                    warp.fmt_operand()
+                )
+                .expect("write to String");
+                Ok(result)
+            }
             other => Err(CompileError::NotImplemented(
                 format!("PTX builtin: {other:?}").into(),
             )),

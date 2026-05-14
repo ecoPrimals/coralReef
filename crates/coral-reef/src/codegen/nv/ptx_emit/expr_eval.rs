@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use crate::error::CompileError;
 
 use super::PtxEmitter;
-use super::types::PtxVal;
+use super::types::{ImageDim, PtxVal};
 
 impl PtxEmitter<'_> {
     pub(super) fn eval_expr(
@@ -180,6 +180,7 @@ impl PtxEmitter<'_> {
                 sample: _,
                 level: _,
             } => self.eval_image_load(image, coordinate),
+            naga::Expression::ImageQuery { image, query } => self.eval_image_query(image, query),
             _ => Err(CompileError::NotImplemented(
                 format!("PTX expression: {expr:?}").into(),
             )),
@@ -238,6 +239,76 @@ impl PtxEmitter<'_> {
             Ok(dst_components.into_iter().next().expect("component exists"))
         } else {
             Ok(PtxVal::Vec(dst_components))
+        }
+    }
+
+    fn eval_image_query(
+        &mut self,
+        image: naga::Handle<naga::Expression>,
+        query: naga::ImageQuery,
+    ) -> Result<PtxVal, CompileError> {
+        let naga::Expression::GlobalVariable(gv_handle) = self.func.expressions[image] else {
+            return Err(CompileError::NotImplemented(
+                "ImageQuery on non-global image".into(),
+            ));
+        };
+        let surf_idx = self.surface_index(gv_handle).ok_or_else(|| {
+            CompileError::InvalidInput(
+                "ImageQuery source is not a recognized surface binding".into(),
+            )
+        })?;
+        let dim = self.surfaces[surf_idx].dim;
+
+        match query {
+            naga::ImageQuery::Size { .. } => {
+                let width = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    suq.width.b32 {}, [_surf{surf_idx}];",
+                    width.fmt_operand(),
+                )
+                .expect("write to String");
+
+                match dim {
+                    ImageDim::D1 => Ok(width),
+                    ImageDim::D2 => {
+                        let height = self.alloc_r32();
+                        writeln!(
+                            self.body,
+                            "    suq.height.b32 {}, [_surf{surf_idx}];",
+                            height.fmt_operand(),
+                        )
+                        .expect("write to String");
+                        Ok(PtxVal::Vec(vec![width, height]))
+                    }
+                    ImageDim::D3 => {
+                        let height = self.alloc_r32();
+                        let depth = self.alloc_r32();
+                        writeln!(
+                            self.body,
+                            "    suq.height.b32 {}, [_surf{surf_idx}];",
+                            height.fmt_operand(),
+                        )
+                        .expect("write to String");
+                        writeln!(
+                            self.body,
+                            "    suq.depth.b32 {}, [_surf{surf_idx}];",
+                            depth.fmt_operand(),
+                        )
+                        .expect("write to String");
+                        Ok(PtxVal::Vec(vec![width, height, depth]))
+                    }
+                }
+            }
+            naga::ImageQuery::NumLevels => Err(CompileError::NotImplemented(
+                "ImageQuery::NumLevels on surface (use texref for mipmap queries)".into(),
+            )),
+            naga::ImageQuery::NumLayers => Err(CompileError::NotImplemented(
+                "ImageQuery::NumLayers on surface".into(),
+            )),
+            naga::ImageQuery::NumSamples => Err(CompileError::NotImplemented(
+                "ImageQuery::NumSamples on surface".into(),
+            )),
         }
     }
 }

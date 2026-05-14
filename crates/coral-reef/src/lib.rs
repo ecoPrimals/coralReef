@@ -628,5 +628,5 @@ pub fn compile_wgsl_raw_sm(wgsl: &str, sm: u8) -> Result<Vec<u8>, CompileError> 
 }
 
 #[cfg(test)]
-#[path = "lib_tests.rs"]
+#[path = "lib_tests/mod.rs"]
 mod tests;

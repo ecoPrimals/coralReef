@@ -384,6 +384,198 @@ impl PtxEmitter<'_> {
                     )),
                 }
             }
+            MF::Saturate => {
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    max.{ts} {}, {}, 0f00000000;",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    min.{ts} {}, {}, 0f3F800000;",
+                    dst.fmt_operand(),
+                    dst.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Radians => {
+                let dst = self.alloc_for_scalar(scalar);
+                // π/180 ≈ 0.01745329 = 0x3C8EFA35 in f32
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f3C8EFA35;",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Degrees => {
+                let dst = self.alloc_for_scalar(scalar);
+                // 180/π ≈ 57.2957795 = 0x42652EE1 in f32
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f42652EE1;",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::CountOneBits => {
+                let dst = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    popc.b32 {}, {};",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::CountLeadingZeros => {
+                let dst = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    clz.b32 {}, {};",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::CountTrailingZeros => {
+                // PTX has no ctz — use brev + clz
+                let rev = self.alloc_r32();
+                let dst = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    brev.b32 {}, {};",
+                    rev.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    clz.b32 {}, {};",
+                    dst.fmt_operand(),
+                    rev.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::ReverseBits => {
+                let dst = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    brev.b32 {}, {};",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::SmoothStep => {
+                // smoothstep(low, high, x) = t*t*(3-2t), where t = clamp((x-low)/(high-low), 0, 1)
+                let low = arg1.ok_or_else(|| {
+                    CompileError::NotImplemented("smoothstep without arg1".into())
+                })?;
+                let x = arg2.ok_or_else(|| {
+                    CompileError::NotImplemented("smoothstep without arg2".into())
+                })?;
+                let range = self.alloc_for_scalar(scalar);
+                let t = self.alloc_for_scalar(scalar);
+                let two_t = self.alloc_for_scalar(scalar);
+                let three_minus_2t = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                // range = high - low (arg is low, arg1 is high, arg2 is x in naga convention)
+                // Actually naga::MathFunction::SmoothStep has args: (low, high, x)
+                // naga passes them as arg=low, arg1=high, arg2=x
+                writeln!(
+                    self.body,
+                    "    sub.{ts} {}, {}, {};",
+                    range.fmt_operand(),
+                    low.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                // t = (x - low) / range
+                writeln!(
+                    self.body,
+                    "    sub.{ts} {}, {}, {};",
+                    t.fmt_operand(),
+                    x.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    rcp.approx.{ts} {}, {};",
+                    range.fmt_operand(),
+                    range.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, {};",
+                    t.fmt_operand(),
+                    t.fmt_operand(),
+                    range.fmt_operand(),
+                )
+                .expect("write to String");
+                // clamp t to [0, 1]
+                writeln!(
+                    self.body,
+                    "    max.{ts} {}, {}, 0f00000000;",
+                    t.fmt_operand(),
+                    t.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    min.{ts} {}, {}, 0f3F800000;",
+                    t.fmt_operand(),
+                    t.fmt_operand(),
+                )
+                .expect("write to String");
+                // 3 - 2*t
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f40000000;",
+                    two_t.fmt_operand(),
+                    t.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    sub.{ts} {}, 0f40400000, {};",
+                    three_minus_2t.fmt_operand(),
+                    two_t.fmt_operand(),
+                )
+                .expect("write to String");
+                // t * t * (3 - 2t)
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, {};",
+                    dst.fmt_operand(),
+                    t.fmt_operand(),
+                    t.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, {};",
+                    dst.fmt_operand(),
+                    dst.fmt_operand(),
+                    three_minus_2t.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
             MF::Tanh => {
                 // tanh(x) ≈ 1 - 2/(exp(2x)+1): use ex2 approximation
                 let two_x = self.alloc_for_scalar(scalar);
