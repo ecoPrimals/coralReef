@@ -336,6 +336,12 @@ impl FuncTranslator<'_, '_> {
                  naga IR ordering issue"
                     .into(),
             )),
+            naga::Expression::SubgroupBallotResult
+            | naga::Expression::SubgroupOperationResult { .. } => Err(CompileError::InvalidInput(
+                "SubgroupResult accessed before statement emission; \
+                     this indicates a naga IR ordering issue"
+                    .into(),
+            )),
             _ => Err(CompileError::NotImplemented(
                 format!(
                     "expression {:?} not yet supported",
@@ -586,6 +592,12 @@ impl FuncTranslator<'_, '_> {
             naga::Expression::Swizzle { vector, .. } => self.resolve_expr_type_handle(vector),
             naga::Expression::Relational { argument, .. } => {
                 self.resolve_expr_type_handle(argument)
+            }
+            naga::Expression::CallResult(func_handle) => {
+                let called_fn = &self.module.functions[func_handle];
+                called_fn.result.as_ref().map(|r| r.ty).ok_or_else(|| {
+                    CompileError::InvalidInput("CallResult for void function".into())
+                })
             }
             _ => self.any_type_handle(),
         }

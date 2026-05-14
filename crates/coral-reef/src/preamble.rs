@@ -17,7 +17,9 @@ pub fn strip_enable_directives(source: &str) -> String {
         .lines()
         .filter(|line| {
             let trimmed = line.trim();
-            !trimmed.starts_with("enable f64") && !trimmed.starts_with("enable f16")
+            !trimmed.starts_with("enable f64")
+                && !trimmed.starts_with("enable f16")
+                && !trimmed.starts_with("enable subgroups")
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -46,6 +48,7 @@ pub fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> Cow<'a, str>
     let needs_su3 = wgsl.contains("su3_");
     let has_enable_f64 = wgsl.contains("enable f64");
     let has_enable_f16 = wgsl.contains("enable f16");
+    let has_enable_subgroups = wgsl.contains("enable subgroups");
 
     let needs_complex64 = needs_complex64 || needs_su3;
     let needs_prng = needs_prng || needs_su3;
@@ -57,6 +60,7 @@ pub fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> Cow<'a, str>
         && !needs_su3
         && !has_enable_f64
         && !has_enable_f16
+        && !has_enable_subgroups
     {
         return Cow::Borrowed(wgsl);
     }
@@ -139,7 +143,7 @@ pub fn prepare_wgsl<'a>(wgsl: &'a str, options: &CompileOptions) -> Cow<'a, str>
         source.to_owned()
     };
 
-    let result = if has_enable_f64 || has_enable_f16 {
+    let result = if has_enable_f64 || has_enable_f16 || has_enable_subgroups {
         strip_enable_directives(&result)
     } else {
         result

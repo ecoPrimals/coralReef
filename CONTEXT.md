@@ -21,7 +21,7 @@ Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
 ## Project status (Iteration 101+, Sprint 9+)
 
-- **Tests**: 3154 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
+- **Tests**: 3159 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
 - **Sprint 9+ (post-excision evolution)**: HMMA tensor-core GEMM codegen (`compile_gemm` API). IPC wire-compat aliases (`source` → `wgsl_source`, `binary` → `binary_b64`, `info` → `shader_info`). Texture format coverage expanded (4→10 `TexelFormat` variants). Discovery filter aligned with toadStool capabilities. Cross-primal name leaks eliminated. 42 dep patch updates.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).

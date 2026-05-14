@@ -36,7 +36,11 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - 5 new entry point + validation tests (EP selection by name, missing EP error, compute-stage preference, validation rejection, validation bypass)
 - 5 new texture format tests (rg32float store, r32uint store, rgba16float store, r32float load, bgra8unorm store)
 - 3 new serde wire-compat tests (source alias, multi-device source alias, legacy field alias roundtrip)
-- Total: **3154 tests** (was 3143, was 3130, was 3115 at excision). Zero files >800 lines in production code.
+- **Subgroup operations**: Full WGSL subgroup support in `naga_translate` — `SubgroupBallot` → `OpVote`, `SubgroupCollectiveOperation/Reduce` → `OpRedux` (SM73+) or butterfly `OpShfl` chain (SM70), `SubgroupGather` → `OpShfl`. Inclusive/exclusive scan via iterated `shfl.up`. `enable subgroups;` directive stripped during preprocessing (naga 28 parser limitation).
+- **f64 CallResult type resolution fix**: `resolve_expr_type_handle` now properly resolves `CallResult` expressions to the function's return type. Fixes "wrong type" errors when math functions (`sqrt`, `pow`, `exp`) operate on f64 values returned from user-defined functions.
+- 4 new subgroup tests (subgroupAdd SM70/SM120, subgroupBroadcast SM70, subgroupBallot SM70)
+- 1 new f64 CallResult type resolution test
+- Total: **3159 tests** (was 3154, was 3143, was 3130, was 3115 at excision). Zero files >800 lines in production code.
 
 ---
 

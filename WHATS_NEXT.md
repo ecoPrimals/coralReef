@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Iteration 101+ (Sprint 9+: Post-excision evolution — pure compiler primal).
 
-**Last completed**: Sprint 9+ — Post-excision evolution. HMMA tensor-core GEMM codegen shipped (`compile_gemm` API, `mma.sync.aligned` SM80+). IPC wire-compat aliases added (`source` → `wgsl_source`, `binary` → `binary_b64`, `info` → `shader_info`). Texture format coverage expanded (4→10 `TexelFormat` variants: R8, R16, R32, Rg8, Rg16, Rg32, Rgba8, Bgra8, Rgba16, Rgba32; explicit `StorageFormat` mapping). Discovery filter aligned with toadStool capabilities. Cross-primal name leaks eliminated. 42 dependency patch updates.
+**Last completed**: Sprint 9+ — Subgroup operations + f64 CallResult fix. WGSL subgroup ops (`subgroupAdd`, `subgroupBroadcast`, `subgroupBallot`) now compile through `naga_translate` for SM70+ (butterfly shfl reduce for SM70, `OpRedux` for SM73+). f64 type resolution bug at function call boundaries fixed in `resolve_expr_type_handle`. Prior: HMMA GEMM, IPC aliases, texture format expansion.
 
-**Tests**: 3154 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
+**Tests**: 3159 passing, 0 failed, 3 ignored. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 13, 2026.
 
-**Next focus**: `ImageSample`/`ImageQuery` PTX emission. Coverage push toward 90%. WGSL cooperative matrix support (blocked on WGSL spec adoption).
+**Next focus**: `ImageSample`/`ImageQuery` PTX emission. Coverage push toward 90%. Scan operation integer type support. WGSL cooperative matrix support (blocked on WGSL spec adoption).
 
 ---
 

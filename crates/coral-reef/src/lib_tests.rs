@@ -878,3 +878,141 @@ fn test_compile_gemm_tf32_requires_k_aligned_to_8() {
         .expect_err("TF32 with K=12 should fail (not aligned to 8)");
     assert!(matches!(err, CompileError::InvalidInput(_)));
 }
+
+#[test]
+fn test_f64_math_on_call_result() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> output: array<f64>;
+
+fn compute_distance(x: f64, y: f64) -> f64 {
+    return x * x + y * y;
+}
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let x = output[0u];
+    let y = output[1u];
+    let dist_sq = compute_distance(x, y);
+    let dist = sqrt(dist_sq);
+    let inv = f64(1.0) / dist;
+    output[gid.x] = inv * exp(-dist / f64(2.0));
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        fp64_software: true,
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "f64 math on user-function CallResult should compile: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_add_reduce_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> output: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = output[gid.x];
+    let sum = subgroupAdd(val);
+    output[gid.x] = sum;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "subgroupAdd should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_broadcast_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> output: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = output[gid.x];
+    let broadcast = subgroupBroadcast(val, 0u);
+    output[gid.x] = broadcast;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "subgroupBroadcast should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_ballot_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(subgroup_invocation_id) lane: u32) {
+    let is_lower_half = lane < 32u;
+    let ballot = subgroupBallot(is_lower_half);
+    output[gid.x] = ballot.x;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "subgroupBallot should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_add_reduce_sm120_ptx() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> output: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = output[gid.x];
+    let sum = subgroupAdd(val);
+    output[gid.x] = sum;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm120),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl_full(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "subgroupAdd should compile for SM120: {result:?}"
+    );
+    let compiled = result.unwrap();
+    let ptx = String::from_utf8_lossy(&compiled.binary);
+    assert!(
+        ptx.contains("redux.sync"),
+        "SM120 subgroupAdd should emit redux.sync: {ptx}"
+    );
+}

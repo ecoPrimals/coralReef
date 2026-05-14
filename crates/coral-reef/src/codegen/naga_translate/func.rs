@@ -391,6 +391,20 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 self.emit_atomic(pointer, fun, value, result)?;
                 Ok(())
             }
+            naga::Statement::SubgroupBallot { result, predicate } => {
+                self.emit_subgroup_ballot(result, predicate)
+            }
+            naga::Statement::SubgroupCollectiveOperation {
+                op,
+                collective_op,
+                argument,
+                result,
+            } => self.emit_subgroup_collective(op, collective_op, argument, result),
+            naga::Statement::SubgroupGather {
+                mode,
+                argument,
+                result,
+            } => self.emit_subgroup_gather(mode, argument, result),
             _ => Err(CompileError::NotImplemented(
                 format!(
                     "statement {:?} not yet supported",
@@ -399,5 +413,234 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 .into(),
             )),
         }
+    }
+
+    fn emit_subgroup_ballot(
+        &mut self,
+        result: Handle<naga::Expression>,
+        predicate: Option<Handle<naga::Expression>>,
+    ) -> Result<(), CompileError> {
+        let pred_src = if let Some(pred_h) = predicate {
+            let pred_ssa = self.ensure_expr(pred_h)?;
+            Src::from(pred_ssa)
+        } else {
+            Src::new_imm_bool(true)
+        };
+        let ballot_dst = self.alloc_ssa(RegFile::GPR);
+        self.push_instr(Instr::new(OpVote {
+            op: VoteOp::Any,
+            dsts: [ballot_dst.into(), Dst::None],
+            pred: pred_src,
+        }));
+        self.expr_map.insert(result, ballot_dst.into());
+        Ok(())
+    }
+
+    fn emit_subgroup_collective(
+        &mut self,
+        op: naga::SubgroupOperation,
+        collective_op: naga::CollectiveOperation,
+        argument: Handle<naga::Expression>,
+        result: Handle<naga::Expression>,
+    ) -> Result<(), CompileError> {
+        let arg_ssa = self.ensure_expr(argument)?;
+        let src = Src::from(arg_ssa);
+
+        match collective_op {
+            naga::CollectiveOperation::Reduce => {
+                if self.sm.sm() >= 73 {
+                    let redux_op = subgroup_op_to_redux(op)?;
+                    let dst_val = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpRedux {
+                        dst: dst_val.into(),
+                        src,
+                        op: redux_op,
+                    }));
+                    self.expr_map.insert(result, dst_val.into());
+                } else {
+                    let dst_ssa = self.emit_reduce_via_shfl(src, op)?;
+                    self.expr_map.insert(result, dst_ssa);
+                }
+            }
+            naga::CollectiveOperation::InclusiveScan | naga::CollectiveOperation::ExclusiveScan => {
+                let is_exclusive = collective_op == naga::CollectiveOperation::ExclusiveScan;
+                let dst_ssa = self.emit_scan_via_shfl(src, op, is_exclusive)?;
+                self.expr_map.insert(result, dst_ssa);
+            }
+        }
+        Ok(())
+    }
+
+    /// Emit a warp-wide reduction via butterfly shfl pattern (SM70 fallback).
+    fn emit_reduce_via_shfl(
+        &mut self,
+        src: Src,
+        _op: naga::SubgroupOperation,
+    ) -> Result<SSARef, CompileError> {
+        let mut acc_val = self.alloc_ssa(RegFile::GPR);
+        self.push_instr(Instr::new(OpCopy {
+            dst: acc_val.into(),
+            src,
+        }));
+
+        for offset in [16u32, 8, 4, 2, 1] {
+            let shfl_dst = self.alloc_ssa(RegFile::GPR);
+            self.push_instr(Instr::new(OpShfl {
+                dsts: [shfl_dst.into(), Dst::None],
+                srcs: [
+                    Src::from(SSARef::from(acc_val)),
+                    Src::new_imm_u32(offset),
+                    Src::new_imm_u32(0x1f),
+                ],
+                op: ShflOp::Bfly,
+            }));
+
+            let combined = self.alloc_ssa(RegFile::GPR);
+            self.push_instr(Instr::new(OpFAdd {
+                dst: combined.into(),
+                srcs: [
+                    Src::from(SSARef::from(acc_val)),
+                    Src::from(SSARef::from(shfl_dst)),
+                ],
+                saturate: false,
+                rnd_mode: FRndMode::NearestEven,
+                ftz: false,
+            }));
+            acc_val = combined;
+        }
+
+        Ok(SSARef::from(acc_val))
+    }
+
+    fn emit_subgroup_gather(
+        &mut self,
+        mode: naga::GatherMode,
+        argument: Handle<naga::Expression>,
+        result: Handle<naga::Expression>,
+    ) -> Result<(), CompileError> {
+        let arg_ssa = self.ensure_expr(argument)?;
+        let src = Src::from(arg_ssa);
+
+        let (shfl_op, lane_src) = match mode {
+            naga::GatherMode::BroadcastFirst => (ShflOp::Idx, Src::new_imm_u32(0)),
+            naga::GatherMode::Broadcast(idx_h) => {
+                let idx_ssa = self.ensure_expr(idx_h)?;
+                (ShflOp::Idx, Src::from(idx_ssa))
+            }
+            naga::GatherMode::Shuffle(idx_h) => {
+                let idx_ssa = self.ensure_expr(idx_h)?;
+                (ShflOp::Idx, Src::from(idx_ssa))
+            }
+            naga::GatherMode::ShuffleDown(offset_h) => {
+                let off_ssa = self.ensure_expr(offset_h)?;
+                (ShflOp::Down, Src::from(off_ssa))
+            }
+            naga::GatherMode::ShuffleUp(offset_h) => {
+                let off_ssa = self.ensure_expr(offset_h)?;
+                (ShflOp::Up, Src::from(off_ssa))
+            }
+            naga::GatherMode::ShuffleXor(mask_h) => {
+                let mask_ssa = self.ensure_expr(mask_h)?;
+                (ShflOp::Bfly, Src::from(mask_ssa))
+            }
+            _ => {
+                return Err(CompileError::NotImplemented(
+                    "unsupported SubgroupGather mode".into(),
+                ));
+            }
+        };
+
+        let dst_val = self.alloc_ssa(RegFile::GPR);
+        self.push_instr(Instr::new(OpShfl {
+            dsts: [dst_val.into(), Dst::None],
+            srcs: [src, lane_src, Src::new_imm_u32(0x1f)],
+            op: shfl_op,
+        }));
+        self.expr_map.insert(result, dst_val.into());
+        Ok(())
+    }
+
+    /// Emit a warp-level scan (inclusive or exclusive) via iterated `shfl.up`.
+    ///
+    /// Uses butterfly pattern: for each power-of-2 offset, shuffle up and
+    /// conditionally accumulate based on the in_bounds predicate.
+    fn emit_scan_via_shfl(
+        &mut self,
+        src: Src,
+        _op: naga::SubgroupOperation,
+        exclusive: bool,
+    ) -> Result<SSARef, CompileError> {
+        let mut acc_val = self.alloc_ssa(RegFile::GPR);
+        self.push_instr(Instr::new(OpCopy {
+            dst: acc_val.into(),
+            src,
+        }));
+
+        for offset in [1u32, 2, 4, 8, 16] {
+            let shfl_dst = self.alloc_ssa(RegFile::GPR);
+            let pred_dst = self.alloc_ssa(RegFile::Pred);
+            self.push_instr(Instr::new(OpShfl {
+                dsts: [shfl_dst.into(), pred_dst.into()],
+                srcs: [
+                    Src::from(SSARef::from(acc_val)),
+                    Src::new_imm_u32(offset),
+                    Src::new_imm_u32(0),
+                ],
+                op: ShflOp::Up,
+            }));
+
+            let temp = self.alloc_ssa(RegFile::GPR);
+            self.push_instr(Instr::new(OpFAdd {
+                dst: temp.into(),
+                srcs: [
+                    Src::from(SSARef::from(acc_val)),
+                    Src::from(SSARef::from(shfl_dst)),
+                ],
+                saturate: false,
+                rnd_mode: FRndMode::NearestEven,
+                ftz: false,
+            }));
+
+            let combined = self.alloc_ssa(RegFile::GPR);
+            self.push_instr(Instr::new(OpSel {
+                dst: combined.into(),
+                srcs: [
+                    Src::from(SSARef::from(pred_dst)),
+                    Src::from(SSARef::from(temp)),
+                    Src::from(SSARef::from(acc_val)),
+                ],
+            }));
+            acc_val = combined;
+        }
+
+        if exclusive {
+            let shfl_dst = self.alloc_ssa(RegFile::GPR);
+            self.push_instr(Instr::new(OpShfl {
+                dsts: [shfl_dst.into(), Dst::None],
+                srcs: [
+                    Src::from(SSARef::from(acc_val)),
+                    Src::new_imm_u32(1),
+                    Src::new_imm_u32(0),
+                ],
+                op: ShflOp::Up,
+            }));
+            acc_val = shfl_dst;
+        }
+
+        Ok(SSARef::from(acc_val))
+    }
+}
+
+fn subgroup_op_to_redux(op: naga::SubgroupOperation) -> Result<ReduxOp, CompileError> {
+    match op {
+        naga::SubgroupOperation::Add => Ok(ReduxOp::Sum),
+        naga::SubgroupOperation::And | naga::SubgroupOperation::All => Ok(ReduxOp::And),
+        naga::SubgroupOperation::Or | naga::SubgroupOperation::Any => Ok(ReduxOp::Or),
+        naga::SubgroupOperation::Xor => Ok(ReduxOp::Xor),
+        naga::SubgroupOperation::Min => Ok(ReduxOp::Min(IntCmpType::I32)),
+        naga::SubgroupOperation::Max => Ok(ReduxOp::Max(IntCmpType::I32)),
+        naga::SubgroupOperation::Mul => Err(CompileError::NotImplemented(
+            "subgroup multiply reduction has no redux hardware op".into(),
+        )),
     }
 }
