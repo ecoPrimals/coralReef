@@ -374,6 +374,8 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         tracing::warn!(error = %e, "failed to write discovery file (peers must use fallback discovery)");
     }
 
+    write_pid_file();
+
     coralreef_core::ecosystem::spawn_registration(desc);
 
     let signal_received = wait_for_shutdown_signal().await;
@@ -403,6 +405,7 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     }
 
     remove_discovery_file().await;
+    remove_pid_file();
 
     UniBinExit::Signal
 }
@@ -483,6 +486,31 @@ async fn remove_discovery_file_from(dir: Option<&std::path::Path>) {
 /// The shared discovery directory for all ecoPrimals.
 fn discovery_dir() -> io::Result<std::path::PathBuf> {
     config::discovery_dir()
+}
+
+/// Write a PID file alongside the socket so consumers can use `kill(pid, 0)`
+/// for instant liveness checks without connect overhead.
+///
+/// Per `CAPABILITY_BASED_DISCOVERY_STANDARD` v1.3.0 §6.
+fn write_pid_file() {
+    let Ok(dir) = discovery_dir() else {
+        return;
+    };
+    let path = dir.join(format!("{}.pid", env!("CARGO_PKG_NAME")));
+    if let Err(e) = std::fs::write(&path, std::process::id().to_string()) {
+        tracing::debug!(error = %e, path = %path.display(), "failed to write PID file");
+    } else {
+        tracing::debug!(path = %path.display(), pid = std::process::id(), "PID file written");
+    }
+}
+
+/// Remove the PID file on shutdown.
+fn remove_pid_file() {
+    let Ok(dir) = discovery_dir() else {
+        return;
+    };
+    let path = dir.join(format!("{}.pid", env!("CARGO_PKG_NAME")));
+    let _ = std::fs::remove_file(&path);
 }
 
 /// Wait for SIGTERM or SIGINT. Returns which signal was received.
