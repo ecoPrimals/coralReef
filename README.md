@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Status**: Phase 10 — Sprint 12 (RayQuery PTX emission, full-GPU silicon exploitation horizons defined; 3181 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 12 (RayQuery PTX emission, full-GPU silicon exploitation; 3181 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

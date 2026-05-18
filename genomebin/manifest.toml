@@ -8,14 +8,14 @@
 
 [primal]
 name = "coralreef"
-version = "0.1.0"
+version = "0.2.0"
 license = "AGPL-3.0-or-later"
 binary = "coralreef"
 pie_verified = true
 ecobin_grade = "A++"
-iteration = 101
-tests = 3165
-description = "Sovereign Rust GPU shader compiler. Compiles WGSL/SPIR-V/GLSL compute shaders to native GPU binaries (NVIDIA SM35-SM120, AMD GCN5/RDNA2-4). Tensor-core GEMM codegen (HMMA via mma.sync). Pure compiler — zero unsafe, zero C dependencies."
+sprint = 12
+tests = 3181
+description = "Sovereign Rust GPU shader compiler. Compiles WGSL/SPIR-V/GLSL compute shaders to native GPU binaries (NVIDIA SM35-SM120, AMD GCN5/RDNA2-4). Tensor-core GEMM codegen (HMMA via mma.sync). RayQuery PTX emission (Phase B RT core). Pure compiler — zero unsafe, zero C dependencies."
 
 [capabilities]
 provided = [
@@ -28,16 +28,19 @@ provided = [
     "health.check",
     "health.liveness",
     "health.readiness",
+    "health.version",
     "identity.get",
     "capability.list",
-    "capability.register",
-    "ipc.heartbeat",
     "btsp.negotiate",
     "auth.check",
     "auth.mode",
     "auth.peer_info",
 ]
-consumed = ["compute.dispatch"]
+consumed = [
+    "compute.dispatch",
+    "capability.register",
+    "ipc.heartbeat",
+]
 
 [capabilities.gpu_targets]
 nvidia = ["sm35", "sm70", "sm75", "sm80", "sm86", "sm89", "sm120"]

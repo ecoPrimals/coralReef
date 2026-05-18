@@ -2,18 +2,18 @@
 
 # coralReef — Status
 
-**Last updated**: May 14, 2026  
-**Phase**: 10 — Sprint 12 (RayQuery PTX emission — Phase B RT core activation, full-GPU silicon horizons. Pure compiler primal. 3181 tests, zero unsafe, zero clippy warnings)
+**Last updated**: May 17, 2026  
+**Version**: 0.2.0 — Sprint 12 (RayQuery PTX emission — Phase B RT core activation, full-GPU silicon horizons. Pure compiler primal. 3181 tests, zero unsafe, zero clippy warnings)
 
 ---
 
-## Overall Grade: **A+** (Multi-Vendor Sovereign GPU Compiler)
+## Overall Grade: **A++** (Multi-Vendor Sovereign GPU Compiler — Stadial Ready)
 
 | Category | Grade | Notes |
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A | Single binary: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef`: `--rpc-bind` (NDJSON primary). Diesel binaries (coral-ember/coral-glowplug) excised Sprint 9 |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, `shader.compile.*` + `health.*` + `identity.get` + `capability.register` + `capability.list` + `ipc.heartbeat` + `btsp.negotiate` + `auth.*`, Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 16 served methods (`shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*`), 3 consumed (`capability.register`, `ipc.heartbeat`, `compute.dispatch`), Songbird `ecosystem` registration (wateringHole compliant), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
