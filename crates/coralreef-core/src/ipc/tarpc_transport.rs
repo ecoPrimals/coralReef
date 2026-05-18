@@ -263,6 +263,7 @@ pub fn start_tarpc_unix_server(
 
     let listener = UnixListener::bind(path).map_err(IpcError::Tarpc)?;
     let bound = BoundAddr::Unix(path.to_path_buf());
+    let cleanup_path = path.to_path_buf();
 
     let handle = tokio::spawn(async move {
         let mut shutdown_rx = shutdown_rx;
@@ -292,6 +293,7 @@ pub fn start_tarpc_unix_server(
                 _ = shutdown_rx.changed() => break,
             }
         }
+        let _ = std::fs::remove_file(&cleanup_path);
     });
 
     tracing::info!(%bound, "tarpc server listening (unix)");

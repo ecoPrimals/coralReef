@@ -110,7 +110,7 @@ pub fn discover_ecosystem_jsonrpc_bind() -> Option<String> {
     }
 
     if let Some(sock) = config::discovery_socket() {
-        if sock.exists() {
+        if socket_is_alive(&sock) {
             let bind = format!("unix://{}", sock.display());
             tracing::debug!(bind, "registry discovery from $DISCOVERY_SOCKET");
             return Some(bind);
@@ -176,6 +176,28 @@ pub fn jsonrpc_bind_to_unix_path(bind: &str) -> Option<PathBuf> {
         return Some(PathBuf::from(b));
     }
     None
+}
+
+/// Connect-probe a Unix socket to determine if a listener is alive.
+///
+/// Per `CAPABILITY_BASED_DISCOVERY_STANDARD` v1.3.0 §5: use a connect attempt
+/// instead of `path.exists()` to avoid discovering stale sockets left by
+/// crashed primals. Local Unix connect is effectively instant (no network
+/// round-trip), so a blocking probe is acceptable here.
+#[cfg(unix)]
+fn socket_is_alive(path: &Path) -> bool {
+    use std::os::unix::net::UnixStream;
+
+    if !path.exists() {
+        return false;
+    }
+    UnixStream::connect(path).map_or_else(
+        |_| {
+            tracing::debug!(path = %path.display(), "stale socket detected (connect refused)");
+            false
+        },
+        |_stream| true,
+    )
 }
 
 #[derive(Serialize)]
