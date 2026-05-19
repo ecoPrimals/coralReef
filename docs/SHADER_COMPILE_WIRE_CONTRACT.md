@@ -2,7 +2,7 @@
 
 # Shader Compile Wire Contract
 
-**Last updated**: May 14, 2026 (Sprint 12 — `shader.compile.gemm` wired, `health.version` added, RayQuery compilation live)
+**Last updated**: May 19, 2026 (Sprint 12 — CG-3 GPU API alignment: `precision_advice`/`adapter` on request, `dispatch_hints` on response)
 **Audience**: Spring teams, barraCuda, neuralSpring, toadStool, primalSpring
 **Transport**: JSON-RPC 2.0 (newline-delimited over UDS/TCP) or tarpc (bincode)
 
@@ -87,6 +87,25 @@ deserialization for backward compatibility:
 | `fp64_software` | `bool` | no | `false` | Enable f64 software transcendental lowering |
 | `fp64_strategy` | `string?` | no | `null` | `"software"` or `"native"` — overrides `fp64_software` if set |
 | `fma_policy` | `string?` | no | `null` (= `"auto"`) | `"fused"`, `"separate"`, or `"auto"` (compiler decides) |
+| `precision_advice` | `PrecisionAdvice?` | no | `null` | Precision routing hint from barraCuda (see below) |
+| `adapter` | `AdapterDescriptor?` | no | `null` | GPU adapter info for arch-agnostic compilation (future) |
+
+#### `precision_advice` Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tier` | `string` | Precision tier: `"F16"`, `"BF16"`, `"TF32"`, `"F32"`, `"F64"`, `"DF64"`, etc. |
+| `needs_transcendental_lowering` | `bool` | Whether hardware f64 transcendentals are broken |
+| `df64_naga_poisoned` | `bool` | Whether DF64 path is poisoned by naga |
+| `domain` | `string?` | Physics domain that motivated this compilation |
+
+#### `adapter` Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `vendor_id` | `u32` | PCI vendor ID (e.g. `0x10DE` for NVIDIA) |
+| `device_name` | `string` | GPU adapter name from driver |
+| `device_type` | `string` | `"DiscreteGpu"`, `"IntegratedGpu"`, `"Cpu"` |
 
 ### Success Response
 
@@ -107,6 +126,10 @@ deserialization for backward compatibility:
       "workgroup": [256, 1, 1],
       "wave_size": 32,
       "local_memory": 0
+    },
+    "dispatch_hints": {
+      "hardware_hint": "compute",
+      "binary_format": "ptx"
     }
   }
 }
@@ -119,6 +142,14 @@ deserialization for backward compatibility:
 | `arch` | `string?` | yes (on success) | Architecture compiled for |
 | `status` | `string?` | yes (on success) | `"success"` |
 | `info` | `CompilationInfo?` | yes (WGSL path) | Compilation metadata for dispatch |
+| `dispatch_hints` | `DispatchHints?` | yes | Hardware unit + binary format routing hints |
+
+#### `dispatch_hints` Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hardware_hint` | `string` | Hardware unit target: `"compute"`, `"tensor_core"`, `"rt_core"` |
+| `binary_format` | `string?` | Binary format: `"ptx"`, `"isa"`, `"spirv"`, `"binary"` |
 
 #### `info` Object (CompilationInfo)
 

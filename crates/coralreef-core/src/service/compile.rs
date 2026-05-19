@@ -23,6 +23,32 @@ fn wave_size_for(target: GpuTarget) -> u32 {
     }
 }
 
+/// Derive hardware dispatch hint from `precision_advice` carried in the request.
+///
+/// Tensor-core tiers (F16, BF16, TF32, FP8 variants) route to `"tensor_core"`;
+/// everything else routes to `"compute"` (standard ALU path).
+fn dispatch_hint_from_precision_advice(advice: Option<&super::types::PrecisionAdvice>) -> String {
+    let Some(adv) = advice else {
+        return "compute".to_owned();
+    };
+    match adv.tier.to_ascii_lowercase().as_str() {
+        "f16" | "bf16" | "tf32" | "fp8e4m3" | "fp8e5m2" | "fp8_e4m3" | "fp8_e5m2" => {
+            "tensor_core".to_owned()
+        }
+        _ => "compute".to_owned(),
+    }
+}
+
+/// Determine binary format string from the target architecture.
+fn binary_format_for(target: GpuTarget) -> String {
+    match target {
+        GpuTarget::Nvidia(_) => "ptx".to_owned(),
+        GpuTarget::Amd(_) => "isa".to_owned(),
+        GpuTarget::Intel(_) => "spirv".to_owned(),
+        _ => "binary".to_owned(),
+    }
+}
+
 /// Parse an architecture string into a [`GpuTarget`].
 ///
 /// Tries NVIDIA first, then AMD. No hardcoded arch list.
@@ -108,6 +134,10 @@ pub fn handle_compile_spirv(
         status: Some(STATUS_SUCCESS.to_owned()),
         info: None,
         compile_time_ms: Some(elapsed.as_secs_f64() * 1000.0),
+        dispatch_hints: Some(super::types::DispatchHints {
+            hardware_hint: "compute".to_owned(),
+            binary_format: Some(binary_format_for(options.target)),
+        }),
     })
 }
 
@@ -156,6 +186,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
     let fma = parse_fma_policy(req.fma_policy.as_deref());
     let options = build_options(&req.arch, req.opt_level, fp64_sw, fma)?;
     let wave_size = wave_size_for(options.target);
+    let hardware_hint = dispatch_hint_from_precision_advice(req.precision_advice.as_ref());
     let t0 = Instant::now();
     let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
     let elapsed = t0.elapsed();
@@ -175,6 +206,10 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
             local_memory: compiled.info.local_mem_bytes,
         }),
         compile_time_ms: Some(elapsed.as_secs_f64() * 1000.0),
+        dispatch_hints: Some(super::types::DispatchHints {
+            hardware_hint,
+            binary_format: Some(binary_format_for(options.target)),
+        }),
     })
 }
 
@@ -310,6 +345,10 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
             workgroup_size: compiled.info.local_size,
             wave_size: 32,
             local_memory: compiled.info.local_mem_bytes,
+        }),
+        dispatch_hints: Some(super::types::DispatchHints {
+            hardware_hint: "tensor_core".to_owned(),
+            binary_format: Some("ptx".to_owned()),
         }),
     })
 }

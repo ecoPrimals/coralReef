@@ -80,6 +80,50 @@ pub struct CompileWgslRequest {
     /// Optional — defaults to `"auto"` (compiler decides).
     #[serde(default)]
     pub fma_policy: Option<String>,
+    /// Precision routing advice from `barraCuda`'s `PrecisionBrain`.
+    /// Tells the compiler which precision tier was selected and whether
+    /// hardware-specific lowering is needed.
+    #[serde(default)]
+    pub precision_advice: Option<PrecisionAdvice>,
+    /// Adapter descriptor for arch-agnostic compilation. When present, the
+    /// compiler infers the ISA target from adapter hardware identity rather
+    /// than requiring the caller to know the exact architecture string.
+    #[serde(default)]
+    pub adapter: Option<AdapterDescriptor>,
+}
+
+/// Precision routing advice carried in compile requests (from `barraCuda`).
+///
+/// Enables the compiler to make informed decisions about hardware unit
+/// targeting (tensor cores vs ALU) and transcendental lowering strategy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrecisionAdvice {
+    /// The precision tier selected by the caller (e.g. `"F16"`, `"F64"`, `"DF64"`).
+    pub tier: String,
+    /// Whether hardware native f64 transcendentals are broken (probed by caller).
+    #[serde(default)]
+    pub needs_transcendental_lowering: bool,
+    /// Whether DF64 (f32-pair) transcendentals are poisoned by naga.
+    #[serde(default)]
+    pub df64_naga_poisoned: bool,
+    /// Physics domain that motivated this compilation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+}
+
+/// Adapter hardware descriptor for architecture-agnostic compilation.
+///
+/// When provided, the compiler maps the adapter identity to the appropriate
+/// ISA target. This avoids encoding GPU generation knowledge in every consumer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterDescriptor {
+    /// PCI vendor ID (e.g. `0x10DE` for NVIDIA, `0x1002` for AMD).
+    pub vendor_id: u32,
+    /// Adapter name as reported by the GPU driver.
+    pub device_name: String,
+    /// Device type (`"DiscreteGpu"`, `"IntegratedGpu"`, `"Cpu"`).
+    #[serde(default)]
+    pub device_type: String,
 }
 
 /// Response from shader compilation (Compute Trio wire contract).
@@ -114,6 +158,24 @@ pub struct CompileResponse {
     /// Wall-clock compilation time in milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compile_time_ms: Option<f64>,
+    /// Dispatch routing hints for the caller's submission layer.
+    /// Tells barraCuda/toadStool which hardware unit the binary targets.
+    #[serde(default)]
+    pub dispatch_hints: Option<DispatchHints>,
+}
+
+/// Hints for the dispatch layer about hardware unit targeting.
+///
+/// Returned alongside the compiled binary so the dispatch caller can route
+/// to the correct hardware unit without parsing the binary.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DispatchHints {
+    /// Hardware unit the compiled binary targets.
+    /// Values: `"compute"`, `"tensor_core"`, `"rt_core"`.
+    pub hardware_hint: String,
+    /// Binary format: `"ptx"`, `"sass"`, `"isa"`.
+    #[serde(default)]
+    pub binary_format: Option<String>,
 }
 
 /// Compilation metadata needed by the dispatch layer (`compute.dispatch` provider).

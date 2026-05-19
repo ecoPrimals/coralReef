@@ -38,6 +38,8 @@ async fn test_concurrent_jsonrpc_requests() {
         fp64_software: true,
         fp64_strategy: None,
         fma_policy: None,
+        precision_advice: None,
+        adapter: None,
     };
 
     let handles: Vec<_> = (0..50)
@@ -152,6 +154,8 @@ async fn test_concurrent_tarpc_requests() {
         fp64_software: true,
         fp64_strategy: None,
         fma_policy: None,
+        precision_advice: None,
+        adapter: None,
     };
 
     let handles: Vec<_> = (0..50)

@@ -134,6 +134,8 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
         fp64_software: true,
         fp64_strategy: None,
         fma_policy: None,
+        precision_advice: None,
+        adapter: None,
     };
 
     let wgsl_outcome: Result<service::CompileResponse, _> =
@@ -194,6 +196,8 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
         fp64_software: true,
         fp64_strategy: None,
         fma_policy: None,
+        precision_advice: None,
+        adapter: None,
     };
 
     let tarpc_wgsl = tarpc_client

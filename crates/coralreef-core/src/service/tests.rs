@@ -224,6 +224,8 @@ fn test_compile_wgsl_empty() {
         fp64_software: true,
         fp64_strategy: None,
         fma_policy: None,
+        precision_advice: None,
+        adapter: None,
     };
     assert!(handle_compile_wgsl(&req).is_err());
 }
@@ -264,6 +266,8 @@ fn test_handle_compile_wgsl_unsupported_arch() {
         fp64_software: true,
         fp64_strategy: None,
         fma_policy: None,
+        precision_advice: None,
+        adapter: None,
     };
     let result = handle_compile_wgsl(&req);
     assert!(result.is_err());
@@ -297,6 +301,8 @@ fn test_compile_wgsl_with_fma_separate() {
         fp64_software: false,
         fp64_strategy: None,
         fma_policy: Some("separate".to_owned()),
+        precision_advice: None,
+        adapter: None,
     };
     let result = handle_compile_wgsl(&req);
     assert!(result.is_ok(), "FMA separate should compile: {result:?}");
@@ -482,6 +488,8 @@ fn test_compile_wgsl_request_serde_roundtrip() {
         fp64_software: false,
         fp64_strategy: Some("native".to_owned()),
         fma_policy: Some("fused".to_owned()),
+        precision_advice: None,
+        adapter: None,
     };
     let json = serde_json::to_string(&req).unwrap();
     let roundtrip: CompileWgslRequest = serde_json::from_str(&json).unwrap();
@@ -548,6 +556,7 @@ fn test_compile_response_serde_roundtrip() {
             local_memory: 0,
         }),
         compile_time_ms: Some(42.0),
+        dispatch_hints: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     assert!(
@@ -605,6 +614,7 @@ fn test_compile_response_defaults_from_json() {
         status: None,
         info: None,
         compile_time_ms: None,
+        dispatch_hints: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     assert!(!json.contains("\"compile_time_ms\""), "None should skip");
@@ -739,6 +749,8 @@ fn test_compile_wgsl_fp64_strategy_software_overrides_bool() {
         fp64_software: false,
         fp64_strategy: Some("software".to_owned()),
         fma_policy: None,
+        precision_advice: None,
+        adapter: None,
     };
     let result = handle_compile_wgsl(&req);
     assert!(
@@ -756,6 +768,8 @@ fn test_compile_wgsl_fp64_strategy_native_uses_fp64_software_flag() {
         fp64_software: true,
         fp64_strategy: Some("native".to_owned()),
         fma_policy: Some("fused".to_owned()),
+        precision_advice: None,
+        adapter: None,
     };
     let result = handle_compile_wgsl(&req);
     assert!(result.is_ok(), "native strategy should compile: {result:?}");
