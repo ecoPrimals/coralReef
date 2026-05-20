@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: May 14, 2026 (Sprint 12: 3181 tests. Pure compiler primal — diesel stack excised. Zero debt)
+**Last updated**: May 14, 2026 (Sprint 12: 3202 tests. Pure compiler primal — diesel stack excised. Zero debt)
 
 ---
 
@@ -289,7 +289,7 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 3181 tests passing (post-excision: diesel stack removed).
+*93/93 cross-spring WGSL shaders compile to native SASS. 3202 tests passing (post-excision: diesel stack removed).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass (resolved Iteration 31).
 VFIO sovereign dispatch with PFIFO channel init, V2 MMU page tables, RAMUSERD correction.

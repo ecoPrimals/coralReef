@@ -28,7 +28,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 #### Changed
 - `EVOLUTION.md` checklist updated: `RayQuery` statement and `RayQueryGetIntersection` expression now marked as Phase B horizon (wired).
-- Total: **3181 tests** (was 3177). Zero clippy warnings. Zero unsafe.
+- Total: **3202 tests** (was 3177). Zero clippy warnings. Zero unsafe.
 
 #### Architecture Note
 The emitted PTX uses RT comment stubs (`// rt.trace.*`) marking where hardware RT core instructions will be inserted once toadStool provides acceleration structure dispatch. The wiring is complete — WGSL ray query shaders compile through the full pipeline and produce valid PTX structure. Hardware activation requires SM75+ RT core access via toadStool's dispatch surface.

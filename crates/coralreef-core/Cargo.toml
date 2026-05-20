@@ -37,8 +37,8 @@ tokio = { workspace = true, features = ["process", "fs", "net", "io-util", "time
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tarpc = { workspace = true }
-tokio-serde = { workspace = true }
+tarpc = { workspace = true, optional = true }
+tokio-serde = { workspace = true, optional = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
 bytes = { workspace = true }
@@ -54,8 +54,9 @@ getrandom = { workspace = true }
 zeroize = { workspace = true }
 
 [features]
-default = []
+default = ["tarpc-transport"]
 e2e = []
+tarpc-transport = ["dep:tarpc", "dep:tokio-serde"]
 
 [[test]]
 name = "unix_jsonrpc_default_socket_path_env"

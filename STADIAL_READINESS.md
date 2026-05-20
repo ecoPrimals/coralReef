@@ -170,3 +170,35 @@ standard infra methods (`health.*`, `identity.*`, `capability.*`, `btsp.*`,
   post-stadial if downstream demand materializes.
 - `shader.optimize` — not meaningful as a standalone method. Optimization is
   an integral pipeline stage, not a separable service.
+
+---
+
+## Dependency Sovereignty Audit
+
+### Production dependencies — sovereignty posture
+
+| Category | Deps | Status |
+|----------|------|--------|
+| Compiler core | `naga`, `thiserror`, `tracing` | Pure Rust, no FFI |
+| IPC | `tokio`, `serde`, `tarpc` (feature-gated) | tokio→mio→libc (accepted residual) |
+| Crypto | `sha2`, `chacha20poly1305`, `hkdf` | Pure Rust (`RustCrypto`) |
+
+### naga — "external sovereign"
+
+`naga` is the largest external dependency (shader IR library from gfx-rs). It is:
+- Pure Rust, zero FFI, no `*-sys` crates
+- Well-maintained upstream (GPU ecosystem standard)
+- Not sovereignty-controlled, but acceptable: replacing naga would mean
+  reimplementing all WGSL/SPIR-V/GLSL parsers and validators
+
+**Status:** Accepted as permanent external dependency. No action needed.
+
+### tarpc — feature-gated (Sprint 12)
+
+`tarpc` is now behind `feature = "tarpc-transport"` (enabled by default).
+Disabling it removes: `tarpc`, `tokio-serde`, `bincode` 1.x, `opentelemetry`,
+duplicate `rand` 0.8. JSON-RPC remains always-on as the primary IPC transport.
+
+**Rationale:** Per workspace rules, tarpc is "optional high-perf" — the feature
+gate makes this explicit in the dependency graph. Consumers that only need
+JSON-RPC can build with `--no-default-features` for a smaller binary.

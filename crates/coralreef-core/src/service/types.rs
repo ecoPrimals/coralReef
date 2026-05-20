@@ -26,6 +26,7 @@ where
 ///
 /// Uses `bytes::Bytes` so SPIR-V can be shared without copying over the wire.
 /// Serializes as base64 when using JSON transport.
+#[cfg(feature = "tarpc-transport")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileSpirvRequestTarpc {
     /// Raw SPIR-V bytes (zero-copy).
@@ -171,11 +172,14 @@ pub struct CompileResponse {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DispatchHints {
     /// Hardware unit the compiled binary targets.
-    /// Values: `"compute"`, `"tensor_core"`, `"rt_core"`.
+    /// Values: `"compute"`, `"tensor_core"`, `"rt_core"`, `"npu"`, `"cpu"`.
     pub hardware_hint: String,
-    /// Binary format: `"ptx"`, `"sass"`, `"isa"`.
+    /// Binary format: `"ptx"`, `"sass"`, `"isa"`, `"cranelift"`, `"dataflow_graph"`.
     #[serde(default)]
     pub binary_format: Option<String>,
+    /// Execution model: `"simt"` (GPU), `"sequential"` (CPU), `"dataflow"` (NPU).
+    #[serde(default)]
+    pub execution_model: Option<String>,
 }
 
 /// Compilation metadata needed by the dispatch layer (`compute.dispatch` provider).
@@ -506,20 +510,24 @@ pub const fn default_opt_level() -> u32 {
 /// because it uses `Cow<'static, str>` and is a library error type.
 /// This wrapper preserves the error message across the bincode wire while
 /// providing a typed error rather than raw `String`.
+#[cfg(feature = "tarpc-transport")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TarpcCompileError {
     /// Human-readable error message (from `CompileError::to_string()`).
     pub message: String,
 }
 
+#[cfg(feature = "tarpc-transport")]
 impl std::fmt::Display for TarpcCompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
     }
 }
 
+#[cfg(feature = "tarpc-transport")]
 impl std::error::Error for TarpcCompileError {}
 
+#[cfg(feature = "tarpc-transport")]
 impl TarpcCompileError {
     /// Wrap any error into a tarpc-transportable error.
     pub fn from_error(e: impl std::fmt::Display) -> Self {

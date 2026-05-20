@@ -137,6 +137,7 @@ pub fn handle_compile_spirv(
         dispatch_hints: Some(super::types::DispatchHints {
             hardware_hint: "compute".to_owned(),
             binary_format: Some(binary_format_for(options.target)),
+            execution_model: Some("simt".to_owned()),
         }),
     })
 }
@@ -209,6 +210,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
         dispatch_hints: Some(super::types::DispatchHints {
             hardware_hint,
             binary_format: Some(binary_format_for(options.target)),
+            execution_model: Some("simt".to_owned()),
         }),
     })
 }
@@ -349,6 +351,7 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
         dispatch_hints: Some(super::types::DispatchHints {
             hardware_hint: "tensor_core".to_owned(),
             binary_format: Some("ptx".to_owned()),
+            execution_model: Some("simt".to_owned()),
         }),
     })
 }

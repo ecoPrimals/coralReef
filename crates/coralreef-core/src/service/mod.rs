@@ -12,11 +12,12 @@ pub use compile::{
 };
 pub use types::{
     CapabilityListResponse, CompileCapabilitiesResponse, CompileRequest, CompileResponse,
-    CompileSpirvRequestTarpc, CompileWgslRequest, F64TranscendentalCapabilities,
-    GemmCompileRequest, HealthCheckResponse, HealthResponse, IdentityGetResponse, LivenessResponse,
-    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse, TarpcCompileError,
-    VersionResponse,
+    CompileWgslRequest, F64TranscendentalCapabilities, GemmCompileRequest, HealthCheckResponse,
+    HealthResponse, IdentityGetResponse, LivenessResponse, MultiDeviceCompileRequest,
+    MultiDeviceCompileResponse, ReadinessResponse, VersionResponse,
 };
+#[cfg(feature = "tarpc-transport")]
+pub use types::{CompileSpirvRequestTarpc, TarpcCompileError};
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;

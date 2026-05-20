@@ -21,19 +21,19 @@
 use std::fmt;
 use std::net::SocketAddr;
 
+#[cfg(feature = "tarpc-transport")]
 use crate::config;
 
 pub mod error;
 pub mod method_gate;
 
+#[cfg(feature = "tarpc-transport")]
 mod tarpc_transport;
+#[cfg(feature = "tarpc-transport")]
 pub use tarpc_transport::start_tarpc_server;
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, feature = "tarpc-transport"))]
 pub use tarpc_transport::start_tarpc_unix_server;
-// This module is built for both the `coralreef_core` library and the `coralreef` binary.
-// `unused_imports` on these `pub use` lines fires only for the binary crate, so
-// `expect(unused_imports)` would be unfulfilled on the library build.
-#[cfg(any(test, feature = "e2e"))]
+#[cfg(all(any(test, feature = "e2e"), feature = "tarpc-transport"))]
 #[allow(
     unused_imports,
     reason = "pub re-export for tests/e2e; lint fires on bin target but not lib"
@@ -85,6 +85,7 @@ pub enum IpcError {
     JsonRpc(#[source] std::io::Error),
 
     /// tarpc listener failed to bind.
+    #[cfg(feature = "tarpc-transport")]
     #[error("tarpc server error: {0}")]
     Tarpc(#[from] std::io::Error),
 }
@@ -142,6 +143,7 @@ pub fn default_tcp_bind() -> String {
 /// (or `std::env::temp_dir()` as fallback — no hardcoded paths per ecoBin),
 /// namespaced by the primal identity and family ID.
 /// On non-Unix: returns TCP loopback with OS-assigned port.
+#[cfg(feature = "tarpc-transport")]
 #[must_use]
 pub fn default_tarpc_bind() -> String {
     #[cfg(unix)]
@@ -173,7 +175,7 @@ mod tests_fault;
 mod tests_jsonrpc;
 #[cfg(test)]
 mod tests_newline_jsonrpc;
-#[cfg(test)]
+#[cfg(all(test, feature = "tarpc-transport"))]
 mod tests_tarpc;
 #[cfg(test)]
 mod tests_unix;

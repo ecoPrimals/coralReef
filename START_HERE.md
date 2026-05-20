@@ -34,7 +34,7 @@ compiler primal — zero FFI, zero `*-sys`, zero `extern "C"`, zero `unsafe`.
 ```bash
 cd coralReef
 cargo check --workspace
-cargo test --workspace     # 3181 passing, 0 failed
+cargo test --workspace     # 3202 passing, 0 failed
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```

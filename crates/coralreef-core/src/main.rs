@@ -47,7 +47,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Start the IPC server (JSON-RPC 2.0 + tarpc).
+    /// Start the IPC server (JSON-RPC 2.0, optionally tarpc).
     Server {
         /// Bind address for newline-delimited JSON-RPC over TCP.
         /// Respects `$CORALREEF_TCP_BIND` for deployment configuration.
@@ -57,6 +57,7 @@ enum Commands {
         /// Bind address for tarpc server.
         /// TCP: `127.0.0.1:0`; Unix socket: `unix:///path/to/socket`.
         /// Defaults to platform-native transport (Unix socket on Linux/macOS).
+        #[cfg(feature = "tarpc-transport")]
         #[arg(long)]
         tarpc_bind: Option<String>,
     },
@@ -132,10 +133,19 @@ async fn main() -> ExitCode {
     let exit = match cli.command {
         Commands::Server {
             rpc_bind,
+            #[cfg(feature = "tarpc-transport")]
             tarpc_bind,
         } => {
+            #[cfg(feature = "tarpc-transport")]
             let tarpc_bind = tarpc_bind.unwrap_or_else(ipc::default_tarpc_bind);
-            cmd_server(&rpc_bind, &tarpc_bind).await
+            #[cfg(feature = "tarpc-transport")]
+            {
+                cmd_server(&rpc_bind, &tarpc_bind).await
+            }
+            #[cfg(not(feature = "tarpc-transport"))]
+            {
+                cmd_server(&rpc_bind).await
+            }
         }
         Commands::Compile {
             input,
@@ -250,6 +260,7 @@ fn log_composition_env() {
     }
 }
 
+#[cfg(feature = "tarpc-transport")]
 /// When composition passes `--tarpc-bind unix:///path/coralreef-{family}.sock`,
 /// the ecosystem expects that socket to speak JSON-RPC 2.0 — not tarpc binary.
 /// This function separates the two:
@@ -265,13 +276,9 @@ fn resolve_uds_binds(tarpc_bind: &str) -> (String, Option<std::path::PathBuf>) {
     };
     let path = std::path::PathBuf::from(path_str);
     let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-    // When the path already ends with `-tarpc` it was produced by
-    // `default_tarpc_bind()` — no redirection needed.
     if stem.ends_with("-tarpc") {
         return (tarpc_bind.to_owned(), None);
     }
-    // Composition-provided main socket path: the ecosystem expects JSON-RPC
-    // on that path, so redirect tarpc to a `-tarpc` suffixed socket.
     let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
     let tarpc_path = path.extension().and_then(|e| e.to_str()).map_or_else(
         || parent.join(format!("{stem}-tarpc")),
@@ -285,6 +292,7 @@ fn resolve_uds_binds(tarpc_bind: &str) -> (String, Option<std::path::PathBuf>) {
     (format!("{UNIX_PREFIX}{}", tarpc_path.display()), Some(path))
 }
 
+#[cfg(feature = "tarpc-transport")]
 async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
@@ -295,12 +303,6 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
     tracing::info!(rpc_bind, tarpc_bind, "binding addresses");
     log_composition_env();
 
-    // When tarpc_bind is a Unix socket, the composition launcher passes the
-    // *main* socket path (e.g. `coralreef-{family}.sock`). Per ecosystem
-    // standard, that path must speak JSON-RPC 2.0 — not tarpc binary. We
-    // redirect tarpc to a `-tarpc` suffixed socket and bind JSON-RPC on the
-    // main path so health/capability checks from primalSpring and other
-    // composition tooling work through the standard `capability.call` path.
     let (tarpc_actual_bind, unix_jsonrpc_override) = resolve_uds_binds(tarpc_bind);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
@@ -314,7 +316,6 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
             }
         };
 
-    // Start Unix JSON-RPC BEFORE tarpc so the main ecosystem socket speaks JSON-RPC.
     #[cfg(unix)]
     let unix_jsonrpc_path = unix_jsonrpc_override.unwrap_or_else(ipc::default_unix_socket_path);
     #[cfg(unix)]
@@ -390,6 +391,103 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         }
         if let Err(e) = tarpc_handle.await {
             tracing::warn!(error = %e, "tarpc task join failed during shutdown");
+        }
+        #[cfg(unix)]
+        if let Some(h) = unix_jsonrpc_handle {
+            if let Err(e) = h.await {
+                tracing::warn!(error = %e, "Unix JSON-RPC task join failed during shutdown");
+            }
+        }
+    })
+    .await;
+
+    if shutdown_result.is_err() {
+        tracing::warn!("{}", shutdown_join_timeout_elapsed_message(join_timeout));
+    }
+
+    remove_discovery_file().await;
+    remove_pid_file();
+
+    UniBinExit::Signal
+}
+
+#[cfg(not(feature = "tarpc-transport"))]
+async fn cmd_server(rpc_bind: &str) -> UniBinExit {
+    if let Err(e) = config::validate_insecure_guard() {
+        tracing::error!(error = %e, "configuration rejected");
+        return UniBinExit::ConfigError;
+    }
+
+    tracing::info!("{} server starting (JSON-RPC only)", env!("CARGO_PKG_NAME"));
+    tracing::info!(rpc_bind, "binding addresses");
+    log_composition_env();
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
+
+    let (rpc_addr, rpc_handle) =
+        match ipc::start_newline_tcp_jsonrpc(rpc_bind, shutdown_rx.clone()).await {
+            Ok(x) => x,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to start JSON-RPC server");
+                return UniBinExit::GeneralError;
+            }
+        };
+
+    #[cfg(unix)]
+    let unix_jsonrpc_path = ipc::default_unix_socket_path();
+    #[cfg(unix)]
+    let unix_jsonrpc_handle = {
+        match ipc::start_unix_jsonrpc_server(&unix_jsonrpc_path, shutdown_rx.clone()).await {
+            Ok((_path, handle)) => {
+                tracing::info!(path = %unix_jsonrpc_path.display(), "Unix JSON-RPC server started");
+                Some(handle)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Unix JSON-RPC server failed to start (ecosystem primal discovery degraded)");
+                None
+            }
+        }
+    };
+
+    let mut transports = vec![coralreef_core::capability::Transport {
+        protocol: "jsonrpc".into(),
+        address: rpc_addr.to_string().into(),
+    }];
+    #[cfg(unix)]
+    if unix_jsonrpc_handle.is_some() {
+        transports.push(coralreef_core::capability::Transport {
+            protocol: "jsonrpc+unix".into(),
+            address: format!("unix://{}", unix_jsonrpc_path.display()).into(),
+        });
+    }
+    let desc = coralreef_core::capability::self_description();
+    let desc = coralreef_core::capability::with_transports(desc, transports);
+    tracing::info!(
+        rpc_addr = %rpc_addr,
+        provides = ?desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
+        requires = ?desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
+        "{} ready — capability advertisement prepared", env!("CARGO_PKG_NAME")
+    );
+
+    service::set_identity_from_self_description(&desc);
+
+    if let Err(e) = write_discovery_file(&desc).await {
+        tracing::warn!(error = %e, "failed to write discovery file (peers must use fallback discovery)");
+    }
+
+    write_pid_file();
+
+    coralreef_core::ecosystem::spawn_registration(desc);
+
+    let signal_received = wait_for_shutdown_signal().await;
+    tracing::info!(signal = ?signal_received, "received shutdown signal, stopping servers");
+
+    let _ = shutdown_tx.send(());
+
+    let join_timeout = shutdown_join_timeout();
+    let shutdown_result = tokio::time::timeout(join_timeout, async move {
+        if let Err(e) = rpc_handle.await {
+            tracing::warn!(error = %e, "JSON-RPC task join failed during shutdown");
         }
         #[cfg(unix)]
         if let Some(h) = unix_jsonrpc_handle {

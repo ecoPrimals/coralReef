@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: May 14, 2026 (Phase 10 — Sprint 12)
-**Phase**: 10 — Sprint 12: RayQuery PTX emission shipped (Phase B — RT core activation). Statement::RayQuery (Initialize/Proceed/GenerateIntersection/ConfirmIntersection/Terminate) + RayQueryGetIntersection expression + RayQueryProceedResult. SM75+ gate. RT stubs wired for toadStool hardware activation. 3181 tests, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: May 20, 2026 (Phase 10 — Sprint 12)
+**Phase**: 10 — Sprint 12: Compiler Evolution Architecture. IR-to-IR idempotency proven (WGSL roundtrip, SPIR-V roundtrip, multi-backend determinism — 21 tests). `CompileTarget` generalization: `Gpu(GpuTarget)` | `Cpu(CpuArch)` | `Npu(NpuTarget)` with `execution_model` in `dispatch_hints`. tarpc feature-gated behind `tarpc-transport` (JSON-RPC always-on). Dependency sovereignty documented. 3202 tests, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3181 tests. Zero clippy warnings.
+Pure Rust. Zero unsafe. 3202 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX

@@ -2,7 +2,7 @@
 
 # Shader Compile Wire Contract
 
-**Last updated**: May 19, 2026 (Sprint 12 — CG-3 GPU API alignment: `precision_advice`/`adapter` on request, `dispatch_hints` on response)
+**Last updated**: May 20, 2026 (Sprint 12 — `CompileTarget` generalization: `execution_model` in `dispatch_hints`, `CompileTarget::Cpu`/`Npu` stubs)
 **Audience**: Spring teams, barraCuda, neuralSpring, toadStool, primalSpring
 **Transport**: JSON-RPC 2.0 (newline-delimited over UDS/TCP) or tarpc (bincode)
 
@@ -129,7 +129,8 @@ deserialization for backward compatibility:
     },
     "dispatch_hints": {
       "hardware_hint": "compute",
-      "binary_format": "ptx"
+      "binary_format": "ptx",
+      "execution_model": "simt"
     }
   }
 }
@@ -148,8 +149,9 @@ deserialization for backward compatibility:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `hardware_hint` | `string` | Hardware unit target: `"compute"`, `"tensor_core"`, `"rt_core"` |
-| `binary_format` | `string?` | Binary format: `"ptx"`, `"isa"`, `"spirv"`, `"binary"` |
+| `hardware_hint` | `string` | Hardware unit target: `"compute"`, `"tensor_core"`, `"rt_core"`, `"npu"`, `"cpu"` |
+| `binary_format` | `string?` | Binary format: `"ptx"`, `"sass"`, `"isa"`, `"cranelift"`, `"dataflow_graph"` |
+| `execution_model` | `string?` | Execution model: `"simt"` (GPU), `"sequential"` (CPU), `"dataflow"` (NPU) |
 
 #### `info` Object (CompilationInfo)
 

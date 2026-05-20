@@ -9,7 +9,161 @@
 //! transition from the original NVIDIA-only codebase.
 
 // ---------------------------------------------------------------------------
-// Vendor-agnostic target
+// Universal compile target — GPU, CPU, NPU
+// ---------------------------------------------------------------------------
+
+/// A universal compilation target encompassing GPU, CPU, and NPU hardware.
+///
+/// `CompileTarget::Gpu` wraps the existing [`GpuTarget`] for full backward
+/// compatibility. `Cpu` and `Npu` variants are stubs that return
+/// `CompileError::NotImplemented` from all compile paths — they exist to
+/// establish the type-level abstraction for future backends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CompileTarget {
+    /// GPU target — NVIDIA, AMD, or Intel.
+    Gpu(GpuTarget),
+    /// CPU target — for shader validation on host hardware.
+    Cpu(CpuArch),
+    /// Neural processing unit — dataflow/event-driven accelerators.
+    Npu(NpuTarget),
+}
+
+impl Default for CompileTarget {
+    fn default() -> Self {
+        Self::Gpu(GpuTarget::default())
+    }
+}
+
+impl CompileTarget {
+    /// Unwrap as a [`GpuTarget`], or `None` if this is a CPU/NPU target.
+    #[must_use]
+    pub const fn as_gpu(&self) -> Option<GpuTarget> {
+        match self {
+            Self::Gpu(t) => Some(*t),
+            _ => None,
+        }
+    }
+
+    /// Whether this target is a GPU.
+    #[must_use]
+    pub const fn is_gpu(&self) -> bool {
+        matches!(self, Self::Gpu(_))
+    }
+
+    /// Whether this target is a CPU (host validation).
+    #[must_use]
+    pub const fn is_cpu(&self) -> bool {
+        matches!(self, Self::Cpu(_))
+    }
+
+    /// Whether this target is an NPU (neural/dataflow accelerator).
+    #[must_use]
+    pub const fn is_npu(&self) -> bool {
+        matches!(self, Self::Npu(_))
+    }
+
+    /// The execution model for this target class.
+    #[must_use]
+    pub const fn execution_model(&self) -> &'static str {
+        match self {
+            Self::Gpu(_) => "simt",
+            Self::Cpu(_) => "sequential",
+            Self::Npu(_) => "dataflow",
+        }
+    }
+
+    /// Human-readable target description.
+    #[must_use]
+    pub const fn target_class(&self) -> &'static str {
+        match self {
+            Self::Gpu(_) => "gpu",
+            Self::Cpu(_) => "cpu",
+            Self::Npu(_) => "npu",
+        }
+    }
+}
+
+impl std::fmt::Display for CompileTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Gpu(gpu) => write!(f, "{gpu}"),
+            Self::Cpu(cpu) => write!(f, "{cpu}"),
+            Self::Npu(npu) => write!(f, "{npu}"),
+        }
+    }
+}
+
+impl From<GpuTarget> for CompileTarget {
+    fn from(gpu: GpuTarget) -> Self {
+        Self::Gpu(gpu)
+    }
+}
+
+impl From<NvArch> for CompileTarget {
+    fn from(arch: NvArch) -> Self {
+        Self::Gpu(GpuTarget::Nvidia(arch))
+    }
+}
+
+impl From<AmdArch> for CompileTarget {
+    fn from(arch: AmdArch) -> Self {
+        Self::Gpu(GpuTarget::Amd(arch))
+    }
+}
+
+impl From<CpuArch> for CompileTarget {
+    fn from(cpu: CpuArch) -> Self {
+        Self::Cpu(cpu)
+    }
+}
+
+impl From<NpuTarget> for CompileTarget {
+    fn from(npu: NpuTarget) -> Self {
+        Self::Npu(npu)
+    }
+}
+
+/// CPU architecture for host-side shader validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CpuArch {
+    /// x86-64 (AMD64).
+    X86_64,
+    /// ARM 64-bit (`AArch64`).
+    Aarch64,
+}
+
+impl std::fmt::Display for CpuArch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::X86_64 => write!(f, "x86_64"),
+            Self::Aarch64 => write!(f, "aarch64"),
+        }
+    }
+}
+
+/// Neural processing unit target — dataflow and event-driven accelerators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum NpuTarget {
+    /// `BrainChip` Akida — neuromorphic event-driven inference.
+    Akida,
+    /// Generic dataflow NPU (vendor-agnostic placeholder).
+    GenericDataflow,
+}
+
+impl std::fmt::Display for NpuTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Akida => write!(f, "akida"),
+            Self::GenericDataflow => write!(f, "npu_dataflow"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GPU-specific target (backward-compatible)
 // ---------------------------------------------------------------------------
 
 /// A GPU compilation target, discriminated by vendor.

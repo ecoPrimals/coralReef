@@ -1,6 +1,6 @@
 +++
 title = "coralReef Validation Summary"
-description = "Sovereign Rust GPU shader compiler — 3181 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), tensor-core GEMM, RayQuery PTX, zero unsafe, zero C deps"
+description = "Sovereign Rust GPU shader compiler — 3202 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), tensor-core GEMM, RayQuery PTX, zero unsafe, zero C deps"
 date = 2026-05-20
 
 [taxonomies]
@@ -10,7 +10,7 @@ springs = ["hotspring", "wetspring", "neuralspring"]
 
 ## Status
 
-- **3181 tests** passing, 0 failed, 0 ignored
+- **3202 tests** passing, 0 failed, 0 ignored
 - **Version**: 0.2.0 — Sprint 12
 - **Grade**: A++ (Multi-Vendor Sovereign GPU Compiler — Stadial Ready)
 - **License**: AGPL-3.0-or-later

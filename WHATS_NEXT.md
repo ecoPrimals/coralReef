@@ -2,28 +2,29 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 11 (pure compiler primal, full-GPU horizons defined).
+**Current position**: Phase 10 — Sprint 12 (pure compiler primal, compiler evolution architecture).
 
-**Last completed**: Sprint 12 — `Statement::RayQuery` PTX emission (Initialize/Proceed/GenerateIntersection/ConfirmIntersection/Terminate) + `RayQueryGetIntersection` expression. RT core activation (Phase B) wired with SM75+ gate. Prior: Sprint 11 — ImageSample/textureGather/ImageAtomic/WorkGroupUniformLoad/function inlining/tarpc GEMM.
+**Last completed**: Sprint 12 — Compiler Evolution Phases A/B/C: IR-to-IR idempotency proven (21 tests), `CompileTarget` generalization (GPU/CPU/NPU variants, `execution_model` in dispatch_hints), tarpc feature-gated behind `tarpc-transport`. Prior: RayQuery PTX emission, ImageSample, function inlining, tarpc GEMM.
 
-**Tests**: 3181 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3202 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 14, 2026.
+**Last updated**: May 20, 2026.
 
-**Next focus**: RayQuery PTX emission (Phase B — RT core activation). Depth texture comparison. Array textures and cube maps.
+**Next focus**: Depth texture comparison. Array textures and cube maps. Coverage push toward 90%.
 
 ---
 
 ## Current Priorities (Sprint 12+)
 
-### Near-Term (Sprint 12–13)
+### Near-Term (Sprint 13+)
 
-1. ~~**RayQuery PTX emission**~~ — **DONE** (Sprint 12). Wired with RT stubs for SM75+. Hardware activation awaits toadStool acceleration structure dispatch.
-2. Depth texture comparison (`textureSampleCompare`) PTX emission
-3. Array textures (`texture_2d_array`, `texture_cube`) and cube maps
-4. Coverage push toward 90% on remaining compiler crates
-5. `naga::Module` ingest path hardening (multiple entry points, validation)
-6. Ecosystem discovery integration testing with live toadStool instance
+1. ~~**RayQuery PTX emission**~~ — **DONE** (Sprint 12).
+2. ~~**Compiler evolution**~~ — **DONE** (Sprint 12). IR idempotency proven, `CompileTarget` generalization, tarpc feature-gated.
+3. Depth texture comparison (`textureSampleCompare`) PTX emission
+4. Array textures (`texture_2d_array`, `texture_cube`) and cube maps
+5. Coverage push toward 90% on remaining compiler crates
+6. `naga::Module` ingest path hardening (multiple entry points, validation)
+7. Ecosystem discovery integration testing with live toadStool instance
 
 ### Medium-Term Horizons (Sprint 14+)
 

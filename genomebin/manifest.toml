@@ -14,7 +14,7 @@ binary = "coralreef"
 pie_verified = true
 ecobin_grade = "A++"
 sprint = 12
-tests = 3181
+tests = 3202
 description = "Sovereign Rust GPU shader compiler. Compiles WGSL/SPIR-V/GLSL compute shaders to native GPU binaries (NVIDIA SM35-SM120, AMD GCN5/RDNA2-4). Tensor-core GEMM codegen (HMMA via mma.sync). RayQuery PTX emission (Phase B RT core). Pure compiler — zero unsafe, zero C dependencies."
 
 [capabilities]

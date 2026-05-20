@@ -68,7 +68,9 @@ pub use codegen::pipeline::CompiledShader;
 pub use error::CompileError;
 pub use frontend::{Frontend, NagaFrontend};
 pub use gemm::{GemmPrecision, GemmShape, compile_gemm};
-pub use gpu_arch::{AmdArch, GpuArch, GpuTarget, IntelArch, NvArch};
+pub use gpu_arch::{
+    AmdArch, CompileTarget, CpuArch, GpuArch, GpuTarget, IntelArch, NpuTarget, NvArch,
+};
 
 /// Re-export naga for callers that build `naga::Module` directly.
 pub use naga;

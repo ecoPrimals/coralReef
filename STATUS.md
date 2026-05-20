@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: May 17, 2026  
-**Version**: 0.2.0 — Sprint 12 (RayQuery PTX emission — Phase B RT core activation, full-GPU silicon horizons. Pure compiler primal. 3181 tests, zero unsafe, zero clippy warnings)
+**Last updated**: May 20, 2026  
+**Version**: 0.2.0 — Sprint 12 (Compiler evolution: CompileTarget generalization, IR idempotency proven, tarpc feature-gated. 3202 tests, zero unsafe, zero clippy warnings)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to toadStool |
 | coralGpu | — | *Excised Sprint 9* — dispatch delegated to toadStool |
 | Code structure | A+ | Smart refactoring: error.rs 928→mod(412)+vfio(523) (Iter 101), nv/mod.rs 857→747+fecs_init(124) (Iter 101), pfifo.rs 882→695+bar2_init(199) (Iter 101), ioctl 929→655 (Iter 97), channel 896→594 (Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 3181 passing, 0 failed, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120 (atomics, barriers, subgroups, scans, ImageSample, textureGather, ImageAtomic, WorkGroupUniformLoad, RayQuery, function inlining), HMMA GEMM, serde alias roundtrip, texture format coverage |
+| Tests | A+ | 3202 passing, 0 failed, IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery, texture format coverage |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
