@@ -242,10 +242,12 @@ async fn send_capability_register(
 async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
     let socket_path = crate::ipc::default_unix_socket_path();
     let params = json!({
-        "name": config::PRIMAL_NAME,
+        "primal": config::PRIMAL_NAME,
         "version": config::PRIMAL_VERSION,
+        "pid": std::process::id(),
         "socket": socket_path.to_string_lossy(),
         "capabilities": ["compile", "shader_compile", "gpu"],
+        "methods": ANNOUNCED_METHODS,
         "signal_tiers": ["node"],
         "cost_hints": {
             "compile": 60.0,
@@ -260,6 +262,28 @@ async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
     });
     send_jsonrpc_line(path, "primal.announce", params, 3_u64).await
 }
+
+/// Methods announced to biomeOS Neural API for routing.
+///
+/// Kept in sync with `handle_capability_list()` in `service/mod.rs`.
+const ANNOUNCED_METHODS: &[&str] = &[
+    "shader.compile.spirv",
+    "shader.compile.wgsl",
+    "shader.compile.status",
+    "shader.compile.capabilities",
+    "shader.compile.wgsl.multi",
+    "shader.compile.gemm",
+    "health.check",
+    "health.liveness",
+    "health.readiness",
+    "health.version",
+    "identity.get",
+    "capability.list",
+    "btsp.negotiate",
+    "auth.check",
+    "auth.mode",
+    "auth.peer_info",
+];
 
 #[cfg(unix)]
 async fn send_ipc_heartbeat(path: &Path) -> Result<(), EcosystemError> {
@@ -384,10 +408,12 @@ mod tests {
     fn primal_announce_payload_has_required_fields() {
         let socket_path = crate::ipc::default_unix_socket_path();
         let params = serde_json::json!({
-            "name": config::PRIMAL_NAME,
+            "primal": config::PRIMAL_NAME,
             "version": config::PRIMAL_VERSION,
+            "pid": std::process::id(),
             "socket": socket_path.to_string_lossy(),
             "capabilities": ["compile", "shader_compile", "gpu"],
+            "methods": ANNOUNCED_METHODS,
             "signal_tiers": ["node"],
             "cost_hints": {
                 "compile": 60.0,
@@ -400,6 +426,27 @@ mod tests {
                 "gpu": 50
             }
         });
+
+        assert!(
+            params.get("name").is_none(),
+            "payload must use 'primal' not 'name' (biomeOS rejects 'name')"
+        );
+        assert_eq!(
+            params["primal"].as_str().expect("primal field"),
+            config::PRIMAL_NAME
+        );
+
+        let methods = params["methods"].as_array().expect("methods array");
+        assert!(
+            !methods.is_empty(),
+            "methods must be non-empty for Neural API routing"
+        );
+        assert!(
+            methods.len() >= 16,
+            "expected at least 16 announced methods"
+        );
+        assert!(methods.contains(&serde_json::json!("shader.compile.wgsl")));
+        assert!(methods.contains(&serde_json::json!("shader.compile.spirv")));
 
         let caps = params["capabilities"]
             .as_array()
@@ -435,5 +482,6 @@ mod tests {
                 .expect("socket string")
                 .ends_with(".sock")
         );
+        assert!(params["pid"].as_u64().is_some(), "pid must be present");
     }
 }

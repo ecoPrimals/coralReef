@@ -10,6 +10,16 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 44: Neural API Wire Fix (2026-05-23)
+
+#### Fixed
+- **`primal.announce` wire identity**: Renamed `"name"` → `"primal"` in the JSON-RPC params (biomeOS `PrimalAnnouncement` requires this exact key — prior payload was silently rejected).
+- **Added `methods` array**: 16 served method names now included in the announce payload (`shader.compile.*`, `health.*`, `identity.get`, `capability.list`, `btsp.negotiate`, `auth.*`), enabling `methods_registered` tracking in biomeOS.
+- **Added `pid` field**: Process ID for biomeOS utilization tracking.
+
+#### Changed
+- Test `primal_announce_payload_has_required_fields` now asserts `"primal"` field (not `"name"`), methods array is non-empty, and pid is present.
+
 ### Wave 43: Neural API `primal.announce` Adoption (2026-05-23)
 
 #### Added
