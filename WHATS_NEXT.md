@@ -4,11 +4,11 @@
 
 **Current position**: Phase 10 — Sprint 12 (pure compiler primal, compiler evolution architecture).
 
-**Last completed**: Sprint 12 — Compiler Evolution Phases A/B/C: IR-to-IR idempotency proven (21 tests), `CompileTarget` generalization (GPU/CPU/NPU variants, `execution_model` in dispatch_hints), tarpc feature-gated behind `tarpc-transport`. Prior: RayQuery PTX emission, ImageSample, function inlining, tarpc GEMM.
+**Last completed**: Wave 43 — `primal.announce` Neural API adoption (cost_hints, latency_estimates, signal_tiers). Sprint 12 — Compiler Evolution Phases A/B/C: IR-to-IR idempotency proven (21 tests), `CompileTarget` generalization (GPU/CPU/NPU variants, `execution_model` in dispatch_hints), tarpc feature-gated behind `tarpc-transport`. Prior: RayQuery PTX emission, ImageSample, function inlining, tarpc GEMM.
 
 **Tests**: 3202 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 20, 2026.
+**Last updated**: May 23, 2026.
 
 **Next focus**: Depth texture comparison. Array textures and cube maps. Coverage push toward 90%.
 

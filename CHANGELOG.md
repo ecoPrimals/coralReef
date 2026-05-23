@@ -10,6 +10,17 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 43: Neural API `primal.announce` Adoption (2026-05-23)
+
+#### Added
+- **`primal.announce` handler**: On startup, coralReef sends a `primal.announce` JSON-RPC call to biomeOS (Neural API), registering routing metadata:
+  - `capabilities`: `["compile", "shader_compile", "gpu"]`
+  - `signal_tiers`: `["node"]`
+  - `cost_hints`: `{ "compile": 60.0, "shader_compile": 80.0, "gpu": 100.0 }`
+  - `latency_estimates`: `{ "compile": 500, "shader_compile": 800, "gpu": 50 }`
+  - `socket`: full UDS path for routing back
+- Unit test `primal_announce_payload_has_required_fields` validates schema correctness.
+
 ### Sprint 12: RayQuery PTX Emission — RT Core Activation (2026-05-14)
 
 #### Added

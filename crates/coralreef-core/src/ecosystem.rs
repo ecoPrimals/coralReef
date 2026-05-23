@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Ecosystem registration — JSON-RPC **client** calls to a registry primal.
 //!
-//! Sends `capability.register` once and `ipc.heartbeat` on an interval. coralReef
-//! does **not** implement those methods as a server; they belong to the ecosystem
+//! Sends `capability.register` once, `primal.announce` once (Neural API routing
+//! metadata for biomeOS), and `ipc.heartbeat` on an interval. coralReef does
+//! **not** implement those methods as a server; they belong to the ecosystem
 //! registry primal’s domain. This module only discovers that peer via the shared
 //! capability directory (`capability.register` in `provides`) and connects with
 //! a line-delimited JSON-RPC request over Unix (`send_jsonrpc_line` in this module).
@@ -57,9 +58,16 @@ pub fn spawn_registration(desc: SelfDescription) {
         };
 
         let path_register = unix_path.clone();
+        let path_announce = unix_path.clone();
         tokio::spawn(async move {
             if let Err(e) = send_capability_register(&path_register, &desc).await {
                 tracing::debug!(error = %e, "capability.register failed");
+            }
+        });
+
+        tokio::spawn(async move {
+            if let Err(e) = send_primal_announce(&path_announce).await {
+                tracing::debug!(error = %e, "primal.announce failed");
             }
         });
 
@@ -231,6 +239,29 @@ async fn send_capability_register(
 }
 
 #[cfg(unix)]
+async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
+    let socket_path = crate::ipc::default_unix_socket_path();
+    let params = json!({
+        "name": config::PRIMAL_NAME,
+        "version": config::PRIMAL_VERSION,
+        "socket": socket_path.to_string_lossy(),
+        "capabilities": ["compile", "shader_compile", "gpu"],
+        "signal_tiers": ["node"],
+        "cost_hints": {
+            "compile": 60.0,
+            "shader_compile": 80.0,
+            "gpu": 100.0
+        },
+        "latency_estimates": {
+            "compile": 500,
+            "shader_compile": 800,
+            "gpu": 50
+        }
+    });
+    send_jsonrpc_line(path, "primal.announce", params, 3_u64).await
+}
+
+#[cfg(unix)]
 async fn send_ipc_heartbeat(path: &Path) -> Result<(), EcosystemError> {
     let params = json!({
         "name": config::PRIMAL_NAME,
@@ -347,5 +378,62 @@ mod tests {
         let path = dir.path().join("broken.json");
         std::fs::write(&path, "not-json").expect("write");
         assert!(registry_bind_from_json_file(&path).is_none());
+    }
+
+    #[test]
+    fn primal_announce_payload_has_required_fields() {
+        let socket_path = crate::ipc::default_unix_socket_path();
+        let params = serde_json::json!({
+            "name": config::PRIMAL_NAME,
+            "version": config::PRIMAL_VERSION,
+            "socket": socket_path.to_string_lossy(),
+            "capabilities": ["compile", "shader_compile", "gpu"],
+            "signal_tiers": ["node"],
+            "cost_hints": {
+                "compile": 60.0,
+                "shader_compile": 80.0,
+                "gpu": 100.0
+            },
+            "latency_estimates": {
+                "compile": 500,
+                "shader_compile": 800,
+                "gpu": 50
+            }
+        });
+
+        let caps = params["capabilities"]
+            .as_array()
+            .expect("capabilities array");
+        assert_eq!(caps.len(), 3);
+        assert_eq!(caps[0], "compile");
+        assert_eq!(caps[1], "shader_compile");
+        assert_eq!(caps[2], "gpu");
+
+        let tiers = params["signal_tiers"]
+            .as_array()
+            .expect("signal_tiers array");
+        assert_eq!(tiers.len(), 1);
+        assert_eq!(tiers[0], "node");
+
+        let costs = params["cost_hints"].as_object().expect("cost_hints object");
+        assert_eq!(costs.len(), 3);
+        assert_eq!(costs["compile"], 60.0);
+        assert_eq!(costs["shader_compile"], 80.0);
+        assert_eq!(costs["gpu"], 100.0);
+
+        let latency = params["latency_estimates"]
+            .as_object()
+            .expect("latency_estimates object");
+        assert_eq!(latency.len(), 3);
+        assert_eq!(latency["compile"], 500);
+        assert_eq!(latency["shader_compile"], 800);
+        assert_eq!(latency["gpu"], 50);
+
+        assert!(
+            params["socket"]
+                .as_str()
+                .expect("socket string")
+                .ends_with(".sock")
+        );
     }
 }
