@@ -30,6 +30,7 @@ mod expr_misc;
 pub mod gemm;
 mod math;
 mod pointers;
+mod ray_query;
 mod statements;
 mod types;
 
