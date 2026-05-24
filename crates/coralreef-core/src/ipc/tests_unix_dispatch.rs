@@ -399,7 +399,7 @@ fn dispatch_health_check_liveness_readiness() {
 
     let live = super::newline_jsonrpc::dispatch("health.liveness", serde_json::json!({}));
     assert!(live.is_ok());
-    assert_eq!(live.expect("liveness")["alive"], true);
+    assert_eq!(live.expect("liveness")["status"], "alive");
 
     let ready = super::newline_jsonrpc::dispatch("health.readiness", serde_json::json!({}));
     assert!(ready.is_ok());

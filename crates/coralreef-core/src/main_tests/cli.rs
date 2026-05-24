@@ -13,9 +13,11 @@ fn parse_cli_server_defaults() {
     match &cli.command {
         Commands::Server {
             rpc_bind,
+            socket,
             tarpc_bind,
         } => {
             assert!(rpc_bind.contains("127.0.0.1"));
+            assert!(socket.is_none());
             assert!(tarpc_bind.is_none());
         }
         _ => panic!("expected Server command"),
@@ -95,9 +97,11 @@ fn parse_cli_server_custom_bind_addresses() {
     match &cli.command {
         Commands::Server {
             rpc_bind,
+            socket,
             tarpc_bind,
         } => {
             assert_eq!(rpc_bind, "127.0.0.1:9999");
+            assert!(socket.is_none());
             assert_eq!(
                 tarpc_bind.as_deref(),
                 Some("unix:///tmp/coralreef-test.sock")
@@ -215,10 +219,32 @@ fn parse_cli_server_rpc_bind_only() {
     match &cli.command {
         Commands::Server {
             rpc_bind,
+            socket,
             tarpc_bind,
         } => {
             assert_eq!(rpc_bind, "127.0.0.1:8888");
+            assert!(socket.is_none());
             assert!(tarpc_bind.is_none());
+        }
+        _ => panic!("expected Server command"),
+    }
+}
+
+#[test]
+fn parse_cli_server_socket_override() {
+    let cli = parse_cli_from([
+        "coralreef",
+        "server",
+        "--socket",
+        "/tmp/custom-coralreef.sock",
+    ])
+    .unwrap();
+    match &cli.command {
+        Commands::Server { socket, .. } => {
+            assert_eq!(
+                socket.as_deref(),
+                Some(std::path::Path::new("/tmp/custom-coralreef.sock"))
+            );
         }
         _ => panic!("expected Server command"),
     }

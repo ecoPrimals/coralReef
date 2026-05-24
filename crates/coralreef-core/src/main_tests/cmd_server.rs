@@ -3,7 +3,7 @@ use super::*;
 
 #[tokio::test]
 async fn cmd_server_jsonrpc_invalid_bind_returns_general_error() {
-    let result = cmd_server("not-a-valid-address", "127.0.0.1:0").await;
+    let result = cmd_server("not-a-valid-address", "127.0.0.1:0", None).await;
     assert!(
         matches!(result, UniBinExit::GeneralError),
         "invalid JSON-RPC bind address should produce GeneralError"
@@ -12,7 +12,7 @@ async fn cmd_server_jsonrpc_invalid_bind_returns_general_error() {
 
 #[tokio::test]
 async fn cmd_server_tarpc_invalid_bind_returns_general_error() {
-    let result = cmd_server("127.0.0.1:0", "garbage:not-valid").await;
+    let result = cmd_server("127.0.0.1:0", "garbage:not-valid", None).await;
     assert!(
         matches!(result, UniBinExit::GeneralError),
         "invalid tarpc bind address should produce GeneralError"

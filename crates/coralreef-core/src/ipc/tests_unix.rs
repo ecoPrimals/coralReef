@@ -59,8 +59,8 @@ fn test_dispatch_health_liveness() {
     let result = dispatch("health.liveness", serde_json::json!({}));
     let val = result.expect("health.liveness should succeed");
     assert_eq!(
-        val.get("alive").and_then(serde_json::Value::as_bool),
-        Some(true)
+        val.get("status").and_then(serde_json::Value::as_str),
+        Some("alive")
     );
 }
 
@@ -670,7 +670,7 @@ async fn test_unix_jsonrpc_health_liveness() {
 
     assert_eq!(resp["jsonrpc"], "2.0");
     assert_eq!(resp["id"], 11);
-    assert_eq!(resp["result"]["alive"], true);
+    assert_eq!(resp["result"]["status"], "alive");
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);
@@ -797,7 +797,7 @@ async fn test_unix_jsonrpc_blank_lines_ignored() {
         .expect("line");
     let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
     assert_eq!(resp["id"], 42);
-    assert_eq!(resp["result"]["alive"], true);
+    assert_eq!(resp["result"]["status"], "alive");
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);

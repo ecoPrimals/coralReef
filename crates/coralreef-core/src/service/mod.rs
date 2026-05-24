@@ -165,10 +165,12 @@ pub fn handle_health_check() -> HealthCheckResponse {
 
 /// `health.liveness` — lightweight liveness probe.
 ///
-/// Returns true if the process is alive and responsive (no deep checks).
+/// Returns `{"status":"alive"}` per `DEPLOYMENT_BEHAVIOR_STANDARD`.
 #[must_use]
-pub const fn handle_health_liveness() -> LivenessResponse {
-    LivenessResponse { alive: true }
+pub fn handle_health_liveness() -> LivenessResponse {
+    LivenessResponse {
+        status: "alive".into(),
+    }
 }
 
 /// `health.readiness` — readiness probe for accepting work.

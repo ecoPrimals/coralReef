@@ -54,6 +54,11 @@ enum Commands {
         #[arg(long, default_value_t = default_tcp_bind())]
         rpc_bind: String,
 
+        /// Unix domain socket path for JSON-RPC.
+        /// Overrides the default `$XDG_RUNTIME_DIR/biomeos/<primal>.sock`.
+        #[arg(long)]
+        socket: Option<std::path::PathBuf>,
+
         /// Bind address for tarpc server.
         /// TCP: `127.0.0.1:0`; Unix socket: `unix:///path/to/socket`.
         /// Defaults to platform-native transport (Unix socket on Linux/macOS).
@@ -133,6 +138,7 @@ async fn main() -> ExitCode {
     let exit = match cli.command {
         Commands::Server {
             rpc_bind,
+            socket,
             #[cfg(feature = "tarpc-transport")]
             tarpc_bind,
         } => {
@@ -140,11 +146,11 @@ async fn main() -> ExitCode {
             let tarpc_bind = tarpc_bind.unwrap_or_else(ipc::default_tarpc_bind);
             #[cfg(feature = "tarpc-transport")]
             {
-                cmd_server(&rpc_bind, &tarpc_bind).await
+                cmd_server(&rpc_bind, &tarpc_bind, socket.as_deref()).await
             }
             #[cfg(not(feature = "tarpc-transport"))]
             {
-                cmd_server(&rpc_bind).await
+                cmd_server(&rpc_bind, socket.as_deref()).await
             }
         }
         Commands::Compile {
@@ -293,7 +299,11 @@ fn resolve_uds_binds(tarpc_bind: &str) -> (String, Option<std::path::PathBuf>) {
 }
 
 #[cfg(feature = "tarpc-transport")]
-async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
+async fn cmd_server(
+    rpc_bind: &str,
+    tarpc_bind: &str,
+    socket_override: Option<&std::path::Path>,
+) -> UniBinExit {
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
         return UniBinExit::ConfigError;
@@ -317,7 +327,10 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
         };
 
     #[cfg(unix)]
-    let unix_jsonrpc_path = unix_jsonrpc_override.unwrap_or_else(ipc::default_unix_socket_path);
+    let unix_jsonrpc_path = socket_override
+        .map(std::path::PathBuf::from)
+        .or(unix_jsonrpc_override)
+        .unwrap_or_else(ipc::default_unix_socket_path);
     #[cfg(unix)]
     let unix_jsonrpc_handle = {
         match ipc::start_unix_jsonrpc_server(&unix_jsonrpc_path, shutdown_rx.clone()).await {
@@ -412,7 +425,7 @@ async fn cmd_server(rpc_bind: &str, tarpc_bind: &str) -> UniBinExit {
 }
 
 #[cfg(not(feature = "tarpc-transport"))]
-async fn cmd_server(rpc_bind: &str) -> UniBinExit {
+async fn cmd_server(rpc_bind: &str, socket_override: Option<&std::path::Path>) -> UniBinExit {
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
         return UniBinExit::ConfigError;
@@ -434,7 +447,9 @@ async fn cmd_server(rpc_bind: &str) -> UniBinExit {
         };
 
     #[cfg(unix)]
-    let unix_jsonrpc_path = ipc::default_unix_socket_path();
+    let unix_jsonrpc_path = socket_override
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(ipc::default_unix_socket_path);
     #[cfg(unix)]
     let unix_jsonrpc_handle = {
         match ipc::start_unix_jsonrpc_server(&unix_jsonrpc_path, shutdown_rx.clone()).await {

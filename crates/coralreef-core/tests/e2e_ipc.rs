@@ -137,7 +137,7 @@ async fn e2e_ipc_full_integration() {
         .request("health.liveness", no_params())
         .await
         .unwrap();
-    assert!(liveness.alive);
+    assert_eq!(liveness.status, "alive");
 
     // health.readiness
     let readiness: service::ReadinessResponse = client
@@ -170,7 +170,7 @@ async fn e2e_ipc_full_integration() {
         .health_liveness(tarpc::context::current())
         .await
         .unwrap();
-    assert!(tarpc_liveness.alive);
+    assert_eq!(tarpc_liveness.status, "alive");
 
     let tarpc_readiness = tarpc_client
         .health_readiness(tarpc::context::current())

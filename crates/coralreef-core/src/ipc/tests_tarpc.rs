@@ -160,7 +160,7 @@ async fn test_tarpc_health_liveness() {
         .await
         .unwrap();
 
-    assert!(response.alive);
+    assert_eq!(response.status, "alive");
 }
 
 #[tokio::test]
@@ -665,7 +665,7 @@ async fn test_tarpc_unix_liveness_and_readiness_roundtrip() {
         .health_liveness(tarpc::context::current())
         .await
         .unwrap();
-    assert!(liveness.alive);
+    assert_eq!(liveness.status, "alive");
 
     let readiness = client
         .health_readiness(tarpc::context::current())

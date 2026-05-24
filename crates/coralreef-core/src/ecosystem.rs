@@ -186,6 +186,18 @@ pub fn jsonrpc_bind_to_unix_path(bind: &str) -> Option<PathBuf> {
     None
 }
 
+/// Resolve our own UDS path (for the `socket` field in `primal.announce`).
+///
+/// Same logic as `ipc::default_unix_socket_path()` but accessible without the
+/// `ipc` module (which is cfg-gated behind `test`/`e2e` in the library).
+fn resolve_own_socket_path() -> PathBuf {
+    let base = std::env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .map_or_else(std::env::temp_dir, PathBuf::from);
+    base.join(config::ecosystem_namespace())
+        .join(config::primal_socket_name())
+}
+
 /// Connect-probe a Unix socket to determine if a listener is alive.
 ///
 /// Per `CAPABILITY_BASED_DISCOVERY_STANDARD` v1.3.0 §5: use a connect attempt
@@ -240,7 +252,7 @@ async fn send_capability_register(
 
 #[cfg(unix)]
 async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
-    let socket_path = crate::ipc::default_unix_socket_path();
+    let socket_path = resolve_own_socket_path();
     let params = json!({
         "primal": config::PRIMAL_NAME,
         "version": config::PRIMAL_VERSION,
@@ -406,7 +418,7 @@ mod tests {
 
     #[test]
     fn primal_announce_payload_has_required_fields() {
-        let socket_path = crate::ipc::default_unix_socket_path();
+        let socket_path = resolve_own_socket_path();
         let params = serde_json::json!({
             "primal": config::PRIMAL_NAME,
             "version": config::PRIMAL_VERSION,

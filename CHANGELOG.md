@@ -10,6 +10,15 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 47: Deployment Behavioral Convergence (2026-05-24)
+
+#### Added
+- **`--socket PATH` CLI flag**: Server subcommand now accepts `--socket` to override the default UDS path. Enables uniform NUCLEUS composition launcher usage across all primals.
+- CLI test `parse_cli_server_socket_override` validates the new flag.
+
+#### Changed
+- **`health.liveness` response**: Normalized from `{"alive":true}` to `{"status":"alive"}` per `DEPLOYMENT_BEHAVIOR_STANDARD`. Health sweeps now work with `jq -r .status` uniformly.
+
 ### Wave 44: Neural API Wire Fix (2026-05-23)
 
 #### Fixed

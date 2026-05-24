@@ -66,7 +66,7 @@ async fn test_start_unix_jsonrpc_server_removes_stale_socket_file() {
     )
     .await;
     let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
-    assert_eq!(resp["result"]["alive"], true);
+    assert_eq!(resp["result"]["status"], "alive");
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);
@@ -129,7 +129,7 @@ async fn test_unix_jsonrpc_very_large_request_line() {
     let resp_line = unix_jsonrpc_send_request(&sock_path, &req.to_string()).await;
     let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
     assert_eq!(resp["id"], 77);
-    assert_eq!(resp["result"]["alive"], true);
+    assert_eq!(resp["result"]["status"], "alive");
 
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);

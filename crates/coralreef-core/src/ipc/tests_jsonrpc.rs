@@ -309,7 +309,7 @@ async fn test_jsonrpc_health_liveness() {
         .await
         .unwrap();
 
-    assert!(response.alive);
+    assert_eq!(response.status, "alive");
 }
 
 #[tokio::test]

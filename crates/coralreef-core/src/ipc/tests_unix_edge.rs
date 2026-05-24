@@ -618,7 +618,7 @@ async fn test_btsp_phase3_encrypted_frame_loop_reachable() {
     let resp_str = std::str::from_utf8(&resp_plaintext).unwrap();
     let resp_json: serde_json::Value = serde_json::from_str(resp_str).unwrap();
     assert_eq!(resp_json["id"], 2);
-    assert!(resp_json["result"]["alive"].as_bool().unwrap_or(false));
+    assert_eq!(resp_json["result"]["status"].as_str(), Some("alive"));
 
     drop(client_writer);
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), server_handle).await;

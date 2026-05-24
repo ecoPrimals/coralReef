@@ -441,10 +441,12 @@ pub struct HealthCheckResponse {
 }
 
 /// `health.liveness` response — lightweight alive check.
+///
+/// Returns `{"status":"alive"}` per `DEPLOYMENT_BEHAVIOR_STANDARD`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LivenessResponse {
-    /// `true` if the process is alive and responsive.
-    pub alive: bool,
+    /// Liveness status string. Always `"alive"` when the process is responsive.
+    pub status: String,
 }
 
 /// `health.readiness` response — ready to accept work.

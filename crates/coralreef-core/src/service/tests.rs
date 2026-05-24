@@ -123,7 +123,7 @@ fn capability_list_wire_standard_l3() {
 #[test]
 fn test_handle_health_liveness() {
     let resp = handle_health_liveness();
-    assert!(resp.alive);
+    assert_eq!(resp.status, "alive");
 }
 
 #[test]
@@ -849,10 +849,12 @@ fn test_health_check_response_serde_roundtrip() {
 fn test_liveness_response_serde_roundtrip() {
     use types::LivenessResponse;
 
-    let resp = LivenessResponse { alive: true };
+    let resp = LivenessResponse {
+        status: "alive".into(),
+    };
     let json = serde_json::to_string(&resp).expect("serialize");
     let rt: LivenessResponse = serde_json::from_str(&json).expect("deserialize");
-    assert!(rt.alive);
+    assert_eq!(rt.status, "alive");
 }
 
 #[test]
