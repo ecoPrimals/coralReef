@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 12 / Wave 47 (Deployment behavioral convergence, Neural API `primal.announce`, compiler evolution; 3204 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 12 / Wave 49 (Ecosystem tightening confirmed zero action items; Neural API `primal.announce`, `--socket` CLI, `health.liveness` normalized; 3204 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

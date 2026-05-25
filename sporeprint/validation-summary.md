@@ -1,7 +1,7 @@
 +++
 title = "coralReef Validation Summary"
 description = "Sovereign Rust GPU shader compiler — 3204 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), tensor-core GEMM, RayQuery PTX, Neural API primal.announce, zero unsafe, zero C deps"
-date = 2026-05-24
+date = 2026-05-25
 
 [taxonomies]
 primals = ["coralreef"]

@@ -4,11 +4,11 @@
 
 **Current position**: Phase 10 — Sprint 12 (pure compiler primal, compiler evolution architecture).
 
-**Last completed**: Wave 47 — Deployment behavioral convergence (`--socket` CLI flag, `health.liveness` → `{"status":"alive"}`). Wave 44 — `primal.announce` wire fix (`"name"` → `"primal"`, `methods` array). Wave 43 — Neural API adoption. Sprint 12 — Compiler Evolution Phases A/B/C, RayQuery PTX emission, ptx_emit/ray_query.rs refactor.
+**Last completed**: Wave 49 — Ecosystem tightening confirmed zero action items (no showcase/, no local wateringHole/, no stale deployment patterns). Wave 47 — Deployment behavioral convergence (`--socket` CLI flag, `health.liveness` → `{"status":"alive"}`). Wave 44 — `primal.announce` wire fix. Wave 43 — Neural API adoption. Sprint 12 — Compiler Evolution Phases A/B/C, RayQuery PTX emission, ptx_emit/ray_query.rs refactor.
 
 **Tests**: 3204 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 24, 2026.
+**Last updated**: May 25, 2026.
 
 **Next focus**: Depth texture comparison. Array textures and cube maps. Coverage push toward 90%.
 

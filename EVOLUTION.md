@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: May 24, 2026 (Phase 10 — Sprint 12 / Wave 47)
-**Phase**: 10 — Sprint 12 / Wave 47: Deployment behavioral convergence (`--socket`, `health.liveness`), Neural API `primal.announce` (Wave 43/44), ptx_emit ray_query refactor. IR-to-IR idempotency proven (21 tests). `CompileTarget` generalization. tarpc feature-gated. Deep debt audit: zero debt confirmed. 3204 tests, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: May 25, 2026 (Phase 10 — Sprint 12 / Wave 49)
+**Phase**: 10 — Sprint 12 / Wave 49: Ecosystem tightening — zero action items confirmed (no showcase/, no local wateringHole/, no stale deploy patterns). Deployment behavioral convergence (`--socket`, `health.liveness`), Neural API `primal.announce` (Wave 43/44), ptx_emit ray_query refactor. IR-to-IR idempotency proven (21 tests). `CompileTarget` generalization. tarpc feature-gated. Deep debt audit: zero debt confirmed. 3204 tests, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 

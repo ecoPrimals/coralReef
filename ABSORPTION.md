@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: May 24, 2026 (Sprint 12 / Wave 47: 3204 tests. Neural API `primal.announce`, `--socket` CLI, `health.liveness` normalization. Zero debt)
+**Last updated**: May 25, 2026 (Sprint 12 / Wave 49: 3204 tests. Ecosystem tightening — zero action items. Zero debt)
 
 ---
 

@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: May 24, 2026  
-**Version**: 0.2.0 — Sprint 12 / Wave 47 (Deployment behavioral convergence: `--socket` CLI flag, `health.liveness` → `{"status":"alive"}`. Neural API `primal.announce` adopted. 3204 tests, zero unsafe, zero clippy warnings)
+**Last updated**: May 25, 2026  
+**Version**: 0.2.0 — Sprint 12 / Wave 49 (Ecosystem tightening: zero action items. No showcase/, no local wateringHole/, no stale deployment patterns. 3204 tests, zero unsafe, zero clippy warnings)
 
 ---
 
