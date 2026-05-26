@@ -313,7 +313,9 @@ impl<'a> PtxEmitter<'a> {
                         | naga::StorageFormat::Rgba32Float => TexelFormat::Rgba32,
                         _ => TexelFormat::Rgba32,
                     },
-                    _ => TexelFormat::Rgba32,
+                    naga::ImageClass::Sampled { .. }
+                    | naga::ImageClass::Depth { .. }
+                    | naga::ImageClass::External => continue,
                 };
                 surfaces.push(SurfaceBinding {
                     binding: binding_idx,

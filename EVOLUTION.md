@@ -3,7 +3,7 @@
 # coralReef — Compiler Evolution
 
 **Last updated**: May 26, 2026 (Phase 10 — Sprint 13 / Wave 53)
-**Phase**: 10 — Sprint 13 / Wave 53: Depth texture comparison PTX (`tex.level.compare`), array/cube texture sampling (`ImageDim` generalization: A1d/A2d/Cube/Acube), live toadStool discovery integration tests (node atomic pipeline). 3209 tests, zero failures, zero unsafe, zero clippy warnings.
+**Phase**: 10 — Sprint 13 / Wave 53: Vector math (normalize/length/cross/distance), texture load `tld.*`, `NumLayers`, RT core builtins, depth comparison, array/cube sampling, live discovery. 3220 tests, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3209 tests. Zero clippy warnings.
+Pure Rust. Zero unsafe. 3220 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX

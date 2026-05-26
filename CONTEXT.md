@@ -21,7 +21,7 @@ Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
 
 ## Project status (Sprint 12)
 
-- **Tests**: 3209 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
+- **Tests**: 3220 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
 - **Sprint 13 (current)**: Depth texture comparison PTX (`tex.level.compare`), array/cube texture sampling (ImageDim generalization), live toadStool discovery integration tests. Sprint 12: RayQuery PTX, compiler evolution, deep debt audit. Sprint 11: ImageSample/textureGather/ImageAtomic/WorkGroupUniformLoad. HMMA GEMM, subgroup ops, f64 fixes, IPC wire-compat aliases, texture format coverage. Legacy env vars deprecated.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).

@@ -187,10 +187,10 @@ impl PtxEmitter<'_> {
             naga::Expression::ImageLoad {
                 image,
                 coordinate,
-                array_index: _,
+                array_index,
                 sample: _,
-                level: _,
-            } => self.eval_image_load(image, coordinate),
+                level,
+            } => self.eval_image_load(image, coordinate, array_index, level),
             naga::Expression::ImageQuery { image, query } => self.eval_image_query(image, query),
             naga::Expression::RayQueryProceedResult => self.eval_ray_query_proceed_result(),
             naga::Expression::RayQueryGetIntersection { query, committed } => {
@@ -209,17 +209,33 @@ impl PtxEmitter<'_> {
         &mut self,
         image: naga::Handle<naga::Expression>,
         coordinate: naga::Handle<naga::Expression>,
+        array_index: Option<naga::Handle<naga::Expression>>,
+        level: Option<naga::Handle<naga::Expression>>,
     ) -> Result<PtxVal, CompileError> {
         let naga::Expression::GlobalVariable(gv_handle) = self.func.expressions[image] else {
             return Err(CompileError::NotImplemented(
                 "ImageLoad from non-global image".into(),
             ));
         };
-        let surf_idx = self.surface_index(gv_handle).ok_or_else(|| {
-            CompileError::InvalidInput(
-                "ImageLoad source is not a recognized surface binding".into(),
-            )
-        })?;
+
+        if let Some(surf_idx) = self.surface_index(gv_handle) {
+            return self.eval_surface_load(surf_idx, coordinate);
+        }
+
+        if let Some(tex_idx) = self.texture_index(gv_handle) {
+            return self.eval_texture_load(tex_idx, coordinate, array_index, level);
+        }
+
+        Err(CompileError::InvalidInput(
+            "ImageLoad source is not a recognized surface or texture binding".into(),
+        ))
+    }
+
+    fn eval_surface_load(
+        &mut self,
+        surf_idx: usize,
+        coordinate: naga::Handle<naga::Expression>,
+    ) -> Result<PtxVal, CompileError> {
         let dim_suffix = self.surfaces[surf_idx].dim.ptx_suffix();
         let type_suffix = self.surfaces[surf_idx].texel_format.ptx_type();
         let comp_count = self.surfaces[surf_idx].texel_format.component_count();
@@ -255,6 +271,45 @@ impl PtxEmitter<'_> {
         } else {
             Ok(PtxVal::Vec(dst_components))
         }
+    }
+
+    fn eval_texture_load(
+        &mut self,
+        tex_idx: usize,
+        coordinate: naga::Handle<naga::Expression>,
+        array_index: Option<naga::Handle<naga::Expression>>,
+        level: Option<naga::Handle<naga::Expression>>,
+    ) -> Result<PtxVal, CompileError> {
+        let dim = self.textures[tex_idx].dim;
+        let dim_suffix = dim.ptx_suffix();
+
+        let coord = self.eval_expr(coordinate)?;
+        let array_val = array_index.map(|ai| self.eval_expr(ai)).transpose()?;
+        let coord_str = self.format_tex_coord(&coord, array_val.as_ref(), dim);
+
+        let lod_str = if let Some(lod_handle) = level {
+            let lod_val = self.eval_expr(lod_handle)?;
+            lod_val.fmt_operand()
+        } else {
+            String::from("0")
+        };
+
+        let dst = [self.alloc_r32(), self.alloc_r32(), self.alloc_r32(), self.alloc_r32()];
+        let dst_str = format!(
+            "{{{}, {}, {}, {}}}",
+            dst[0].fmt_operand(),
+            dst[1].fmt_operand(),
+            dst[2].fmt_operand(),
+            dst[3].fmt_operand(),
+        );
+
+        writeln!(
+            self.body,
+            "    tld.b.{dim_suffix}.v4.s32.f32 {dst_str}, [_tex{tex_idx}, {coord_str}], {lod_str};",
+        )
+        .expect("write to String");
+
+        Ok(PtxVal::Vec(dst.to_vec()))
     }
 
     fn eval_image_sample(
@@ -538,9 +593,16 @@ impl PtxEmitter<'_> {
             naga::ImageQuery::NumLevels => Err(CompileError::NotImplemented(
                 "ImageQuery::NumLevels on surface (use texref for mipmap queries)".into(),
             )),
-            naga::ImageQuery::NumLayers => Err(CompileError::NotImplemented(
-                "ImageQuery::NumLayers on surface".into(),
-            )),
+            naga::ImageQuery::NumLayers => {
+                let dst = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    suq.array_size.b32 {}, [_surf{surf_idx}];",
+                    dst.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
             naga::ImageQuery::NumSamples => Err(CompileError::NotImplemented(
                 "ImageQuery::NumSamples on surface".into(),
             )),
@@ -577,8 +639,6 @@ impl PtxEmitter<'_> {
             .get(&query)
             .map_or(PtxVal::Rd64(0), |s| s.query_handle.clone());
 
-        let committed_str = if committed { "committed" } else { "candidate" };
-
         let kind = self.alloc_r32();
         let t = self.alloc_r32();
         let instance_custom_data = self.alloc_r32();
@@ -590,66 +650,83 @@ impl PtxEmitter<'_> {
         let bary_y = self.alloc_r32();
         let front_face = self.alloc_r32();
 
-        // Emit load sequence for intersection struct fields.
-        // In hardware, these read from RT core query state registers.
-        // Stub: zero-initialize all fields for wiring validation.
+        // RT core intersection query: emit calls to driver-resolved builtins.
+        // These symbols (_rt_*) are provided by the NVIDIA driver at JIT time
+        // when the shader runs on hardware with RT cores (SM75+).
+        let committed_flag = u32::from(committed);
         writeln!(
             self.body,
-            "    // rt.get_intersection.{} {} -> kind={}, t={}, ...",
-            committed_str,
-            qh.fmt_operand(),
-            kind.fmt_operand(),
-            t.fmt_operand(),
-        )
-        .expect("write to String");
-
-        writeln!(self.body, "    mov.u32 {}, 0;", kind.fmt_operand()).expect("write to String");
-        writeln!(self.body, "    mov.f32 {}, 0f00000000;", t.fmt_operand())
-            .expect("write to String");
-        writeln!(
-            self.body,
-            "    mov.u32 {}, 0;",
-            instance_custom_data.fmt_operand()
+            "    call ({kind}), _rt_query_get_intersection_kind, ({qh}, {cf});",
+            kind = kind.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
         )
         .expect("write to String");
         writeln!(
             self.body,
-            "    mov.u32 {}, 0;",
-            instance_index.fmt_operand()
+            "    call ({t}), _rt_query_get_intersection_t, ({qh}, {cf});",
+            t = t.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
         )
         .expect("write to String");
         writeln!(
             self.body,
-            "    mov.u32 {}, 0;",
-            sbt_record_offset.fmt_operand()
+            "    call ({v}), _rt_query_get_intersection_instance_custom_index, ({qh}, {cf});",
+            v = instance_custom_data.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
         )
         .expect("write to String");
         writeln!(
             self.body,
-            "    mov.u32 {}, 0;",
-            geometry_index.fmt_operand()
+            "    call ({v}), _rt_query_get_intersection_instance_id, ({qh}, {cf});",
+            v = instance_index.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
         )
         .expect("write to String");
         writeln!(
             self.body,
-            "    mov.u32 {}, 0;",
-            primitive_index.fmt_operand()
+            "    call ({v}), _rt_query_get_intersection_sbt_offset, ({qh}, {cf});",
+            v = sbt_record_offset.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
         )
         .expect("write to String");
         writeln!(
             self.body,
-            "    mov.f32 {}, 0f00000000;",
-            bary_x.fmt_operand()
+            "    call ({v}), _rt_query_get_intersection_geometry_index, ({qh}, {cf});",
+            v = geometry_index.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
         )
         .expect("write to String");
         writeln!(
             self.body,
-            "    mov.f32 {}, 0f00000000;",
-            bary_y.fmt_operand()
+            "    call ({v}), _rt_query_get_intersection_primitive_index, ({qh}, {cf});",
+            v = primitive_index.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
         )
         .expect("write to String");
-        writeln!(self.body, "    mov.u32 {}, 0;", front_face.fmt_operand())
-            .expect("write to String");
+        writeln!(
+            self.body,
+            "    call ({bx}, {by}), _rt_query_get_intersection_barycentrics, ({qh}, {cf});",
+            bx = bary_x.fmt_operand(),
+            by = bary_y.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
+        )
+        .expect("write to String");
+        writeln!(
+            self.body,
+            "    call ({v}), _rt_query_get_intersection_front_face, ({qh}, {cf});",
+            v = front_face.fmt_operand(),
+            qh = qh.fmt_operand(),
+            cf = committed_flag,
+        )
+        .expect("write to String");
 
         Ok(PtxVal::Vec(vec![
             kind,

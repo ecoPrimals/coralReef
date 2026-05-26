@@ -1211,8 +1211,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let compiled = result.unwrap();
         let ptx = String::from_utf8_lossy(&compiled.binary);
         assert!(
-            ptx.contains("rt.get_intersection.committed"),
-            "should emit get_intersection comment: {ptx:.800}"
+            ptx.contains("_rt_query_get_intersection_t"),
+            "should emit RT core intersection query calls: {ptx:.800}"
         );
     }
 
@@ -1364,6 +1364,250 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         assert!(
             ptx.contains("tex.level.cube"),
             "should emit tex.level.cube for texture_cube: {ptx:.800}"
+        );
+    }
+
+    #[test]
+    fn ptx_math_normalize() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let v = vec3<f32>(f32(gid.x), 1.0, 2.0);
+    let n = normalize(v);
+    out[gid.x] = n.x;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "normalize: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("rsqrt.approx.f32"),
+            "normalize should use rsqrt: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_math_length() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let v = vec3<f32>(f32(gid.x), 1.0, 2.0);
+    out[gid.x] = length(v);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "length: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("sqrt.rn.f32"),
+            "length should use sqrt: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_math_cross() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let a = vec3<f32>(1.0, 0.0, 0.0);
+    let b = vec3<f32>(0.0, 1.0, 0.0);
+    let c = cross(a, b);
+    out[gid.x] = c.z;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "cross: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("fma.rn.f32"),
+            "cross should use fma for component products: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_math_distance() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let a = vec3<f32>(f32(gid.x), 0.0, 0.0);
+    let b = vec3<f32>(0.0, 1.0, 0.0);
+    out[gid.x] = distance(a, b);
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "distance: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("sqrt.rn.f32"),
+            "distance should use sqrt: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_texture_load() {
+        let wgsl = r#"
+@group(0) @binding(0) var my_tex: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let texel = textureLoad(my_tex, vec2<u32>(gid.x, 0u), 0);
+    out[gid.x] = texel.x;
+}
+"#;
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "texture load: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("tld.b.2d"),
+            "should emit tld.b.2d for textureLoad: {ptx:.800}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_query_num_layers() {
+        let wgsl = r#"
+@group(0) @binding(0) var my_img: texture_storage_2d_array<rgba8unorm, read_write>;
+@group(0) @binding(1) var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let layers = textureNumLayers(my_img);
+    out[gid.x] = layers;
+}
+"#;
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "NumLayers: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("suq.array_size.b32"),
+            "should emit suq.array_size.b32: {ptx:.800}"
+        );
+    }
+
+    #[test]
+    fn ptx_control_flow_branching() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var result: f32 = 0.0;
+    if gid.x < 32u {
+        result = f32(gid.x) * 2.0;
+    } else {
+        result = f32(gid.x) * 0.5;
+    }
+    out[gid.x] = result;
+}
+";
+        let result = emit_compute_ptx(wgsl, 80);
+        assert!(result.is_ok(), "branching: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("@") || ptx.contains("bra"),
+            "branching should produce conditional or branch: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_loop_accumulation() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var acc: f32 = 0.0;
+    for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+        acc = acc + f32(i);
+    }
+    out[gid.x] = acc;
+}
+";
+        let result = emit_compute_ptx(wgsl, 80);
+        assert!(result.is_ok(), "loop: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("add.f32") || ptx.contains("add.rn.f32"),
+            "loop should produce f32 adds: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_multi_arch_sm70() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = f32(gid.x) * 3.14;
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "SM70: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(ptx.contains(".target sm_70"), "should target sm_70: {ptx:.200}");
+    }
+
+    #[test]
+    fn ptx_multi_arch_sm75() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = gid.x * gid.x;
+}
+";
+        let result = emit_compute_ptx(wgsl, 75);
+        assert!(result.is_ok(), "SM75: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(ptx.contains(".target sm_75"), "should target sm_75: {ptx:.200}");
+    }
+
+    #[test]
+    fn ptx_shared_memory_usage() {
+        let wgsl = r"
+var<workgroup> shared_data: array<f32, 64>;
+
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(global_invocation_id) gid: vec3<u32>) {
+    shared_data[lid.x] = f32(lid.x);
+    workgroupBarrier();
+    out[gid.x] = shared_data[63u - lid.x];
+}
+";
+        let result = emit_compute_ptx(wgsl, 80);
+        assert!(result.is_ok(), "shared memory: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains(".shared"),
+            "should declare shared memory: {ptx:.600}"
+        );
+        assert!(
+            ptx.contains("bar.sync"),
+            "should emit barrier: {ptx:.600}"
         );
     }
 }

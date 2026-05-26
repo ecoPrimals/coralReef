@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Sprint 13 (pure compiler primal, texture pipeline expansion).
 
-**Last completed**: Wave 53 — Depth texture comparison PTX (tex.level.compare), array texture sampling (tex.level.a2d), cube map sampling (tex.level.cube), live toadStool discovery integration tests. Wave 49 — Ecosystem tightening (zero action items). Wave 47 — Deployment behavioral convergence. Sprint 12 — Compiler Evolution, RayQuery PTX, ptx_emit/ray_query.rs refactor.
+**Last completed**: Wave 53 continued — Vector math functions (normalize, length, cross, distance), texture load `tld.*`, `ImageQuery::NumLayers`, RT core intersection builtins (replaced zero-init stub), surface collection fix (sampled textures no longer incorrectly collected as surfaces). Wave 53 — Depth texture comparison PTX, array/cube texture sampling, live toadStool discovery integration tests.
 
-**Tests**: 3209 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3220 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 26, 2026.
 
-**Next focus**: Coverage push toward 90%. Sampled texture load (tld.*). ImageQuery NumLayers. Storage array surfaces.
+**Next focus**: Coverage push toward 90%. ImageQuery::NumLevels for texrefs. Storage array surface load/store. GPU target capability introspection at compile time.
 
 ---
 
@@ -23,9 +23,12 @@
 3. ~~**Depth texture comparison**~~ — **DONE** (Sprint 13). `tex.level.compare.{dim}.f32.f32` with correct reference value in coord tuple.
 4. ~~**Array/cube texture sampling**~~ — **DONE** (Sprint 13). `ImageDim` extended (A1d/A2d/Cube/Acube), `array_index` wired through, `format_tex_coord` handles layers.
 5. ~~**Live toadStool discovery integration tests**~~ — **DONE** (Sprint 13). Full node-atomic pipeline: discovery → target resolution → compile.
-6. Coverage push toward 90% on remaining compiler crates
-7. `naga::Module` ingest path hardening (multiple entry points, validation)
-8. Sampled texture load (`tld.*` instructions for non-storage textures)
+6. ~~**Sampled texture load**~~ — **DONE** (Sprint 13). `tld.b.{dim}` for `textureLoad` on sampled textures. Surface collection fixed to exclude non-storage images.
+7. ~~**Vector math functions**~~ — **DONE** (Sprint 13). `normalize`, `length`, `cross`, `distance` via `rsqrt.approx`/`sqrt.rn`/`fma.rn`.
+8. ~~**ImageQuery NumLayers**~~ — **DONE** (Sprint 13). `suq.array_size.b32` for storage array surfaces.
+9. ~~**RT core intersection**~~ — **DONE** (Sprint 13). Evolved from zero-init stub to `_rt_query_get_intersection_*` driver builtins.
+10. Coverage push toward 90% on remaining compiler crates
+11. `naga::Module` ingest path hardening (multiple entry points, validation)
 
 ### Medium-Term Horizons (Sprint 14+)
 
