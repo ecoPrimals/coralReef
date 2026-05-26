@@ -186,7 +186,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 12: RayQuery, full-GPU horizons, PTX SM120, RDNA2 parity, diesel excision complete. 3220 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 13: vector math, tld.*, NumLayers, RT core builtins, depth/array/cube textures, live discovery. 3220 tests, zero debt |
 
 ---
 

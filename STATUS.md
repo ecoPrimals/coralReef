@@ -41,7 +41,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 12** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 13** |
 
 ### Post-101: Sprint 6 — Ecosystem Wave Sync: Phase D Markers, FECS Stability (May 12, 2026)
 

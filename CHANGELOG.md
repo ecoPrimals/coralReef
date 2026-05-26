@@ -4,11 +4,28 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 12 (RayQuery Phase B)
+**Current status**: Phase 10 — Sprint 13 / Wave 53
 
 ---
 
 ## [Unreleased]
+
+### Wave 53: Primal Mountain — Implementation Depth (2026-05-26)
+
+#### Added
+- **Vector math functions**: `normalize` (rsqrt + component mul), `length` (dot + sqrt), `cross` (fma-based 3-component), `distance` (sub + dot + sqrt)
+- **Texture load `tld.*`**: `textureLoad` on sampled textures now emits `tld.b.{dim}.v4.s32.f32` (previously only storage surfaces were supported)
+- **`ImageQuery::NumLayers`**: Emits `suq.array_size.b32` for storage array surfaces
+- **Depth texture comparison PTX**: `tex.level.compare.{dim}.f32.f32` with reference value in coordinate tuple
+- **Array/cube texture sampling**: Extended `ImageDim` with `Cube`, `A1d`, `A2d`, `Acube` variants. Layer indices wired through `format_tex_coord`.
+- **Live toadStool discovery integration tests**: Full node-atomic pipeline (discovery → target resolution → compile)
+- 11 new tests: vector math, tld, NumLayers, branching, loops, multi-arch, shared memory
+
+#### Changed
+- **RT core intersection**: Evolved from zero-init stub to `_rt_query_get_intersection_*` driver-resolved call builtins (kind, t, instance_custom_index, instance_id, sbt_offset, geometry_index, primitive_index, barycentrics, front_face)
+
+#### Fixed
+- **Surface collection bug**: Sampled and depth textures were incorrectly collected as surfaces (defaulting to `Rgba32` format). Now only `Storage` class images become surfaces; sampled/depth images are handled exclusively by the texture path.
 
 ### Wave 47: Deployment Behavioral Convergence (2026-05-24)
 
