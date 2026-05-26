@@ -1280,4 +1280,90 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             "error should mention SM75 requirement: {msg}"
         );
     }
+
+    #[test]
+    fn ptx_depth_compare_sample_2d() {
+        let wgsl = r"
+@group(0) @binding(0)
+var depth_tex: texture_depth_2d;
+@group(0) @binding(1)
+var shadow_sampler: sampler_comparison;
+@group(0) @binding(2)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let uv = vec2<f32>(f32(gid.x) / 64.0, 0.5);
+    let shadow = textureSampleCompareLevel(depth_tex, shadow_sampler, uv, 0.75);
+    out[gid.x] = shadow;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "depth compare 2d: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("tex.level.compare.2d.f32.f32"),
+            "should emit tex.level.compare.2d: {ptx:.800}"
+        );
+        assert!(
+            ptx.contains(".texref"),
+            "should declare .texref for depth texture: {ptx:.200}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_sample_2d_array() {
+        let wgsl = r"
+@group(0) @binding(0)
+var arr_tex: texture_2d_array<f32>;
+@group(0) @binding(1)
+var arr_sampler: sampler;
+@group(0) @binding(2)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let uv = vec2<f32>(f32(gid.x) / 64.0, 0.5);
+    let layer = i32(gid.x % 4u);
+    let color = textureSampleLevel(arr_tex, arr_sampler, uv, layer, 0.0);
+    out[gid.x] = color.r;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "array 2d sample: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("tex.level.a2d"),
+            "should emit tex.level.a2d for texture_2d_array: {ptx:.800}"
+        );
+    }
+
+    #[test]
+    fn ptx_image_sample_cube() {
+        let wgsl = r"
+@group(0) @binding(0)
+var cube_tex: texture_cube<f32>;
+@group(0) @binding(1)
+var cube_sampler: sampler;
+@group(0) @binding(2)
+var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let dir = vec3<f32>(f32(gid.x) / 64.0, 1.0, 0.5);
+    let color = textureSampleLevel(cube_tex, cube_sampler, dir, 0.0);
+    out[gid.x] = color.r;
+}
+";
+        let result = emit_compute_ptx(wgsl, 120);
+        assert!(result.is_ok(), "cube sample: {result:?}");
+        let compiled = result.unwrap();
+        let ptx = String::from_utf8_lossy(&compiled.binary);
+        assert!(
+            ptx.contains("tex.level.cube"),
+            "should emit tex.level.cube for texture_cube: {ptx:.800}"
+        );
+    }
 }

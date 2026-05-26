@@ -256,12 +256,21 @@ impl<'a> PtxEmitter<'a> {
                 continue;
             }
             let ty_inner = &self.module.types[gv.ty].inner;
-            if let naga::TypeInner::Image { dim, class, .. } = *ty_inner {
+            if let naga::TypeInner::Image {
+                dim,
+                class,
+                arrayed,
+            } = *ty_inner
+            {
                 let binding_idx = gv.binding.as_ref().map_or(0, |b| b.binding);
-                let image_dim = match dim {
-                    naga::ImageDimension::D1 => ImageDim::D1,
-                    naga::ImageDimension::D2 | naga::ImageDimension::Cube => ImageDim::D2,
-                    naga::ImageDimension::D3 => ImageDim::D3,
+                let image_dim = match (dim, arrayed) {
+                    (naga::ImageDimension::D1, false) => ImageDim::D1,
+                    (naga::ImageDimension::D1, true) => ImageDim::A1d,
+                    (naga::ImageDimension::D2, false) => ImageDim::D2,
+                    (naga::ImageDimension::D2, true) => ImageDim::A2d,
+                    (naga::ImageDimension::D3, _) => ImageDim::D3,
+                    (naga::ImageDimension::Cube, false) => ImageDim::Cube,
+                    (naga::ImageDimension::Cube, true) => ImageDim::Acube,
                 };
                 let texel_format = match class {
                     naga::ImageClass::Storage { format, .. } => match format {
@@ -325,7 +334,12 @@ impl<'a> PtxEmitter<'a> {
                 continue;
             }
             let ty_inner = &self.module.types[gv.ty].inner;
-            if let naga::TypeInner::Image { dim, class, .. } = *ty_inner {
+            if let naga::TypeInner::Image {
+                dim,
+                class,
+                arrayed,
+            } = *ty_inner
+            {
                 let (channel_type, is_depth) = match class {
                     naga::ImageClass::Sampled { kind, .. } => {
                         let ct = match kind {
@@ -340,10 +354,14 @@ impl<'a> PtxEmitter<'a> {
                     naga::ImageClass::Storage { .. } | naga::ImageClass::External => continue,
                 };
                 let binding_idx = gv.binding.as_ref().map_or(0, |b| b.binding);
-                let image_dim = match dim {
-                    naga::ImageDimension::D1 => ImageDim::D1,
-                    naga::ImageDimension::D2 | naga::ImageDimension::Cube => ImageDim::D2,
-                    naga::ImageDimension::D3 => ImageDim::D3,
+                let image_dim = match (dim, arrayed) {
+                    (naga::ImageDimension::D1, false) => ImageDim::D1,
+                    (naga::ImageDimension::D1, true) => ImageDim::A1d,
+                    (naga::ImageDimension::D2, false) => ImageDim::D2,
+                    (naga::ImageDimension::D2, true) => ImageDim::A2d,
+                    (naga::ImageDimension::D3, _) => ImageDim::D3,
+                    (naga::ImageDimension::Cube, false) => ImageDim::Cube,
+                    (naga::ImageDimension::Cube, true) => ImageDim::Acube,
                 };
                 textures.push(TextureBinding {
                     binding: binding_idx,
@@ -351,6 +369,7 @@ impl<'a> PtxEmitter<'a> {
                     dim: image_dim,
                     channel_type,
                     is_depth,
+                    arrayed,
                 });
             }
         }

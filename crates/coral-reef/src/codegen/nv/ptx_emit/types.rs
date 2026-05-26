@@ -75,6 +75,7 @@ pub struct TextureBinding {
     pub(crate) dim: ImageDim,
     pub(crate) channel_type: TexChannelType,
     pub(crate) is_depth: bool,
+    pub(crate) arrayed: bool,
 }
 
 /// Texture channel data type (determines the PTX `tex.*` return type).
@@ -95,12 +96,16 @@ impl TexChannelType {
     }
 }
 
-/// Image dimensionality for surface instructions.
-#[derive(Debug, Clone, Copy)]
+/// Image dimensionality for texture/surface instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageDim {
     D1,
     D2,
     D3,
+    Cube,
+    A1d,
+    A2d,
+    Acube,
 }
 
 impl ImageDim {
@@ -109,7 +114,26 @@ impl ImageDim {
             Self::D1 => "1d",
             Self::D2 => "2d",
             Self::D3 => "3d",
+            Self::Cube => "cube",
+            Self::A1d => "a1d",
+            Self::A2d => "a2d",
+            Self::Acube => "acube",
         }
+    }
+
+    /// Number of coordinate components needed for this dimension (excluding
+    /// the array layer which PTX prepends as an integer).
+    pub(crate) fn coord_components(self) -> usize {
+        match self {
+            Self::D1 | Self::A1d => 1,
+            Self::D2 | Self::A2d => 2,
+            Self::D3 | Self::Cube | Self::Acube => 3,
+        }
+    }
+
+    /// Whether this is an arrayed dimension.
+    pub(crate) fn is_arrayed(self) -> bool {
+        matches!(self, Self::A1d | Self::A2d | Self::Acube)
     }
 }
 

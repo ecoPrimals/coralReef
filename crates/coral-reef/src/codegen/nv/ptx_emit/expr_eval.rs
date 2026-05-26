@@ -178,12 +178,12 @@ impl PtxEmitter<'_> {
                 sampler: _,
                 gather,
                 coordinate,
-                array_index: _,
+                array_index,
                 offset: _,
                 level,
                 depth_ref,
                 ..
-            } => self.eval_image_sample(image, coordinate, level, depth_ref, gather),
+            } => self.eval_image_sample(image, coordinate, array_index, level, depth_ref, gather),
             naga::Expression::ImageLoad {
                 image,
                 coordinate,
@@ -261,6 +261,7 @@ impl PtxEmitter<'_> {
         &mut self,
         image: naga::Handle<naga::Expression>,
         coordinate: naga::Handle<naga::Expression>,
+        array_index: Option<naga::Handle<naga::Expression>>,
         level: naga::SampleLevel,
         depth_ref: Option<naga::Handle<naga::Expression>>,
         gather: Option<naga::SwizzleComponent>,
@@ -282,28 +283,17 @@ impl PtxEmitter<'_> {
         let ret_type = channel_type.ptx_suffix();
 
         let coord = self.eval_expr(coordinate)?;
-        let coord_str = self.format_tex_coord(&coord, dim);
+        let array_val = array_index.map(|ai| self.eval_expr(ai)).transpose()?;
+        let coord_str = self.format_tex_coord(&coord, array_val.as_ref(), dim);
 
         if let Some(component) = gather {
             return self.eval_texture_gather(tex_idx, &coord_str, component, channel_type);
         }
 
         if let (true, Some(ref_expr)) = (is_depth, depth_ref) {
-            let _ref_val = self.eval_expr(ref_expr)?;
-            let dst = self.alloc_r32();
-            let discard1 = self.alloc_r32();
-            let discard2 = self.alloc_r32();
-            let discard3 = self.alloc_r32();
-            writeln!(
-                self.body,
-                "    tex.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_op}, {d1}, {d2}, {d3}}}, [_tex{tex_idx}, {coord_str}];",
-                dst_op = dst.fmt_operand(),
-                d1 = discard1.fmt_operand(),
-                d2 = discard2.fmt_operand(),
-                d3 = discard3.fmt_operand(),
-            )
-            .expect("write to String");
-            return Ok(dst);
+            return self.eval_depth_compare_sample(
+                tex_idx, &coord, array_val.as_ref(), dim, &level, ref_expr,
+            );
         }
 
         let dst_components: Vec<PtxVal> = (0..4).map(|_| self.alloc_r32()).collect();
@@ -342,8 +332,8 @@ impl PtxEmitter<'_> {
             naga::SampleLevel::Gradient { x, y } => {
                 let grad_x = self.eval_expr(x)?;
                 let grad_y = self.eval_expr(y)?;
-                let grad_x_str = self.format_tex_coord(&grad_x, dim);
-                let grad_y_str = self.format_tex_coord(&grad_y, dim);
+                let grad_x_str = self.format_tex_coord(&grad_x, None, dim);
+                let grad_y_str = self.format_tex_coord(&grad_y, None, dim);
                 writeln!(
                     self.body,
                     "    tex.grad.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}], {grad_x_str}, {grad_y_str};",
@@ -355,23 +345,105 @@ impl PtxEmitter<'_> {
         Ok(PtxVal::Vec(dst_components))
     }
 
-    fn format_tex_coord(&self, coord: &PtxVal, dim: ImageDim) -> String {
+    /// Emit a `tex.level.compare.{dim}.f32.f32` instruction for depth
+    /// texture comparison (shadow sampling). Returns a scalar f32 result
+    /// (0.0 or 1.0) from the hardware comparison unit.
+    fn eval_depth_compare_sample(
+        &mut self,
+        tex_idx: usize,
+        coord: &PtxVal,
+        array_val: Option<&PtxVal>,
+        dim: ImageDim,
+        level: &naga::SampleLevel,
+        ref_expr: naga::Handle<naga::Expression>,
+    ) -> Result<PtxVal, CompileError> {
+        let ref_val = self.eval_expr(ref_expr)?;
+        let dst = self.alloc_r32();
+        let dim_suffix = dim.ptx_suffix();
+
+        let compare_coord = self.format_depth_compare_coord(coord, array_val, &ref_val, dim);
+
+        match level {
+            naga::SampleLevel::Auto | naga::SampleLevel::Zero => {
+                writeln!(
+                    self.body,
+                    "    tex.level.compare.{dim_suffix}.f32.f32 {dst_op}, [_tex{tex_idx}, {compare_coord}], 0.0;",
+                    dst_op = dst.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::SampleLevel::Exact(lod_expr) => {
+                let lod = self.eval_expr(*lod_expr)?;
+                writeln!(
+                    self.body,
+                    "    tex.level.compare.{dim_suffix}.f32.f32 {dst_op}, [_tex{tex_idx}, {compare_coord}], {lod_op};",
+                    dst_op = dst.fmt_operand(),
+                    lod_op = lod.fmt_operand(),
+                )
+                .expect("write to String");
+            }
+            naga::SampleLevel::Bias(_) | naga::SampleLevel::Gradient { .. } => {
+                return Err(CompileError::NotImplemented(
+                    "depth comparison with bias/gradient not supported in PTX".into(),
+                ));
+            }
+        }
+
+        Ok(dst)
+    }
+
+    /// Format coordinate tuple for depth comparison: appends the reference
+    /// value as the last coordinate component per PTX ISA convention.
+    /// For 2D: `{s, t, ref}`, for cube: `{x, y, z, ref}`.
+    fn format_depth_compare_coord(
+        &self,
+        coord: &PtxVal,
+        array_val: Option<&PtxVal>,
+        ref_val: &PtxVal,
+        dim: ImageDim,
+    ) -> String {
+        let mut parts: Vec<String> = Vec::new();
+
+        if let Some(layer) = array_val {
+            parts.push(layer.fmt_operand());
+        }
+
         match coord {
             PtxVal::Vec(components) => {
-                let needed = match dim {
-                    ImageDim::D1 => 1,
-                    ImageDim::D2 => 2,
-                    ImageDim::D3 => 3,
-                };
-                let parts: Vec<String> = components
-                    .iter()
-                    .take(needed)
-                    .map(PtxVal::fmt_operand)
-                    .collect();
-                format!("{{{}}}", parts.join(", "))
+                let needed = dim.coord_components();
+                for c in components.iter().take(needed) {
+                    parts.push(c.fmt_operand());
+                }
             }
-            scalar => format!("{{{}}}", scalar.fmt_operand()),
+            scalar => {
+                parts.push(scalar.fmt_operand());
+            }
         }
+
+        parts.push(ref_val.fmt_operand());
+        format!("{{{}}}", parts.join(", "))
+    }
+
+    fn format_tex_coord(&self, coord: &PtxVal, array_val: Option<&PtxVal>, dim: ImageDim) -> String {
+        let mut parts: Vec<String> = Vec::new();
+
+        if let Some(layer) = array_val {
+            parts.push(layer.fmt_operand());
+        }
+
+        match coord {
+            PtxVal::Vec(components) => {
+                let needed = dim.coord_components();
+                for c in components.iter().take(needed) {
+                    parts.push(c.fmt_operand());
+                }
+            }
+            scalar => {
+                parts.push(scalar.fmt_operand());
+            }
+        }
+
+        format!("{{{}}}", parts.join(", "))
     }
 
     fn eval_texture_gather(
@@ -433,8 +505,8 @@ impl PtxEmitter<'_> {
                 .expect("write to String");
 
                 match dim {
-                    ImageDim::D1 => Ok(width),
-                    ImageDim::D2 => {
+                    ImageDim::D1 | ImageDim::A1d => Ok(width),
+                    ImageDim::D2 | ImageDim::Cube | ImageDim::A2d | ImageDim::Acube => {
                         let height = self.alloc_r32();
                         writeln!(
                             self.body,

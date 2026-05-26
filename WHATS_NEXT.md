@@ -2,29 +2,30 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 12 (pure compiler primal, compiler evolution architecture).
+**Current position**: Phase 10 — Sprint 13 (pure compiler primal, texture pipeline expansion).
 
-**Last completed**: Wave 49 — Ecosystem tightening confirmed zero action items (no showcase/, no local wateringHole/, no stale deployment patterns). Wave 47 — Deployment behavioral convergence (`--socket` CLI flag, `health.liveness` → `{"status":"alive"}`). Wave 44 — `primal.announce` wire fix. Wave 43 — Neural API adoption. Sprint 12 — Compiler Evolution Phases A/B/C, RayQuery PTX emission, ptx_emit/ray_query.rs refactor.
+**Last completed**: Wave 53 — Depth texture comparison PTX (tex.level.compare), array texture sampling (tex.level.a2d), cube map sampling (tex.level.cube), live toadStool discovery integration tests. Wave 49 — Ecosystem tightening (zero action items). Wave 47 — Deployment behavioral convergence. Sprint 12 — Compiler Evolution, RayQuery PTX, ptx_emit/ray_query.rs refactor.
 
-**Tests**: 3204 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3209 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 25, 2026.
+**Last updated**: May 26, 2026.
 
-**Next focus**: Depth texture comparison. Array textures and cube maps. Coverage push toward 90%.
+**Next focus**: Coverage push toward 90%. Sampled texture load (tld.*). ImageQuery NumLayers. Storage array surfaces.
 
 ---
 
-## Current Priorities (Sprint 12+)
+## Current Priorities (Sprint 13+)
 
 ### Near-Term (Sprint 13+)
 
 1. ~~**RayQuery PTX emission**~~ — **DONE** (Sprint 12).
 2. ~~**Compiler evolution**~~ — **DONE** (Sprint 12). IR idempotency proven, `CompileTarget` generalization, tarpc feature-gated.
-3. Depth texture comparison (`textureSampleCompare`) PTX emission
-4. Array textures (`texture_2d_array`, `texture_cube`) and cube maps
-5. Coverage push toward 90% on remaining compiler crates
-6. `naga::Module` ingest path hardening (multiple entry points, validation)
-7. Ecosystem discovery integration testing with live toadStool instance
+3. ~~**Depth texture comparison**~~ — **DONE** (Sprint 13). `tex.level.compare.{dim}.f32.f32` with correct reference value in coord tuple.
+4. ~~**Array/cube texture sampling**~~ — **DONE** (Sprint 13). `ImageDim` extended (A1d/A2d/Cube/Acube), `array_index` wired through, `format_tex_coord` handles layers.
+5. ~~**Live toadStool discovery integration tests**~~ — **DONE** (Sprint 13). Full node-atomic pipeline: discovery → target resolution → compile.
+6. Coverage push toward 90% on remaining compiler crates
+7. `naga::Module` ingest path hardening (multiple entry points, validation)
+8. Sampled texture load (`tld.*` instructions for non-storage textures)
 
 ### Medium-Term Horizons (Sprint 14+)
 
