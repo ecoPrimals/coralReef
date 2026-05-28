@@ -267,7 +267,7 @@ mod inner {
     /// Falls back to `$TMPDIR/biomeos/<primal>-<family_id>.sock` if XDG is unset.
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
-        unix_socket_path_for_base(std::env::var("XDG_RUNTIME_DIR").ok().map(PathBuf::from))
+        unix_socket_path_for_base(std::env::var(crate::env_keys::XDG_RUNTIME_DIR).ok().map(PathBuf::from))
     }
 
     /// Start a Unix socket JSON-RPC server.

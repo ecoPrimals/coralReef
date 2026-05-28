@@ -23,6 +23,7 @@ use thiserror::Error;
 
 use crate::capability::SelfDescription;
 use crate::config;
+use crate::env_keys;
 
 /// Errors from ecosystem JSON-RPC calls (non-fatal; logged at debug level).
 #[derive(Debug, Error)]
@@ -86,7 +87,7 @@ pub fn spawn_registration(desc: SelfDescription) {
 async fn heartbeat_loop(path: PathBuf) {
     use tokio::time::{MissedTickBehavior, interval};
 
-    let heartbeat_secs = std::env::var("CORALREEF_HEARTBEAT_SECS")
+    let heartbeat_secs = std::env::var(env_keys::CORALREEF_HEARTBEAT_SECS)
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(45u64);
@@ -110,7 +111,7 @@ async fn heartbeat_loop(path: PathBuf) {
 /// 3. Scan `discovery_dir()` for `*.json` describing a provider that lists `capability.register`.
 #[must_use]
 pub fn discover_ecosystem_jsonrpc_bind() -> Option<String> {
-    if let Ok(raw) = std::env::var("BIOMEOS_ECOSYSTEM_REGISTRY") {
+    if let Ok(raw) = std::env::var(env_keys::BIOMEOS_ECOSYSTEM_REGISTRY) {
         let t = raw.trim();
         if !t.is_empty() {
             return Some(t.to_owned());
@@ -191,7 +192,7 @@ pub fn jsonrpc_bind_to_unix_path(bind: &str) -> Option<PathBuf> {
 /// Same logic as `ipc::default_unix_socket_path()` but accessible without the
 /// `ipc` module (which is cfg-gated behind `test`/`e2e` in the library).
 fn resolve_own_socket_path() -> PathBuf {
-    let base = std::env::var("XDG_RUNTIME_DIR")
+    let base = std::env::var(env_keys::XDG_RUNTIME_DIR)
         .ok()
         .map_or_else(std::env::temp_dir, PathBuf::from);
     base.join(config::ecosystem_namespace())

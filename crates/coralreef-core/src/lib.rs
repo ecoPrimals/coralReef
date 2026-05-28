@@ -33,6 +33,7 @@
 pub mod capability;
 pub mod commands;
 pub mod config;
+pub mod env_keys;
 pub mod discovery;
 pub mod ecosystem;
 pub mod health;

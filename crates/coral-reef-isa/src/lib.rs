@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn isa_target_clone_eq() {
         let a = IsaTarget::Sm70;
-        #[allow(clippy::clone_on_copy, reason = "testing Clone impl explicitly")]
+        #[expect(clippy::clone_on_copy, reason = "testing Clone impl explicitly")]
         let b = a.clone();
         assert_eq!(a, b);
     }

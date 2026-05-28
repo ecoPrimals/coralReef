@@ -18,6 +18,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use coral_reef::GpuArch;
 use coralreef_core::commands;
+use coralreef_core::env_keys;
 use coralreef_core::or_exit::OrExit;
 use tracing_subscriber::EnvFilter;
 
@@ -222,7 +223,7 @@ fn shutdown_join_timeout() -> std::time::Duration {
         }
     }
     #[cfg(any(test, debug_assertions))]
-    if let Ok(ms) = std::env::var("CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS") {
+    if let Ok(ms) = std::env::var(env_keys::CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS) {
         if let Ok(ms) = ms.parse::<u64>() {
             return std::time::Duration::from_millis(ms);
         }
@@ -253,8 +254,8 @@ fn log_composition_env() {
             config::family_seed().map(|_| "<set>".to_owned()),
         ),
         (
-            "BIOMEOS_SOCKET_DIR",
-            std::env::var("BIOMEOS_SOCKET_DIR").ok(),
+            env_keys::BIOMEOS_SOCKET_DIR,
+            std::env::var(env_keys::BIOMEOS_SOCKET_DIR).ok(),
         ),
     ];
     for (name, val) in vars {

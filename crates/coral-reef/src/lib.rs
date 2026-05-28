@@ -47,6 +47,7 @@
 //! ```
 
 pub mod backend;
+pub mod env_keys;
 pub mod error;
 pub mod frontend;
 pub mod gpu_arch;

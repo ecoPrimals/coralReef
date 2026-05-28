@@ -15,6 +15,7 @@ use super::btsp;
 use super::error::IpcServiceError;
 use super::method_gate;
 use super::{CoralReefError, IpcError};
+use crate::env_keys;
 use crate::service;
 
 #[derive(Deserialize)]
@@ -285,7 +286,7 @@ where
 const DEFAULT_COMPILE_TIMEOUT_SECS: u64 = 120;
 
 pub(super) fn compile_timeout() -> std::time::Duration {
-    let secs = std::env::var("CORALREEF_COMPILE_TIMEOUT_SECS")
+    let secs = std::env::var(env_keys::CORALREEF_COMPILE_TIMEOUT_SECS)
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(DEFAULT_COMPILE_TIMEOUT_SECS);

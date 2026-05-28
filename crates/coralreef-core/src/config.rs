@@ -7,6 +7,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::env_keys;
+
 /// Default timeout for graceful shutdown (SIGTERM/SIGINT).
 pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -24,7 +26,8 @@ pub fn ecosystem_namespace() -> &'static str {
     use std::sync::OnceLock;
     static NS: OnceLock<String> = OnceLock::new();
     NS.get_or_init(|| {
-        std::env::var("BIOMEOS_ECOSYSTEM_NAMESPACE").unwrap_or_else(|_| ECOSYSTEM_NAMESPACE.into())
+        std::env::var(env_keys::BIOMEOS_ECOSYSTEM_NAMESPACE)
+            .unwrap_or_else(|_| ECOSYSTEM_NAMESPACE.into())
     })
 }
 
@@ -64,7 +67,7 @@ pub struct ConfigError {
 /// Per wateringHole `CAPABILITY_BASED_DISCOVERY_STANDARD` v1.1, clients discover the
 /// shader capability via `{stem}.sock` in the same directory as the instance socket.
 /// Default stem when unset or invalid: `shader`.
-pub const CORALREEF_CAPABILITY_DOMAIN_ENV: &str = "CORALREEF_CAPABILITY_DOMAIN";
+pub const CORALREEF_CAPABILITY_DOMAIN_ENV: &str = env_keys::CORALREEF_CAPABILITY_DOMAIN;
 
 /// Family ID for multi-instance isolation.
 ///
@@ -73,8 +76,8 @@ pub const CORALREEF_CAPABILITY_DOMAIN_ENV: &str = "CORALREEF_CAPABILITY_DOMAIN";
 /// Defaults to `"default"` for single-instance development.
 #[must_use]
 pub fn family_id() -> String {
-    std::env::var("CORALREEF_FAMILY_ID")
-        .or_else(|_| std::env::var("BIOMEOS_FAMILY_ID"))
+    std::env::var(env_keys::CORALREEF_FAMILY_ID)
+        .or_else(|_| std::env::var(env_keys::BIOMEOS_FAMILY_ID))
         .unwrap_or_else(|_| "default".into())
 }
 
@@ -89,7 +92,7 @@ pub fn family_id() -> String {
 /// Returns [`ConfigError`] if the invariant is violated.
 pub fn validate_insecure_guard() -> Result<(), ConfigError> {
     let fid = family_id();
-    let insecure = std::env::var("BIOMEOS_INSECURE")
+    let insecure = std::env::var(env_keys::BIOMEOS_INSECURE)
         .ok()
         .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
     if insecure && fid != "default" {
@@ -145,14 +148,14 @@ pub fn primal_socket_name() -> String {
 /// Returns an error if `$XDG_RUNTIME_DIR` is not set and the temp
 /// directory is unusable (extremely unlikely).
 pub fn discovery_dir() -> std::io::Result<PathBuf> {
-    if let Ok(dir) = std::env::var("BIOMEOS_SOCKET_DIR") {
+    if let Ok(dir) = std::env::var(env_keys::BIOMEOS_SOCKET_DIR) {
         let trimmed = dir.trim();
         if !trimmed.is_empty() {
             return Ok(PathBuf::from(trimmed));
         }
     }
     let base =
-        std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
+        std::env::var(env_keys::XDG_RUNTIME_DIR).map_or_else(|_| std::env::temp_dir(), PathBuf::from);
     Ok(base.join(ecosystem_namespace()))
 }
 
@@ -163,7 +166,7 @@ pub fn discovery_dir() -> std::io::Result<PathBuf> {
 /// Returns `None` when unset or empty (standalone/dev mode).
 #[must_use]
 pub fn btsp_provider_socket() -> Option<PathBuf> {
-    non_empty_env_path("BTSP_PROVIDER_SOCKET")
+    non_empty_env_path(env_keys::BTSP_PROVIDER_SOCKET)
 }
 
 /// Deprecated legacy alias — reads `$BEARDOG_SOCKET`.
@@ -174,7 +177,7 @@ pub fn btsp_provider_socket() -> Option<PathBuf> {
 #[deprecated(since = "0.2.0", note = "use btsp_provider_socket() instead")]
 #[must_use]
 pub fn security_provider_socket_legacy() -> Option<PathBuf> {
-    non_empty_env_path("BEARDOG_SOCKET")
+    non_empty_env_path(env_keys::BEARDOG_SOCKET)
 }
 
 /// Resolve the Songbird discovery socket path.
@@ -184,7 +187,7 @@ pub fn security_provider_socket_legacy() -> Option<PathBuf> {
 /// Returns `None` when unset or empty.
 #[must_use]
 pub fn discovery_socket() -> Option<PathBuf> {
-    non_empty_env_path("DISCOVERY_SOCKET")
+    non_empty_env_path(env_keys::DISCOVERY_SOCKET)
 }
 
 /// Retrieve the family seed (Tier 1 crypto derivation input).
@@ -195,7 +198,7 @@ pub fn discovery_socket() -> Option<PathBuf> {
 /// Returns `None` when unset or empty.
 #[must_use]
 pub fn family_seed() -> Option<String> {
-    std::env::var("FAMILY_SEED")
+    std::env::var(env_keys::FAMILY_SEED)
         .ok()
         .filter(|s| !s.trim().is_empty())
 }

@@ -21,6 +21,8 @@
 
 use std::sync::OnceLock;
 
+use crate::env_keys;
+
 /// JSON-RPC error code: caller lacks scope for the method.
 pub const PERMISSION_DENIED: i32 = -32_001;
 
@@ -193,18 +195,20 @@ impl EnforcementMode {
 
 /// Resolve auth mode from environment with deprecation warning for legacy name.
 fn resolve_auth_env() -> (String, &'static str) {
-    if let Ok(v) = std::env::var("CORALREEF_AUTH_MODE") {
-        return (v, "CORALREEF_AUTH_MODE");
+    if let Ok(v) = std::env::var(env_keys::CORALREEF_AUTH_MODE) {
+        return (v, env_keys::CORALREEF_AUTH_MODE);
     }
-    if let Ok(v) = std::env::var("ECOSYSTEM_AUTH_MODE") {
-        return (v, "ECOSYSTEM_AUTH_MODE");
+    if let Ok(v) = std::env::var(env_keys::ECOSYSTEM_AUTH_MODE) {
+        return (v, env_keys::ECOSYSTEM_AUTH_MODE);
     }
-    if let Ok(v) = std::env::var("PRIMALSPRING_AUTH_MODE") {
+    if let Ok(v) = std::env::var(env_keys::PRIMALSPRING_AUTH_MODE) {
         tracing::warn!(
-            "using deprecated $PRIMALSPRING_AUTH_MODE — \
-             migrate to $ECOSYSTEM_AUTH_MODE or $CORALREEF_AUTH_MODE"
+            "using deprecated ${} — migrate to ${} or ${}",
+            env_keys::PRIMALSPRING_AUTH_MODE,
+            env_keys::ECOSYSTEM_AUTH_MODE,
+            env_keys::CORALREEF_AUTH_MODE,
         );
-        return (v, "PRIMALSPRING_AUTH_MODE");
+        return (v, env_keys::PRIMALSPRING_AUTH_MODE);
     }
     (String::new(), "default")
 }

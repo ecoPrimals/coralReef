@@ -23,6 +23,7 @@ use std::net::SocketAddr;
 
 #[cfg(feature = "tarpc-transport")]
 use crate::config;
+use crate::env_keys;
 
 pub mod error;
 pub mod method_gate;
@@ -134,7 +135,7 @@ pub const FALLBACK_TCP_BIND: &str = "127.0.0.1:0";
 /// then falls back to loopback with OS-assigned port.
 #[must_use]
 pub fn default_tcp_bind() -> String {
-    std::env::var("CORALREEF_TCP_BIND").unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
+    std::env::var(env_keys::CORALREEF_TCP_BIND).unwrap_or_else(|_| FALLBACK_TCP_BIND.to_owned())
 }
 
 /// Platform-aware default bind address for tarpc.

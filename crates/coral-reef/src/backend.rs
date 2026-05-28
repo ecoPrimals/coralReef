@@ -135,7 +135,7 @@ impl Backend for AmdBackend {
     }
 
     fn compile(&self, shader: &mut Shader<'_>) -> Result<CompiledBinary, CompileError> {
-        let debug = std::env::var("CORAL_DEBUG_IR").is_ok();
+        let debug = std::env::var(crate::env_keys::CORAL_DEBUG_IR).is_ok();
         let compiled = crate::codegen::pipeline::compile_shader(shader, debug)?;
 
         let mut binary = Vec::with_capacity(compiled.code.len() * 4);

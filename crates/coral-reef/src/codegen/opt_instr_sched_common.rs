@@ -427,7 +427,7 @@ pub fn save_graphviz(instrs: &[Box<Instr>], g: &DepGraph) -> std::io::Result<()>
     use std::fs::File;
     use std::io::{BufWriter, Write};
 
-    let path = std::env::var("CORAL_DEP_GRAPH_PATH").map_or_else(
+    let path = std::env::var(crate::env_keys::CORAL_DEP_GRAPH_PATH).map_or_else(
         |_| std::env::temp_dir().join("instr_dep_graph.dot"),
         std::path::PathBuf::from,
     );

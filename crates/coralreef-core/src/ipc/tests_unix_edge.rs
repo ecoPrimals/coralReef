@@ -600,7 +600,7 @@ async fn test_btsp_phase3_encrypted_frame_loop_reachable() {
 
     let encrypted = keys.encrypt(health_plaintext.as_bytes()).unwrap();
 
-    #[allow(clippy::cast_possible_truncation, reason = "test payload is tiny")]
+    #[expect(clippy::cast_possible_truncation, reason = "test payload is tiny")]
     let frame_len = (encrypted.len() as u32).to_be_bytes();
     client_writer.write_all(&frame_len).await.unwrap();
     client_writer.write_all(&encrypted).await.unwrap();
