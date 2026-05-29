@@ -6,7 +6,7 @@
 
 **Last completed**: Wave 53 continued — Vector math functions (normalize, length, cross, distance), texture load `tld.*`, `ImageQuery::NumLayers`, RT core intersection builtins (replaced zero-init stub), surface collection fix (sampled textures no longer incorrectly collected as surfaces). Wave 53 — Depth texture comparison PTX, array/cube texture sampling, live toadStool discovery integration tests.
 
-**Tests**: 3220 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3222 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: May 26, 2026.
 

@@ -141,12 +141,14 @@ pub fn primal_socket_name() -> String {
 /// Resolution order (first non-empty wins):
 /// 1. `$BIOMEOS_SOCKET_DIR` — explicit override from composition launcher
 /// 2. `$XDG_RUNTIME_DIR/{namespace}` — Linux/freedesktop standard
-/// 3. `{temp_dir}/{namespace}` — portability fallback
+/// 3. `/run/{namespace}` — VPS/system daemon fallback (ProtectSystem=strict safe)
+///
+/// Zero `/tmp` writes. This enables `ProtectSystem=strict` on VPS membranes.
 ///
 /// # Errors
 ///
-/// Returns an error if `$XDG_RUNTIME_DIR` is not set and the temp
-/// directory is unusable (extremely unlikely).
+/// Currently infallible (always resolves to a valid path), but retains
+/// `io::Result` for forward compatibility with directory existence checks.
 pub fn discovery_dir() -> std::io::Result<PathBuf> {
     if let Ok(dir) = std::env::var(env_keys::BIOMEOS_SOCKET_DIR) {
         let trimmed = dir.trim();
@@ -154,9 +156,21 @@ pub fn discovery_dir() -> std::io::Result<PathBuf> {
             return Ok(PathBuf::from(trimmed));
         }
     }
-    let base =
-        std::env::var(env_keys::XDG_RUNTIME_DIR).map_or_else(|_| std::env::temp_dir(), PathBuf::from);
-    Ok(base.join(ecosystem_namespace()))
+    if let Ok(xdg) = std::env::var(env_keys::XDG_RUNTIME_DIR) {
+        if !xdg.trim().is_empty() {
+            return Ok(PathBuf::from(xdg.trim()).join(ecosystem_namespace()));
+        }
+    }
+    Ok(PathBuf::from("/run").join(ecosystem_namespace()))
+}
+
+/// Resolve socket directory, suitable for use in all socket path construction.
+///
+/// Same 3-tier resolution as [`discovery_dir`] but returns a `PathBuf` directly
+/// (infallible — the `/run/{namespace}` fallback always produces a valid path).
+#[must_use]
+pub fn socket_dir() -> PathBuf {
+    discovery_dir().unwrap_or_else(|_| PathBuf::from("/run").join(ecosystem_namespace()))
 }
 
 /// Resolve the security-domain provider socket path.
@@ -231,11 +245,24 @@ mod tests {
 
     #[test]
     fn test_discovery_dir_returns_path() {
-        // Even without XDG_RUNTIME_DIR, discovery_dir should work (falls back to temp)
         let dir = discovery_dir();
         assert!(dir.is_ok());
         let path = dir.unwrap();
         assert!(path.ends_with(ECOSYSTEM_NAMESPACE));
+        assert!(
+            !path.starts_with("/tmp"),
+            "discovery_dir must not resolve to /tmp: {path:?}"
+        );
+    }
+
+    #[test]
+    fn test_socket_dir_never_tmp() {
+        let dir = socket_dir();
+        assert!(dir.ends_with(ECOSYSTEM_NAMESPACE));
+        assert!(
+            !dir.starts_with("/tmp"),
+            "socket_dir must not resolve to /tmp: {dir:?}"
+        );
     }
 
     #[test]

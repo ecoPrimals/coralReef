@@ -213,10 +213,9 @@ async fn guard_connection_inner() -> BtspOutcome {
     }
 }
 
-/// Resolve the shared ecosystem socket directory.
+/// Resolve the shared ecosystem socket directory (zero `/tmp` writes).
 fn resolve_socket_dir() -> PathBuf {
-    config::discovery_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join(config::ecosystem_namespace()))
+    config::socket_dir()
 }
 
 /// Discover the security-domain socket for BTSP handshake delegation.

@@ -249,25 +249,26 @@ mod inner {
         }
     }
 
-    /// Build the socket path from an explicit base directory.
+    /// Build the socket path from an explicit base directory (integration test utility).
     ///
-    /// When `runtime_dir` is `None`, falls back to `$TMPDIR`.
-    /// Per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0:
-    /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
+    /// When `runtime_dir` is `None`, uses the centralized 3-tier resolution
+    /// (`BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`).
     #[must_use]
+    #[allow(dead_code, reason = "pub API consumed by integration tests, not the binary")]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
-        let base = runtime_dir.unwrap_or_else(std::env::temp_dir);
-        base.join(crate::config::ecosystem_namespace())
-            .join(crate::config::primal_socket_name())
+        let base = runtime_dir.map_or_else(crate::config::socket_dir, |d| {
+            d.join(crate::config::ecosystem_namespace())
+        });
+        base.join(crate::config::primal_socket_name())
     }
 
     /// Default socket path per wateringHole standard.
     ///
-    /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
-    /// Falls back to `$TMPDIR/biomeos/<primal>-<family_id>.sock` if XDG is unset.
+    /// Uses centralized [`config::socket_dir()`]: `BIOMEOS_SOCKET_DIR` →
+    /// `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`. Zero `/tmp` writes.
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
-        unix_socket_path_for_base(std::env::var(crate::env_keys::XDG_RUNTIME_DIR).ok().map(PathBuf::from))
+        crate::config::socket_dir().join(crate::config::primal_socket_name())
     }
 
     /// Start a Unix socket JSON-RPC server.

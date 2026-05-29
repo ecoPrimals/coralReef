@@ -189,14 +189,10 @@ pub fn jsonrpc_bind_to_unix_path(bind: &str) -> Option<PathBuf> {
 
 /// Resolve our own UDS path (for the `socket` field in `primal.announce`).
 ///
-/// Same logic as `ipc::default_unix_socket_path()` but accessible without the
-/// `ipc` module (which is cfg-gated behind `test`/`e2e` in the library).
+/// Uses centralized [`config::socket_dir()`] which respects the 3-tier
+/// resolution: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
 fn resolve_own_socket_path() -> PathBuf {
-    let base = std::env::var(env_keys::XDG_RUNTIME_DIR)
-        .ok()
-        .map_or_else(std::env::temp_dir, PathBuf::from);
-    base.join(config::ecosystem_namespace())
-        .join(config::primal_socket_name())
+    config::socket_dir().join(config::primal_socket_name())
 }
 
 /// Connect-probe a Unix socket to determine if a listener is alive.
