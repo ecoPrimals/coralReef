@@ -3,7 +3,7 @@
 # coralReef — Compiler Evolution
 
 **Last updated**: May 29, 2026 (Phase 10 — Sprint 13 / Wave 61)
-**Phase**: 10 — Sprint 13 / Wave 61: Vector math (normalize/length/cross/distance), texture load `tld.*`, `NumLayers`, RT core builtins, depth comparison, array/cube sampling, live discovery. 3234 tests, zero failures, zero unsafe, zero clippy warnings.
+**Phase**: 10 — Sprint 13 / Wave 61: Inverse trig, geometry math, bit ops, texture queries, DH-1 /tmp cleanup, module refactor. 3234 tests, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 

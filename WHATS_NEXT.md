@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 13 (pure compiler primal, texture pipeline expansion).
+**Current position**: Phase 10 — Sprint 13 (pure compiler primal, math completeness, module hygiene).
 
-**Last completed**: Wave 53 continued — Vector math functions (normalize, length, cross, distance), texture load `tld.*`, `ImageQuery::NumLayers`, RT core intersection builtins (replaced zero-init stub), surface collection fix (sampled textures no longer incorrectly collected as surfaces). Wave 53 — Depth texture comparison PTX, array/cube texture sampling, live toadStool discovery integration tests.
+**Last completed**: Wave 61 — Inverse trig (tan/atan/atan2/asin/acos), geometry math (reflect/faceForward), bit ops (extractBits/insertBits), texture query routing (txq.num_mip_levels/width/height/depth/array_size), DH-1 `/tmp` cleanup (3-tier socket resolution), math.rs + test module extraction (all files < 1000 LOC).
 
 **Tests**: 3234 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 26, 2026.
+**Last updated**: May 29, 2026.
 
-**Next focus**: Coverage push toward 90%. ImageQuery::NumLevels for texrefs. Storage array surface load/store. GPU target capability introspection at compile time.
+**Next focus**: Coverage push toward 90%. Vertex/Fragment shader compilation. Remaining data packing/matrix math builtins.
 
 ---
 
@@ -27,13 +27,17 @@
 7. ~~**Vector math functions**~~ — **DONE** (Sprint 13). `normalize`, `length`, `cross`, `distance` via `rsqrt.approx`/`sqrt.rn`/`fma.rn`.
 8. ~~**ImageQuery NumLayers**~~ — **DONE** (Sprint 13). `suq.array_size.b32` for storage array surfaces.
 9. ~~**RT core intersection**~~ — **DONE** (Sprint 13). Evolved from zero-init stub to `_rt_query_get_intersection_*` driver builtins.
-10. Coverage push toward 90% on remaining compiler crates
-11. `naga::Module` ingest path hardening (multiple entry points, validation)
+10. ~~**Inverse trig + geometry + bit ops**~~ — **DONE** (Wave 61). `tan`, `atan`, `atan2`, `asin`, `acos`, `reflect`, `faceForward`, `extractBits`→`bfe.u32`, `insertBits`→`bfi.b32`.
+11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
+12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
+13. ~~**Module refactor**~~ — **DONE** (Wave 61). `math.rs` split, test module extraction, all files < 1000 LOC.
+14. Coverage push toward 90% on remaining compiler crates
+15. `naga::Module` ingest path hardening (multiple entry points, validation)
 
 ### Medium-Term Horizons (Sprint 14+)
 
 7. **Vertex + Fragment shader compilation** — graphics-stage entry points, SPH emission, graphics builtins, `dpdx`/`dpdy`, `discard`. Phase C: activates rasterizer + ROPs + full TMU pipeline.
-8. Remaining math builtins: Ldexp/Frexp/Modf, Transpose/Determinant/Inverse, Pack/Unpack, ExtractBits/InsertBits
+8. Remaining math builtins: Ldexp/Frexp/Modf, Transpose/Determinant/Inverse, Pack/Unpack
 9. Scan operation integer type support (subgroup reduce for i32/u32)
 
 ### Far Horizons
