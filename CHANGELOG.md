@@ -4,11 +4,31 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 13 / Wave 53
+**Current status**: Phase 10 — Sprint 13 / Wave 61
 
 ---
 
 ## [Unreleased]
+
+### Wave 61: Deep Debt Resolution — Math Completeness & Module Refactor (2026-05-29)
+
+#### Added
+- **Inverse trigonometry**: `tan` (sin/cos ratio), `atan` (polynomial approx), `atan2` (ratio + approx), `asin` (rsqrt-scaled atan), `acos` (π/2 − asin)
+- **Geometry math**: `reflect` (I − 2·dot(N,I)·N), `faceForward` (setp + selp conditional negate)
+- **Bit manipulation**: `extractBits` → PTX `bfe.u32`, `insertBits` → PTX `bfi.b32`
+- **Texture query routing**: `eval_image_query` now tries texture bindings first (`txq.*`) before surfaces (`suq.*`)
+- **`textureNumLevels`**: Emits `txq.num_mip_levels.b32` via texture binding path
+- **`textureDimensions` (texture path)**: Emits `txq.width/height/depth.b32`
+- **`textureNumLayers` (texture path)**: Emits `txq.array_size.b32` via texture binding
+- 12 new PTX emitter unit tests (tan, atan, atan2, asin, acos, reflect, faceForward, extractBits, insertBits, textureNumLevels, textureDimensions, textureNumLayers)
+
+#### Changed
+- **`math.rs` split**: Core scalar math in `math.rs` (655 LOC), extended geometry/trig/bits in `math_ext.rs` (651 LOC) — both under 1000-line limit
+- **Test module extraction**: `ptx_emit/mod.rs` (1814→143 LOC) split into `tests_core.rs`, `tests_image.rs`, `tests_math_ext.rs`
+- **Dependencies**: All transitive deps bumped to latest compatible patch versions
+
+#### Fixed
+- `eval_math` dispatch correctly routes 13 extended functions through `eval_math_extended` helper
 
 ### Wave 53: Primal Mountain — Implementation Depth (2026-05-26)
 

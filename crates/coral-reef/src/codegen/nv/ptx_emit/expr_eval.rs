@@ -542,9 +542,14 @@ impl PtxEmitter<'_> {
                 "ImageQuery on non-global image".into(),
             ));
         };
+
+        if let Some(tex_idx) = self.texture_index(gv_handle) {
+            return self.eval_texture_query(tex_idx, query);
+        }
+
         let surf_idx = self.surface_index(gv_handle).ok_or_else(|| {
             CompileError::InvalidInput(
-                "ImageQuery source is not a recognized surface binding".into(),
+                "ImageQuery source is not a recognized binding".into(),
             )
         })?;
         let dim = self.surfaces[surf_idx].dim;
@@ -604,7 +609,79 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             naga::ImageQuery::NumSamples => Err(CompileError::NotImplemented(
-                "ImageQuery::NumSamples on surface".into(),
+                "ImageQuery::NumSamples (not supported in PTX for surfaces or textures)".into(),
+            )),
+        }
+    }
+
+    fn eval_texture_query(
+        &mut self,
+        tex_idx: usize,
+        query: naga::ImageQuery,
+    ) -> Result<PtxVal, CompileError> {
+        let dim = self.textures[tex_idx].dim;
+        match query {
+            naga::ImageQuery::Size { .. } => {
+                let width = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    txq.width.b32 {}, [_tex{tex_idx}];",
+                    width.fmt_operand(),
+                )
+                .expect("write to String");
+                match dim {
+                    ImageDim::D1 | ImageDim::A1d => Ok(width),
+                    ImageDim::D2 | ImageDim::Cube | ImageDim::A2d | ImageDim::Acube => {
+                        let height = self.alloc_r32();
+                        writeln!(
+                            self.body,
+                            "    txq.height.b32 {}, [_tex{tex_idx}];",
+                            height.fmt_operand(),
+                        )
+                        .expect("write to String");
+                        Ok(PtxVal::Vec(vec![width, height]))
+                    }
+                    ImageDim::D3 => {
+                        let height = self.alloc_r32();
+                        let depth = self.alloc_r32();
+                        writeln!(
+                            self.body,
+                            "    txq.height.b32 {}, [_tex{tex_idx}];",
+                            height.fmt_operand(),
+                        )
+                        .expect("write to String");
+                        writeln!(
+                            self.body,
+                            "    txq.depth.b32 {}, [_tex{tex_idx}];",
+                            depth.fmt_operand(),
+                        )
+                        .expect("write to String");
+                        Ok(PtxVal::Vec(vec![width, height, depth]))
+                    }
+                }
+            }
+            naga::ImageQuery::NumLevels => {
+                let dst = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    txq.num_mip_levels.b32 {}, [_tex{tex_idx}];",
+                    dst.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            naga::ImageQuery::NumLayers => {
+                let dst = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    txq.array_size.b32 {}, [_tex{tex_idx}];",
+                    dst.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            naga::ImageQuery::NumSamples => Err(CompileError::NotImplemented(
+                "ImageQuery::NumSamples (not supported in PTX for textures)".into(),
             )),
         }
     }
