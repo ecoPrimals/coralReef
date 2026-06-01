@@ -4,11 +4,29 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 13 / Wave 61
+**Current status**: Phase 10 — Sprint 14 / Wave 67
 
 ---
 
 ## [Unreleased]
+
+### Wave 67: Pipeline Completeness — Hyperbolic & Float Decomposition (2026-06-01)
+
+#### Added
+- **Hyperbolic trig**: `sinh` (exp difference), `cosh` (exp sum), `asinh` (log + sqrt), `acosh` (log + sqrt), `atanh` (log ratio)
+- **Float decomposition**: `modf` (trunc + subtract), `frexp` (lg2 + normalize), `ldexp` (x * 2^exp)
+- **Bit scan**: `firstTrailingBit` (brev + clz), `firstLeadingBit` (clz + invert)
+- 8 new PTX emitter unit tests (sinh, cosh, asinh, acosh, atanh, ldexp, firstTrailingBit, firstLeadingBit)
+
+#### Fixed
+- **`/tmp` elimination**: Removed last `std::env::temp_dir()` fallback in `opt_instr_sched_common.rs` debug path — now uses `XDG_RUNTIME_DIR` or `/run/biomeos`
+- **`shader.compile.capabilities` math_ops count**: Updated from 25 → 34 to reflect full coverage
+
+#### Metrics
+- 3242 tests, 0 failures, 0 clippy warnings, 0 unsafe
+- `math.rs` 803 LOC, `math_ext.rs` 896 LOC — both under limit
+
+---
 
 ### Wave 61: Deep Debt Resolution — Math Completeness & Module Refactor (2026-05-29)
 

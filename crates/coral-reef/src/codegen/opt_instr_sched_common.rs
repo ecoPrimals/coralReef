@@ -428,7 +428,11 @@ pub fn save_graphviz(instrs: &[Box<Instr>], g: &DepGraph) -> std::io::Result<()>
     use std::io::{BufWriter, Write};
 
     let path = std::env::var(crate::env_keys::CORAL_DEP_GRAPH_PATH).map_or_else(
-        |_| std::env::temp_dir().join("instr_dep_graph.dot"),
+        |_| {
+            let base = std::env::var("XDG_RUNTIME_DIR")
+                .unwrap_or_else(|_| "/run/biomeos".into());
+            std::path::PathBuf::from(base).join("instr_dep_graph.dot")
+        },
         std::path::PathBuf::from,
     );
     let file = File::create(&path)?;

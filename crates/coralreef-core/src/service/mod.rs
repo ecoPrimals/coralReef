@@ -139,7 +139,7 @@ pub fn handle_compile_capabilities() -> CompileCapabilitiesResponse {
             log: true,
             composite_lowering: true,
         },
-        math_ops: Some(25),
+        math_ops: Some(34),
         sm_target: Some("sm_120".to_owned()),
         atomics: Some(true),
         subgroup_ops: Some(true),

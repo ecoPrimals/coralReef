@@ -494,3 +494,156 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             "should emit txq.array_size: {ptx:.600}"
         );
     }
+
+    #[test]
+    fn ptx_math_sinh() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = sinh(f32(gid.x) * 0.01);
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "sinh compile: {result:?}");
+        let binding = result.unwrap();
+        let ptx = String::from_utf8_lossy(&binding.binary);
+        assert!(ptx.contains("ex2.approx"), "sinh uses ex2: {ptx:.600}");
+    }
+
+    #[test]
+    fn ptx_math_cosh() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = cosh(f32(gid.x) * 0.01);
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "cosh compile: {result:?}");
+        let binding = result.unwrap();
+        let ptx = String::from_utf8_lossy(&binding.binary);
+        assert!(ptx.contains("ex2.approx"), "cosh uses ex2: {ptx:.600}");
+    }
+
+    #[test]
+    fn ptx_math_asinh() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = asinh(f32(gid.x) * 0.1);
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "asinh compile: {result:?}");
+        let binding = result.unwrap();
+        let ptx = String::from_utf8_lossy(&binding.binary);
+        assert!(
+            ptx.contains("lg2.approx"),
+            "asinh uses lg2: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_math_acosh() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let x = f32(gid.x) * 0.1 + 1.5;
+    out[gid.x] = acosh(x);
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "acosh compile: {result:?}");
+        let binding = result.unwrap();
+        let ptx = String::from_utf8_lossy(&binding.binary);
+        assert!(
+            ptx.contains("lg2.approx"),
+            "acosh uses lg2: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_math_atanh() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let x = f32(gid.x) * 0.01;
+    out[gid.x] = atanh(x);
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "atanh compile: {result:?}");
+        let binding = result.unwrap();
+        let ptx = String::from_utf8_lossy(&binding.binary);
+        assert!(
+            ptx.contains("lg2.approx"),
+            "atanh uses lg2: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_math_ldexp() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = ldexp(1.5, i32(gid.x));
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "ldexp compile: {result:?}");
+        let binding = result.unwrap();
+        let ptx = String::from_utf8_lossy(&binding.binary);
+        assert!(ptx.contains("ex2.approx"), "ldexp uses ex2: {ptx:.600}");
+    }
+
+    #[test]
+    fn ptx_math_first_trailing_bit() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = firstTrailingBit(gid.x + 1u);
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "firstTrailingBit: {result:?}");
+        let binding = result.unwrap();
+        let ptx = String::from_utf8_lossy(&binding.binary);
+        assert!(
+            ptx.contains("brev.b32"),
+            "firstTrailingBit uses brev: {ptx:.600}"
+        );
+    }
+
+    #[test]
+    fn ptx_math_first_leading_bit() {
+        let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[gid.x] = firstLeadingBit(gid.x + 1u);
+}
+";
+        let result = emit_compute_ptx(wgsl, 70);
+        assert!(result.is_ok(), "firstLeadingBit: {result:?}");
+        let binding = result.unwrap();
+        let ptx = String::from_utf8_lossy(&binding.binary);
+        assert!(
+            ptx.contains("clz.b32"),
+            "firstLeadingBit uses clz: {ptx:.600}"
+        );
+    }

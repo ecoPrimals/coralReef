@@ -634,6 +634,148 @@ impl PtxEmitter<'_> {
                 .expect("write to String");
                 Ok(dst)
             }
+            MF::Sinh => {
+                // sinh(x) = (exp(x) - exp(-x)) / 2
+                let log2e = self.alloc_for_scalar(scalar);
+                let neg_x = self.alloc_for_scalar(scalar);
+                let exp_pos = self.alloc_for_scalar(scalar);
+                let exp_neg = self.alloc_for_scalar(scalar);
+                let diff = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f3FB8AA3B;",
+                    log2e.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    ex2.approx.{ts} {}, {};",
+                    exp_pos.fmt_operand(),
+                    log2e.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    neg.{ts} {}, {};",
+                    neg_x.fmt_operand(),
+                    log2e.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    ex2.approx.{ts} {}, {};",
+                    exp_neg.fmt_operand(),
+                    neg_x.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    sub.{ts} {}, {}, {};",
+                    diff.fmt_operand(),
+                    exp_pos.fmt_operand(),
+                    exp_neg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f3F000000;",
+                    dst.fmt_operand(),
+                    diff.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::Cosh => {
+                // cosh(x) = (exp(x) + exp(-x)) / 2
+                let log2e = self.alloc_for_scalar(scalar);
+                let neg_x = self.alloc_for_scalar(scalar);
+                let exp_pos = self.alloc_for_scalar(scalar);
+                let exp_neg = self.alloc_for_scalar(scalar);
+                let sum = self.alloc_for_scalar(scalar);
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f3FB8AA3B;",
+                    log2e.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    ex2.approx.{ts} {}, {};",
+                    exp_pos.fmt_operand(),
+                    log2e.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    neg.{ts} {}, {};",
+                    neg_x.fmt_operand(),
+                    log2e.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    ex2.approx.{ts} {}, {};",
+                    exp_neg.fmt_operand(),
+                    neg_x.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    add.{ts} {}, {}, {};",
+                    sum.fmt_operand(),
+                    exp_pos.fmt_operand(),
+                    exp_neg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.{ts} {}, {}, 0f3F000000;",
+                    dst.fmt_operand(),
+                    sum.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::FirstTrailingBit => {
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    brev.b32 {}, {};",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    clz.b32 {}, {};",
+                    dst.fmt_operand(),
+                    dst.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
+            MF::FirstLeadingBit => {
+                let dst = self.alloc_for_scalar(scalar);
+                writeln!(
+                    self.body,
+                    "    clz.b32 {}, {};",
+                    dst.fmt_operand(),
+                    arg.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    sub.s32 {}, 31, {};",
+                    dst.fmt_operand(),
+                    dst.fmt_operand(),
+                )
+                .expect("write to String");
+                Ok(dst)
+            }
             MF::Length
             | MF::Normalize
             | MF::Distance
@@ -643,10 +785,16 @@ impl PtxEmitter<'_> {
             | MF::Atan2
             | MF::Asin
             | MF::Acos
+            | MF::Asinh
+            | MF::Acosh
+            | MF::Atanh
             | MF::Reflect
             | MF::FaceForward
             | MF::ExtractBits
-            | MF::InsertBits => self.eval_math_extended(fun, arg, arg1, arg2, scalar, ts),
+            | MF::InsertBits
+            | MF::Modf
+            | MF::Frexp
+            | MF::Ldexp => self.eval_math_extended(fun, arg, arg1, arg2, scalar, ts),
             _ => Err(CompileError::NotImplemented(
                 format!("PTX math function: {fun:?}").into(),
             )),
