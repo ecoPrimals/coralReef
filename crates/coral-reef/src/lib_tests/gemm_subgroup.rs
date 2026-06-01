@@ -314,6 +314,36 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
 }
 
 #[test]
+fn test_subgroup_ballot_copy_prop_f64_sm70() {
+    // Regression: subgroupBallot returns uvec4 (4 components). Copy propagation
+    // must not assert comps()==1 when encountering multi-component SSA refs.
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> output: array<f64>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(subgroup_invocation_id) lane: u32) {
+    let is_active = lane < 32u;
+    let ballot = subgroupBallot(is_active);
+    let count = countOneBits(ballot.x) + countOneBits(ballot.y);
+    output[gid.x] = f64(count);
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        fp64_software: true,
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "subgroupBallot + f64 copy prop should not panic: {result:?}"
+    );
+}
+
+#[test]
 fn test_sum_reduce_subgroup_f64_sm70() {
     // Pattern from hotSpring's sum_reduce_subgroup_f64.wgsl:
     // Uses SubgroupSize/NumSubgroups builtins with f64 data storage.

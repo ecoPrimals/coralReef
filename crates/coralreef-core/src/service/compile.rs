@@ -49,6 +49,71 @@ fn binary_format_for(target: GpuTarget) -> String {
     }
 }
 
+/// Resolve the effective architecture from the request.
+///
+/// When the caller specifies an explicit (non-default) arch string, that wins.
+/// When the arch is the serde default (`"sm70"`) and an [`AdapterDescriptor`] is
+/// present, the adapter's `vendor_id` / `device_name` is used to infer the best
+/// target. This enables callers (e.g. `barraCuda`, `hotSpring`) to pass hardware
+/// identity without knowing the exact SM version.
+fn resolve_arch(arch: &str, adapter: Option<&super::types::AdapterDescriptor>) -> String {
+    let default = super::types::default_arch();
+    if arch != default {
+        return arch.to_owned();
+    }
+    let Some(ad) = adapter else {
+        return arch.to_owned();
+    };
+    infer_arch_from_adapter(ad).unwrap_or_else(|| arch.to_owned())
+}
+
+/// Infer SM/ISA architecture from adapter hardware identity.
+fn infer_arch_from_adapter(ad: &super::types::AdapterDescriptor) -> Option<String> {
+    let name = ad.device_name.to_lowercase();
+    if ad.vendor_id == 0x10DE {
+        if name.contains("5060")
+            || name.contains("5070")
+            || name.contains("5080")
+            || name.contains("5090")
+            || name.contains("blackwell")
+            || name.contains("gb2")
+        {
+            return Some("sm_120".to_owned());
+        }
+        if name.contains("4060")
+            || name.contains("4070")
+            || name.contains("4080")
+            || name.contains("4090")
+            || name.contains("ada")
+            || name.contains("l40")
+        {
+            return Some("sm_89".to_owned());
+        }
+        if name.contains("3060")
+            || name.contains("3070")
+            || name.contains("3080")
+            || name.contains("3090")
+        {
+            return Some("sm_86".to_owned());
+        }
+        if name.contains("a100") || name.contains("a30") || name.contains("a10") {
+            return Some("sm_80".to_owned());
+        }
+        if name.contains("titan v") || name.contains("v100") || name.contains("gv100") {
+            return Some("sm_70".to_owned());
+        }
+    }
+    if ad.vendor_id == 0x1002 {
+        if name.contains("7900") || name.contains("gfx1100") || name.contains("rdna3") {
+            return Some("rdna3".to_owned());
+        }
+        if name.contains("6900") || name.contains("6800") || name.contains("rdna2") {
+            return Some("rdna2".to_owned());
+        }
+    }
+    None
+}
+
 /// Parse an architecture string into a [`GpuTarget`].
 ///
 /// Tries NVIDIA first, then AMD. No hardcoded arch list.
@@ -185,7 +250,8 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
         .as_deref()
         .map_or(req.fp64_software, |s| s == "software");
     let fma = parse_fma_policy(req.fma_policy.as_deref());
-    let options = build_options(&req.arch, req.opt_level, fp64_sw, fma)?;
+    let effective_arch = resolve_arch(&req.arch, req.adapter.as_ref());
+    let options = build_options(&effective_arch, req.opt_level, fp64_sw, fma)?;
     let wave_size = wave_size_for(options.target);
     let hardware_hint = dispatch_hint_from_precision_advice(req.precision_advice.as_ref());
     let t0 = Instant::now();
@@ -195,7 +261,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
     Ok(CompileResponse {
         binary: Bytes::from(compiled.binary),
         size,
-        arch: Some(req.arch.clone()),
+        arch: Some(effective_arch),
         status: Some(STATUS_SUCCESS.to_owned()),
         info: Some(CompilationInfoResponse {
             gpr_count: compiled.info.gpr_count,

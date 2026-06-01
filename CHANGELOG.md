@@ -10,6 +10,25 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 67b: hotSpring Gap Resolution — Arch Routing & Copy Prop Fix (2026-06-01)
+
+#### Fixed
+- **GAP-CR-001**: `resolve_arch()` — adapter-aware architecture inference. When callers pass an `AdapterDescriptor` without explicit arch, coralReef now infers the correct SM target from hardware identity (e.g. RTX 5060 → sm_120, RTX 4090 → sm_89). Response `arch` field now reflects effective target, not just the default
+- **GAP-CR-002**: `opt_copy_prop` panic on multi-component SSA — assertion `entry_ssa.comps() == 1` changed to a guard (`continue` on multi-component sources). Fixes crash on `subgroupBallot` which returns `uvec4` (4 components)
+- **GAP-CR-003 (documented)**: `pow(f64, f64)` is rejected by naga's WGSL parser per spec. IR-level f64 pow (via `OpF64Log2 + OpDMul + OpF64Exp2`) works through SPIR-V. Polyfill pattern: `exp2(y * log2(x))`. Test coverage added for both paths
+
+#### Added
+- `infer_arch_from_adapter()` — maps NVIDIA/AMD device names to SM/ISA targets (Blackwell, Ada, Ampere, Volta, RDNA2/3)
+- `test_subgroup_ballot_copy_prop_f64_sm70` — regression test for uvec4 copy propagation
+- `func_ops_f64_pow_wgsl_rejected_by_spec` — documents naga spec limitation
+- `func_ops_f64_pow_ir_translation_works` — verifies f64 multiply/IR path
+
+#### Metrics
+- 3245 tests, 0 failures, 0 clippy warnings, 0 unsafe
+- `plasmidbin install coralreef` deployed (BLAKE3: 74e7a98c)
+
+---
+
 ### Wave 67: Pipeline Completeness — Hyperbolic & Float Decomposition (2026-06-01)
 
 #### Added

@@ -139,7 +139,9 @@ impl<'a> CopyPropPass<'a> {
 
             if entry.src.is_unmodified() {
                 if let SrcRef::SSA(entry_ssa) = &entry.src.reference {
-                    assert!(entry_ssa.comps() == 1);
+                    if entry_ssa.comps() != 1 {
+                        continue;
+                    }
 
                     if same_file && (c_ssa.file() != entry_ssa[0].file()) {
                         continue;

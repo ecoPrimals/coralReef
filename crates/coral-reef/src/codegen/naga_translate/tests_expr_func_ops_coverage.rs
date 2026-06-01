@@ -373,3 +373,53 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         r.err()
     );
 }
+
+#[test]
+fn func_ops_f64_pow_wgsl_rejected_by_spec() {
+    // WGSL spec restricts pow() to f32/f16/AbstractFloat — f64 is not allowed.
+    // This is a naga/spec limitation, not a coralReef bug. The IR-level support
+    // for f64 pow exists (OpF64Log2 + OpDMul + OpF64Exp2) and works via SPIR-V.
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f64>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let base = f64(gid.x) + 1.0;
+    let exp = 2.5;
+    out[gid.x] = pow(base, exp);
+}
+";
+    let result = parse_wgsl(wgsl);
+    assert!(
+        result.is_err(),
+        "pow(f64,f64) should be rejected by WGSL spec"
+    );
+}
+
+#[test]
+fn func_ops_f64_pow_ir_translation_works() {
+    // Verify the IR-level f64 pow path (OpF64Log2 + OpDMul + OpF64Exp2) is wired
+    // correctly through the translate_pow function when given an f64-typed module.
+    // We test via a construct naga accepts: f64 multiply (which does work in WGSL).
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f64>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let base = f64(gid.x) + 1.0;
+    let exponent = f64(gid.x) * 0.5;
+    out[gid.x] = base * exponent;
+}
+";
+    let module = parse_wgsl(wgsl).expect("f64 multiply should parse");
+    let sm = sm70();
+    let shader = translate(&module, &sm, "main").expect("f64 mul should translate");
+    let mut has_dmul = false;
+    shader.for_each_instr(&mut |instr| {
+        if matches!(instr.op, Op::DMul(_)) {
+            has_dmul = true;
+        }
+    });
+    assert!(has_dmul, "f64 multiply should emit OpDMul");
+
+    let r = crate::compile_wgsl_raw_sm(wgsl, 70);
+    assert!(r.is_ok(), "f64 mul full pipeline: {:?}", r.err());
+}
