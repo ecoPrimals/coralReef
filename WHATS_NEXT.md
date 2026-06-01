@@ -34,6 +34,23 @@
 14. Coverage push toward 90% on remaining compiler crates
 15. `naga::Module` ingest path hardening (multiple entry points, validation)
 
+### Gate Deployment Readiness (Wave 67 — strandGate)
+
+coralReef is assigned to strandGate (provenance trio + compute trio gate). Deployment after Phase 1 mesh validation.
+
+**Readiness status**: READY
+- `CORALREEF_TCP_BIND` env override for LAN-accessible bind ✓
+- `primal.announce` with capabilities, methods, cost_hints, latency_estimates ✓
+- `capability.register` sends transport addresses after bind ✓
+- Cross-gate dispatch transparent (biomeOS + Songbird `capability.call` routing) ✓
+- Zero hardcoded network addresses, zero hardcoded primal names ✓
+- BTSP Phase 3 authenticated IPC ✓
+
+**First tasks post-deployment**:
+1. Cross-gate compute dispatch from biomeGate (hotSpring heavy compute → coralReef compilation)
+2. Validate multi-gate `capability.call` routing for `shader.compile.*` methods
+3. Performance profiling under Dual EPYC 7452 (64-core, 256GB ECC)
+
 ### Medium-Term Horizons (Sprint 14+)
 
 7. **Vertex + Fragment shader compilation** — graphics-stage entry points, SPH emission, graphics builtins, `dpdx`/`dpdy`, `discard`. Phase C: activates rasterizer + ROPs + full TMU pipeline.
