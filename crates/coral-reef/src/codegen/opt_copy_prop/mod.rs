@@ -113,7 +113,9 @@ impl<'a> CopyPropPass<'a> {
                     pred.inverted = !pred.inverted;
                 }
                 SrcRef::SSA(ssa) => {
-                    assert!(ssa.comps() == 1);
+                    if ssa.comps() != 1 {
+                        return;
+                    }
                     pred.predicate = PredRef::SSA(ssa[0]);
                 }
                 _ => return,
@@ -216,7 +218,9 @@ impl<'a> CopyPropPass<'a> {
                 return;
             };
 
-            assert!(src_ssa.comps() == 1);
+            if src_ssa.comps() != 1 {
+                return;
+            }
             let Some(entry) = self.get_copy(&src_ssa[0]) else {
                 return;
             };
