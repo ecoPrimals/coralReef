@@ -28,6 +28,7 @@ dependencies = [
  "anyhow",
  "quick-xml",
  "tempfile",
+ "thiserror",
 ]
 
 [[package]]

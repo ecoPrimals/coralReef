@@ -73,6 +73,7 @@ impl PtxEmitter<'_> {
                     }
                     Ok(addr)
                 } else {
+                    tracing::debug!("unbound global variable — allocating zero register");
                     Ok(self.alloc_r32())
                 }
             }
@@ -80,6 +81,7 @@ impl PtxEmitter<'_> {
                 if let Some(val) = self.locals.get(&lv).cloned() {
                     Ok(val)
                 } else {
+                    tracing::debug!("unbound local variable — allocating zero register");
                     Ok(self.alloc_r32())
                 }
             }

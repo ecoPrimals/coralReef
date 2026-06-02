@@ -12,10 +12,11 @@ name = "amd-isa-gen"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1"
 quick-xml = "0.39"
+thiserror.workspace = true
 
 [dev-dependencies]
+anyhow = "1"
 tempfile.workspace = true
 
 [lints]

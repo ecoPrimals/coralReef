@@ -2,9 +2,10 @@
 // Copyright © 2026 ecoPrimals
 //! Rust code generation for AMD ISA tables.
 
-use anyhow::Result;
 use std::collections::BTreeMap;
 use std::fmt::Write as FmtWrite;
+
+use crate::error::IsaGenError;
 
 use crate::parse::{EncodingInfo, InstrInfo, encoding_to_rust_mod};
 
@@ -20,7 +21,7 @@ pub struct EncodingOutput {
 }
 
 /// Generate the standard file header for generated code.
-pub fn file_header() -> Result<String> {
+pub fn file_header() -> Result<String, IsaGenError> {
     let mut out = String::new();
     writeln!(out, "// SPDX-License-Identifier: AGPL-3.0-or-later")?;
     writeln!(out, "// Copyright © 2026 ecoPrimals")?;
@@ -45,7 +46,7 @@ pub fn file_header() -> Result<String> {
 }
 
 /// Generate the isa_types.rs file content.
-pub fn generate_types_file() -> Result<String> {
+pub fn generate_types_file() -> Result<String, IsaGenError> {
     let mut out = file_header()?;
     writeln!(out, "/// Bit field within an encoding format.")?;
     writeln!(out, "#[derive(Debug, Clone, Copy)]")?;
@@ -141,7 +142,7 @@ pub fn vop3_category(name: &str) -> &'static str {
     }
 }
 
-fn write_table_part(out: &mut String, instrs: &[&InstrInfo]) -> Result<()> {
+fn write_table_part(out: &mut String, instrs: &[&InstrInfo]) -> Result<(), IsaGenError> {
     writeln!(out, "pub const TABLE: &[InstrEntry] = &[")?;
     for instr in instrs {
         writeln!(
@@ -162,7 +163,11 @@ fn write_table_part(out: &mut String, instrs: &[&InstrInfo]) -> Result<()> {
     Ok(())
 }
 
-fn write_table_and_lookup(out: &mut String, enc_name: &str, instrs: &[InstrInfo]) -> Result<()> {
+fn write_table_and_lookup(
+    out: &mut String,
+    enc_name: &str,
+    instrs: &[InstrInfo],
+) -> Result<(), IsaGenError> {
     writeln!(out, "/// All {enc_name} instructions.")?;
     writeln!(out, "pub const TABLE: &[InstrEntry] = &[")?;
     for instr in instrs {
@@ -190,7 +195,7 @@ pub fn generate_encoding_file(
     enc_name: &str,
     info: &EncodingInfo,
     instrs: Option<&Vec<InstrInfo>>,
-) -> Result<EncodingOutput> {
+) -> Result<EncodingOutput, IsaGenError> {
     let mod_name = encoding_to_rust_mod(enc_name);
     let estimated_lines = instrs.map_or(0, |v| v.len() * LINES_PER_INSTR + 30);
     let needs_split = estimated_lines > MAX_LINES_PER_FILE;
@@ -228,9 +233,9 @@ pub fn generate_encoding_file(
             })
             .collect();
         for cat in &vop3_cats {
-            let cat_instrs = by_cat
-                .get(*cat)
-                .ok_or_else(|| anyhow::anyhow!("VOP3 category {cat} missing from by_cat"))?;
+            let cat_instrs = by_cat.get(*cat).ok_or_else(|| {
+                IsaGenError::Codegen(format!("VOP3 category {cat} missing from by_cat"))
+            })?;
             if *cat == "cmp" {
                 let mut cmp_float: Vec<&InstrInfo> = Vec::new();
                 let mut cmp_int: Vec<&InstrInfo> = Vec::new();
@@ -304,7 +309,8 @@ pub fn generate_encoding_file(
         writeln!(out)?;
         writeln!(out, "}}")?;
     } else if vopc_split {
-        let instrs = instrs.ok_or_else(|| anyhow::anyhow!("instrs required for VOPC split"))?;
+        let instrs =
+            instrs.ok_or_else(|| IsaGenError::Codegen("instrs required for VOPC split".into()))?;
         let a: Vec<_> = instrs.iter().filter(|i| i.opcode < 64).cloned().collect();
         let b: Vec<_> = instrs.iter().filter(|i| i.opcode >= 64).cloned().collect();
         let mut tbl_a = file_header()?;
@@ -405,7 +411,7 @@ pub fn generate_encoding_file(
 pub fn generate_mod_file(
     encoding_fields: &BTreeMap<String, EncodingInfo>,
     instructions: &BTreeMap<String, Vec<InstrInfo>>,
-) -> Result<String> {
+) -> Result<String, IsaGenError> {
     let mut out = file_header()?;
 
     writeln!(

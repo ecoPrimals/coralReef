@@ -20,10 +20,11 @@
 //! This is the sovereign Rust replacement for the Python scaffold.
 //! The Rust compiler is our DNA synthase — no non-Rust tools remain.
 
+mod error;
 mod generate;
 mod parse;
 
-use anyhow::{Context, Result};
+use error::IsaGenError;
 use std::fs;
 use std::path::PathBuf;
 
@@ -35,7 +36,7 @@ fn repo_root() -> PathBuf {
         .map_or_else(|| PathBuf::from("."), std::path::Path::to_path_buf)
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<(), IsaGenError> {
     let root = repo_root();
     let xml_path = root.join("specs").join("amd").join("amdgpu_isa_rdna2.xml");
     let output_dir = root
@@ -48,12 +49,16 @@ fn main() -> Result<()> {
 
     let (encoding_fields, instructions) = parse::parse_xml(&xml_path)?;
 
-    fs::create_dir_all(&output_dir)
-        .with_context(|| format!("Cannot create output directory {}", output_dir.display()))?;
+    fs::create_dir_all(&output_dir).map_err(|e| {
+        IsaGenError::io_ctx(
+            format!("Cannot create output directory {}", output_dir.display()),
+            e,
+        )
+    })?;
 
-    let write_file = |name: &str, content: &str| -> Result<()> {
+    let write_file = |name: &str, content: &str| -> Result<(), IsaGenError> {
         let path = output_dir.join(name);
-        fs::write(&path, content).with_context(|| format!("Cannot write {}", path.display()))?;
+        fs::write(&path, content).map_err(|e| IsaGenError::io(&path, e))?;
         let lines = content.lines().count();
         println!("  {name}: {lines} lines");
         Ok(())
@@ -72,13 +77,15 @@ fn main() -> Result<()> {
 
         if output.table_file.is_some() || !output.table_sub_files.is_empty() {
             let enc_dir = output_dir.join(&mod_name);
-            fs::create_dir_all(&enc_dir).with_context(|| {
-                format!("Cannot create encoding directory {}", enc_dir.display())
+            fs::create_dir_all(&enc_dir).map_err(|e| {
+                IsaGenError::io_ctx(
+                    format!("Cannot create encoding directory {}", enc_dir.display()),
+                    e,
+                )
             })?;
-            let write_enc = |name: &str, content: &str| -> Result<()> {
+            let write_enc = |name: &str, content: &str| -> Result<(), IsaGenError> {
                 let path = enc_dir.join(name);
-                fs::write(&path, content)
-                    .with_context(|| format!("Cannot write {}", path.display()))?;
+                fs::write(&path, content).map_err(|e| IsaGenError::io(&path, e))?;
                 let lines = content.lines().count();
                 println!("  {mod_name}/{name}: {lines} lines");
                 Ok(())

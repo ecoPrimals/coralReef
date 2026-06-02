@@ -121,7 +121,7 @@ pub fn dispatch_jsonrpc(
                 Ok(resp) => {
                     serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
                 }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+                Err(e) => Err(IpcServiceError::from(e)),
             }
         }
         "shader.compile.spirv" => {
@@ -130,7 +130,7 @@ pub fn dispatch_jsonrpc(
                 Ok(resp) => {
                     serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
                 }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+                Err(e) => Err(IpcServiceError::from(e)),
             }
         }
         "shader.compile.wgsl.multi" => {
@@ -139,7 +139,7 @@ pub fn dispatch_jsonrpc(
                 Ok(resp) => {
                     serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
                 }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+                Err(e) => Err(IpcServiceError::from(e)),
             }
         }
         "shader.compile.gemm" => {
@@ -148,7 +148,7 @@ pub fn dispatch_jsonrpc(
                 Ok(resp) => {
                     serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
                 }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+                Err(e) => Err(IpcServiceError::from(e)),
             }
         }
         "health.check" => {

@@ -138,6 +138,22 @@ impl From<IpcServiceError> for String {
     }
 }
 
+impl From<coral_reef::error::CompileError> for IpcServiceError {
+    fn from(e: coral_reef::error::CompileError) -> Self {
+        let code = match &e {
+            coral_reef::error::CompileError::InvalidInput(_) => "INVALID_INPUT",
+            coral_reef::error::CompileError::NotImplemented(_) => "NOT_IMPLEMENTED",
+            coral_reef::error::CompileError::Validation(_) => "VALIDATION",
+            coral_reef::error::CompileError::RegisterAllocation(_) => "REGISTER_ALLOCATION",
+            coral_reef::error::CompileError::Encoding(_) => "ENCODING",
+            coral_reef::error::CompileError::UnsupportedArch(_) => "UNSUPPORTED_ARCH",
+            coral_reef::error::CompileError::Internal(_) => "INTERNAL_COMPILER_ERROR",
+            _ => "UNKNOWN",
+        };
+        Self::handler(e.to_string()).with_code(code)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,5 +231,55 @@ mod tests {
         let roundtrip: IpcServiceError = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip.phase, IpcPhase::GateDenied);
         assert_eq!(roundtrip.message, "rejected");
+    }
+
+    #[test]
+    fn test_from_compile_error_not_implemented() {
+        use coral_reef::error::CompileError;
+        let ce = CompileError::NotImplemented("f64 lowering".into());
+        let ipc: IpcServiceError = ce.into();
+        assert_eq!(ipc.phase, IpcPhase::Handler);
+        assert_eq!(ipc.code.as_deref(), Some("NOT_IMPLEMENTED"));
+        assert!(ipc.message.contains("f64 lowering"));
+    }
+
+    #[test]
+    fn test_from_compile_error_unsupported_arch() {
+        use coral_reef::error::CompileError;
+        let ce = CompileError::UnsupportedArch("sm_10".into());
+        let ipc: IpcServiceError = ce.into();
+        assert_eq!(ipc.code.as_deref(), Some("UNSUPPORTED_ARCH"));
+        assert!(ipc.message.contains("sm_10"));
+    }
+
+    #[test]
+    fn test_from_compile_error_internal() {
+        use coral_reef::error::CompileError;
+        let ce = CompileError::Internal("unhandled op".into());
+        let ipc: IpcServiceError = ce.into();
+        assert_eq!(ipc.code.as_deref(), Some("INTERNAL_COMPILER_ERROR"));
+        assert!(ipc.message.contains("unhandled op"));
+    }
+
+    #[test]
+    fn test_from_compile_error_all_variants_have_codes() {
+        use coral_reef::error::CompileError;
+        let variants: Vec<CompileError> = vec![
+            CompileError::InvalidInput("i".into()),
+            CompileError::NotImplemented("n".into()),
+            CompileError::Validation("v".into()),
+            CompileError::RegisterAllocation("r".into()),
+            CompileError::Encoding("e".into()),
+            CompileError::UnsupportedArch("u".into()),
+            CompileError::Internal("ice".into()),
+        ];
+        for ce in variants {
+            let ipc: IpcServiceError = ce.into();
+            assert_eq!(ipc.phase, IpcPhase::Handler);
+            assert!(
+                ipc.code.is_some(),
+                "all CompileError variants must map to a code"
+            );
+        }
     }
 }

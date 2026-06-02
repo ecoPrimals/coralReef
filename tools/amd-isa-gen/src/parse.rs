@@ -2,11 +2,18 @@
 // Copyright © 2026 ecoPrimals
 //! XML parsing for AMD RDNA2 ISA specification.
 
-use anyhow::{Context, Result};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
+
+use crate::error::IsaGenError;
+
+/// Parsed ISA data: encoding field definitions and instruction tables.
+pub type ParsedIsa = (
+    BTreeMap<String, EncodingInfo>,
+    BTreeMap<String, Vec<InstrInfo>>,
+);
 
 /// Compute-relevant encoding names from the AMD ISA XML.
 pub const COMPUTE_ENCODINGS: &[&str] = &[
@@ -61,16 +68,14 @@ pub fn encoding_to_rust_mod(enc: &str) -> String {
 }
 
 /// Parse the AMD ISA XML into encoding fields and instruction tables.
-pub fn parse_xml(
-    xml_path: &std::path::Path,
-) -> Result<(
-    BTreeMap<String, EncodingInfo>,
-    BTreeMap<String, Vec<InstrInfo>>,
-)> {
-    let xml_content = fs::read_to_string(xml_path).with_context(|| {
-        format!(
-            "Cannot read {} (download from: https://gpuopen.com/download/machine-readable-isa/latest/)",
-            xml_path.display()
+pub fn parse_xml(xml_path: &std::path::Path) -> Result<ParsedIsa, IsaGenError> {
+    let xml_content = fs::read_to_string(xml_path).map_err(|e| {
+        IsaGenError::io_ctx(
+            format!(
+                "Cannot read {} (download from: https://gpuopen.com/download/machine-readable-isa/latest/)",
+                xml_path.display()
+            ),
+            e,
         )
     })?;
 
@@ -283,7 +288,7 @@ pub fn parse_xml(
                 }
                 current_text_target.clear();
             }
-            Err(e) => return Err(anyhow::anyhow!("XML parse error: {e}")),
+            Err(e) => return Err(IsaGenError::XmlParse(e.to_string())),
             _ => {}
         }
         buf.clear();

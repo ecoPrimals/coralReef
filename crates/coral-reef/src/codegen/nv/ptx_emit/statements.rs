@@ -94,14 +94,12 @@ impl PtxEmitter<'_> {
             }
             naga::Statement::Block(ref block) => self.emit_block(block),
             naga::Statement::Break => {
-                // Loops manage their own break labels — we use `bra $Lend`
-                // This is handled via the break_if path. Standalone Break
-                // would need a label stack; for now, emit ret as a safe fallback.
+                tracing::warn!("standalone Break without label stack — emitting ret as fallback");
                 writeln!(self.body, "    ret;").expect("write to String");
                 Ok(())
             }
             naga::Statement::Continue => {
-                // Same concern as Break — needs label stack for full support.
+                tracing::warn!("standalone Continue without label stack — no-op fallback");
                 Ok(())
             }
             naga::Statement::Switch {
