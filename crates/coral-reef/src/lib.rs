@@ -348,6 +348,45 @@ pub fn compile_wgsl_full_with(
     backend.compile(&mut shader)
 }
 
+/// Emit validated SPIR-V binary from WGSL source.
+///
+/// Parses the WGSL, validates with `naga::valid::Validator`, and emits
+/// standard SPIR-V binary (magic `0x07230203`). This is the sovereign
+/// SPIR-V output path — GAP-HS-124.
+///
+/// Returns SPIR-V words as a `Vec<u8>` (little-endian u32 words packed
+/// to bytes, as expected by Vulkan `VkShaderModuleCreateInfo`).
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if WGSL parsing or SPIR-V emission fails.
+pub fn wgsl_to_spirv(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, CompileError> {
+    if wgsl.is_empty() {
+        return Err(CompileError::InvalidInput("empty WGSL source".into()));
+    }
+    let prepared = prepare_wgsl(wgsl, options);
+    let module = naga::front::wgsl::parse_str(&prepared)
+        .map_err(|e| CompileError::InvalidInput(format!("WGSL parse: {e}").into()))?;
+
+    let mut validator = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    );
+    let info = validator
+        .validate(&module)
+        .map_err(|e| CompileError::Validation(format!("{e}").into()))?;
+
+    let spv_words =
+        naga::back::spv::write_vec(&module, &info, &naga::back::spv::Options::default(), None)
+            .map_err(|e| CompileError::Encoding(format!("SPIR-V emit: {e}").into()))?;
+
+    let mut bytes = Vec::with_capacity(spv_words.len() * 4);
+    for word in &spv_words {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    Ok(bytes)
+}
+
 /// Compile WGSL source to native GPU binary using a custom [`Frontend`].
 ///
 /// # Errors
@@ -475,23 +514,17 @@ fn validate_module(module: &naga::Module) -> Result<(), CompileError> {
 
 /// Resolve which entry point to compile from the module.
 ///
-/// If `name` is `Some`, looks up that specific entry point.
-/// If `None`, returns the first compute-stage entry point (or the first
-/// entry point if none are compute).
+/// If `name` is `Some`, looks up that specific entry point by name and
+/// verifies it is a compute shader.
+/// If `None`, returns the first compute-stage entry point, or an error
+/// if no compute entry points exist.
 fn resolve_entry_point<'m>(
     module: &'m naga::Module,
     name: Option<&str>,
 ) -> Result<&'m naga::EntryPoint, CompileError> {
-    name.map_or_else(
-        || {
-            let compute = module
-                .entry_points
-                .iter()
-                .find(|ep| ep.stage == naga::ShaderStage::Compute);
-            Ok(compute.unwrap_or(&module.entry_points[0]))
-        },
-        |requested| {
-            module
+    match name {
+        Some(requested) => {
+            let ep = module
                 .entry_points
                 .iter()
                 .find(|ep| ep.name == requested)
@@ -505,9 +538,34 @@ fn resolve_entry_point<'m>(
                         format!("entry point '{requested}' not found; available: {available:?}")
                             .into(),
                     )
-                })
-        },
-    )
+                })?;
+            if ep.stage != naga::ShaderStage::Compute {
+                return Err(CompileError::InvalidInput(
+                    format!(
+                        "entry point '{}' is {:?}, not Compute — \
+                         coralReef only compiles compute shaders",
+                        ep.name, ep.stage,
+                    )
+                    .into(),
+                ));
+            }
+            Ok(ep)
+        }
+        None => module
+            .entry_points
+            .iter()
+            .find(|ep| ep.stage == naga::ShaderStage::Compute)
+            .ok_or_else(|| {
+                let stages: Vec<String> = module
+                    .entry_points
+                    .iter()
+                    .map(|ep| format!("{}({:?})", ep.name, ep.stage))
+                    .collect();
+                CompileError::InvalidInput(
+                    format!("no compute entry point found; module has: {stages:?}").into(),
+                )
+            }),
+    }
 }
 
 /// Compile GLSL compute shader source to native GPU binary.

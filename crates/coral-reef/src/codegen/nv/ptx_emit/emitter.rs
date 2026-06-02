@@ -444,6 +444,7 @@ impl<'a> PtxEmitter<'a> {
         self.precompute_builtins()?;
         self.load_buffer_params();
         self.emit_block(&self.func.body.clone())?;
+        writeln!(self.body, "    membar.sys;").expect("write to String");
         writeln!(self.body, "    ret;").expect("write to String");
 
         let mut out = String::with_capacity(512 + self.body.len());

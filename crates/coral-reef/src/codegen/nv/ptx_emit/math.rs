@@ -795,9 +795,15 @@ impl PtxEmitter<'_> {
             | MF::Modf
             | MF::Frexp
             | MF::Ldexp => self.eval_math_extended(fun, arg, arg1, arg2, scalar, ts),
-            _ => Err(CompileError::NotImplemented(
-                format!("PTX math function: {fun:?}").into(),
-            )),
+            _ => {
+                if let Some(result) = self.eval_math_pack(fun, arg)? {
+                    Ok(result)
+                } else {
+                    Err(CompileError::NotImplemented(
+                        format!("PTX math function: {fun:?}").into(),
+                    ))
+                }
+            }
         }
     }
 }

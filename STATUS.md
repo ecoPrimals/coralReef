@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: June 1, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 67 (Pipeline completeness + hotSpring gap resolution: adapter-aware arch routing (sm_120 inferred from hardware identity), copy prop multi-component SSA fix (subgroupBallot uvec4), f64 pow spec-gap documented. 3245 tests, zero unsafe, zero clippy warnings)
+**Last updated**: June 2, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 68 (SM120 membar.sys barrier fix (GAP-HS-115), sovereign SPIR-V emission (GAP-HS-124), 13 math pack/unpack builtins, naga::Module multi-entry-point hardening, wgsl_to_spirv() API. 3284 tests, zero unsafe, zero clippy warnings)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to toadStool |
 | coralGpu | — | *Excised Sprint 9* — dispatch delegated to toadStool |
 | Code structure | A+ | Smart refactoring: error.rs 928→mod(412)+vfio(523) (Iter 101), nv/mod.rs 857→747+fecs_init(124) (Iter 101), pfifo.rs 882→695+bar2_init(199) (Iter 101), ioctl 929→655 (Iter 97), channel 896→594 (Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 3245 passing, 0 failed, IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig (sinh/cosh/asinh/acosh/atanh), float decomposition (modf/frexp/ldexp), bit scan (firstTrailingBit/firstLeadingBit), adapter-aware arch inference, subgroupBallot copy-prop regression |
+| Tests | A+ | 3284 passing, 0 failed, IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -41,7 +41,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 13** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 68** |
 
 ### Post-101: Sprint 6 — Ecosystem Wave Sync: Phase D Markers, FECS Stability (May 12, 2026)
 

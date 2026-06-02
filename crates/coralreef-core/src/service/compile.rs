@@ -204,6 +204,7 @@ pub fn handle_compile_spirv(
             binary_format: Some(binary_format_for(options.target)),
             execution_model: Some("simt".to_owned()),
         }),
+        spirv_binary: None,
     })
 }
 
@@ -256,6 +257,9 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
     let hardware_hint = dispatch_hint_from_precision_advice(req.precision_advice.as_ref());
     let t0 = Instant::now();
     let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
+    let spirv = coral_reef::wgsl_to_spirv(req.wgsl_source.as_ref(), &options)
+        .map(Bytes::from)
+        .ok();
     let elapsed = t0.elapsed();
     let size = compiled.binary.len();
     Ok(CompileResponse {
@@ -278,6 +282,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
             binary_format: Some(binary_format_for(options.target)),
             execution_model: Some("simt".to_owned()),
         }),
+        spirv_binary: spirv,
     })
 }
 
@@ -419,5 +424,6 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
             binary_format: Some("ptx".to_owned()),
             execution_model: Some("simt".to_owned()),
         }),
+        spirv_binary: None,
     })
 }

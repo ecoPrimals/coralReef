@@ -119,6 +119,7 @@ pub fn emit_gemm_ptx(
     writeln!(ptx, "    // Store C fragment").expect("write to String");
     writeln!(ptx, "    st.global.v4.b32 [%rd2], {{%r0, %r1, %r2, %r3}};").expect("write to String");
     writeln!(ptx).expect("write to String");
+    writeln!(ptx, "    membar.sys;").expect("write to String");
     writeln!(ptx, "    ret;").expect("write to String");
     writeln!(ptx, "}}").expect("write to String");
 

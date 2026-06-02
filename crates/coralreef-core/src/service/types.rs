@@ -163,6 +163,15 @@ pub struct CompileResponse {
     /// Tells barraCuda/toadStool which hardware unit the binary targets.
     #[serde(default)]
     pub dispatch_hints: Option<DispatchHints>,
+    /// Sovereign SPIR-V binary (GAP-HS-124), base64-encoded on the wire.
+    /// Contains valid SPIR-V (magic `0x07230203`) for Vulkan passthrough
+    /// dispatch. Present only for WGSL compile paths; absent for direct
+    /// SPIR-V input and GEMM compiles.
+    ///
+    /// No `skip_serializing_if` — bincode (tarpc transport) is positional
+    /// and breaks when fields are conditionally omitted.
+    #[serde(default)]
+    pub spirv_binary: Option<Bytes>,
 }
 
 /// Hints for the dispatch layer about hardware unit targeting.
