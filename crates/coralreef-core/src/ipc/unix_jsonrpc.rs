@@ -254,7 +254,10 @@ mod inner {
     /// When `runtime_dir` is `None`, uses the centralized 3-tier resolution
     /// (`BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`).
     #[must_use]
-    #[allow(dead_code, reason = "pub API consumed by integration tests, not the binary")]
+    #[allow(
+        dead_code,
+        reason = "pub API consumed by integration tests, not the binary"
+    )]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
         let base = runtime_dir.map_or_else(crate::config::socket_dir, |d| {
             d.join(crate::config::ecosystem_namespace())

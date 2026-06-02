@@ -213,7 +213,7 @@ impl fmt::Display for Function {
                 if is_annotation {
                     write!(f, "\n{op}\n")?;
                 } else if deps.is_empty() {
-                    write!(f, "{pred:<pred_width$} {dsts:<dsts_width$} {eq_sym} {op}\n",)?;
+                    write!(f, "{pred:<pred_width$} {dsts:<dsts_width$} {eq_sym} {op}\n")?;
                 } else {
                     write!(
                         f,

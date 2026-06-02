@@ -337,12 +337,7 @@ impl SimpleLiveness {
             }
         }
 
-        for ((bl, b_live_in), b_live_out) in l
-            .blocks
-            .iter_mut()
-            .zip(live_in.into_iter())
-            .zip(live_out.into_iter())
-        {
+        for ((bl, b_live_in), b_live_out) in l.blocks.iter_mut().zip(live_in).zip(live_out) {
             bl.live_in = b_live_in;
             bl.live_out = b_live_out;
         }

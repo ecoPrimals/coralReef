@@ -107,7 +107,7 @@ impl<'sm, 'mod_lt> NagaTranslator<'sm, 'mod_lt> {
     ) -> Result<Shader<'sm>, CompileError> {
         if entry_point.stage != naga::ShaderStage::Compute {
             return Err(CompileError::InvalidInput(
-                format!("expected compute stage, got {:?}", entry_point.stage,).into(),
+                format!("expected compute stage, got {:?}", entry_point.stage).into(),
             ));
         }
 
@@ -220,9 +220,7 @@ pub fn translate<'sm>(
         .iter()
         .find(|ep| ep.name == entry_point_name)
         .ok_or_else(|| {
-            CompileError::InvalidInput(
-                format!("entry point '{entry_point_name}' not found",).into(),
-            )
+            CompileError::InvalidInput(format!("entry point '{entry_point_name}' not found").into())
         })?;
 
     let translator = NagaTranslator::new(sm, module);

@@ -59,12 +59,8 @@ impl PtxEmitter<'_> {
             MF::Normalize => {
                 let PtxVal::Vec(comps) = arg else {
                     let dst = self.alloc_r32();
-                    writeln!(
-                        self.body,
-                        "    mov.f32 {}, 0f3F800000;",
-                        dst.fmt_operand(),
-                    )
-                    .expect("write to String");
+                    writeln!(self.body, "    mov.f32 {}, 0f3F800000;", dst.fmt_operand())
+                        .expect("write to String");
                     return Ok(dst);
                 };
                 let dot_acc = self.alloc_r32();
@@ -113,9 +109,8 @@ impl PtxEmitter<'_> {
                 Ok(PtxVal::Vec(result))
             }
             MF::Distance => {
-                let rhs = arg1.ok_or_else(|| {
-                    CompileError::NotImplemented("distance without arg1".into())
-                })?;
+                let rhs = arg1
+                    .ok_or_else(|| CompileError::NotImplemented("distance without arg1".into()))?;
                 let (PtxVal::Vec(lhs_comps), PtxVal::Vec(rhs_comps)) = (arg, rhs) else {
                     return Err(CompileError::NotImplemented(
                         "PTX distance: non-vector operands".into(),
@@ -170,8 +165,8 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Cross => {
-                let rhs = arg1
-                    .ok_or_else(|| CompileError::NotImplemented("cross without arg1".into()))?;
+                let rhs =
+                    arg1.ok_or_else(|| CompileError::NotImplemented("cross without arg1".into()))?;
                 let (PtxVal::Vec(a), PtxVal::Vec(b)) = (arg, rhs) else {
                     return Err(CompileError::NotImplemented(
                         "PTX cross: non-vector operands".into(),
@@ -235,244 +230,8 @@ impl PtxEmitter<'_> {
                 .expect("write to String");
                 Ok(PtxVal::Vec(vec![rx, ry, rz]))
             }
-            MF::Tan => {
-                let sin_dst = self.alloc_for_scalar(scalar);
-                let cos_dst = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    sin.approx.{ts} {}, {};",
-                    sin_dst.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    cos.approx.{ts} {}, {};",
-                    cos_dst.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                let dst = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    div.rn.{ts} {}, {}, {};",
-                    dst.fmt_operand(),
-                    sin_dst.fmt_operand(),
-                    cos_dst.fmt_operand(),
-                )
-                .expect("write to String");
-                Ok(dst)
-            }
-            MF::Atan => {
-                let dst = self.alloc_for_scalar(scalar);
-                let abs_x = self.alloc_for_scalar(scalar);
-                let x2 = self.alloc_for_scalar(scalar);
-                writeln!(self.body, "    abs.{ts} {}, {};", abs_x.fmt_operand(), arg.fmt_operand())
-                    .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    mul.rn.{ts} {}, {}, {};",
-                    x2.fmt_operand(),
-                    arg.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                // Polynomial approximation: atan(x) ≈ x * (1 - x²/3 + x⁴/5 ...)
-                // Use hardware-friendly: atan(x) ≈ x / (1 + 0.28125*x²) for |x|<1
-                let denom = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    fma.rn.{ts} {denom}, 0f3E900000, {x2}, 0f3F800000;",
-                    denom = denom.fmt_operand(),
-                    x2 = x2.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    div.rn.{ts} {}, {}, {};",
-                    dst.fmt_operand(),
-                    arg.fmt_operand(),
-                    denom.fmt_operand(),
-                )
-                .expect("write to String");
-                Ok(dst)
-            }
-            MF::Atan2 => {
-                let rhs =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("atan2 without arg1".into()))?;
-                let dst = self.alloc_for_scalar(scalar);
-                let ratio = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    div.rn.{ts} {}, {}, {};",
-                    ratio.fmt_operand(),
-                    arg.fmt_operand(),
-                    rhs.fmt_operand(),
-                )
-                .expect("write to String");
-                let r2 = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.rn.{ts} {}, {}, {};",
-                    r2.fmt_operand(),
-                    ratio.fmt_operand(),
-                    ratio.fmt_operand(),
-                )
-                .expect("write to String");
-                let denom = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    fma.rn.{ts} {denom}, 0f3E900000, {r2}, 0f3F800000;",
-                    denom = denom.fmt_operand(),
-                    r2 = r2.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    div.rn.{ts} {}, {}, {};",
-                    dst.fmt_operand(),
-                    ratio.fmt_operand(),
-                    denom.fmt_operand(),
-                )
-                .expect("write to String");
-                Ok(dst)
-            }
-            MF::Asin => {
-                let dst = self.alloc_for_scalar(scalar);
-                let x2 = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.rn.{ts} {}, {}, {};",
-                    x2.fmt_operand(),
-                    arg.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                let one_minus = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    sub.{ts} {}, 0f3F800000, {};",
-                    one_minus.fmt_operand(),
-                    x2.fmt_operand(),
-                )
-                .expect("write to String");
-                let inv_sqrt = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    rsqrt.approx.{ts} {}, {};",
-                    inv_sqrt.fmt_operand(),
-                    one_minus.fmt_operand(),
-                )
-                .expect("write to String");
-                let scaled = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.rn.{ts} {}, {}, {};",
-                    scaled.fmt_operand(),
-                    arg.fmt_operand(),
-                    inv_sqrt.fmt_operand(),
-                )
-                .expect("write to String");
-                // atan approximation on scaled value
-                let s2 = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.rn.{ts} {}, {}, {};",
-                    s2.fmt_operand(),
-                    scaled.fmt_operand(),
-                    scaled.fmt_operand(),
-                )
-                .expect("write to String");
-                let denom = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    fma.rn.{ts} {denom}, 0f3E900000, {s2}, 0f3F800000;",
-                    denom = denom.fmt_operand(),
-                    s2 = s2.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    div.rn.{ts} {}, {}, {};",
-                    dst.fmt_operand(),
-                    scaled.fmt_operand(),
-                    denom.fmt_operand(),
-                )
-                .expect("write to String");
-                Ok(dst)
-            }
-            MF::Acos => {
-                // acos(x) = π/2 - asin(x)
-                let dst = self.alloc_for_scalar(scalar);
-                let x2 = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.rn.{ts} {}, {}, {};",
-                    x2.fmt_operand(),
-                    arg.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                let one_minus = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    sub.{ts} {}, 0f3F800000, {};",
-                    one_minus.fmt_operand(),
-                    x2.fmt_operand(),
-                )
-                .expect("write to String");
-                let inv_sqrt = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    rsqrt.approx.{ts} {}, {};",
-                    inv_sqrt.fmt_operand(),
-                    one_minus.fmt_operand(),
-                )
-                .expect("write to String");
-                let scaled = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.rn.{ts} {}, {}, {};",
-                    scaled.fmt_operand(),
-                    arg.fmt_operand(),
-                    inv_sqrt.fmt_operand(),
-                )
-                .expect("write to String");
-                let s2 = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.rn.{ts} {}, {}, {};",
-                    s2.fmt_operand(),
-                    scaled.fmt_operand(),
-                    scaled.fmt_operand(),
-                )
-                .expect("write to String");
-                let denom = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    fma.rn.{ts} {denom}, 0f3E900000, {s2}, 0f3F800000;",
-                    denom = denom.fmt_operand(),
-                    s2 = s2.fmt_operand(),
-                )
-                .expect("write to String");
-                let asin_val = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    div.rn.{ts} {}, {}, {};",
-                    asin_val.fmt_operand(),
-                    scaled.fmt_operand(),
-                    denom.fmt_operand(),
-                )
-                .expect("write to String");
-                // pi/2 = 0x3FC90FDB
-                writeln!(
-                    self.body,
-                    "    sub.{ts} {}, 0f3FC90FDB, {};",
-                    dst.fmt_operand(),
-                    asin_val.fmt_operand(),
-                )
-                .expect("write to String");
-                Ok(dst)
+            MF::Tan | MF::Atan | MF::Atan2 | MF::Asin | MF::Acos => {
+                self.eval_math_trig(fun, arg, arg1, scalar, ts)
             }
             MF::Reflect => {
                 let rhs = arg1
@@ -643,160 +402,7 @@ impl PtxEmitter<'_> {
                 .expect("write to String");
                 Ok(dst)
             }
-            MF::Asinh => {
-                // asinh(x) = log(x + sqrt(x*x + 1))
-                let x_sq = self.alloc_for_scalar(scalar);
-                let sum = self.alloc_for_scalar(scalar);
-                let sq = self.alloc_for_scalar(scalar);
-                let inner = self.alloc_for_scalar(scalar);
-                let lg2 = self.alloc_for_scalar(scalar);
-                let dst = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.{ts} {}, {}, {};",
-                    x_sq.fmt_operand(),
-                    arg.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    add.{ts} {}, {}, 0f3F800000;",
-                    sum.fmt_operand(),
-                    x_sq.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    sqrt.rn.{ts} {}, {};",
-                    sq.fmt_operand(),
-                    sum.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    add.{ts} {}, {}, {};",
-                    inner.fmt_operand(),
-                    arg.fmt_operand(),
-                    sq.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    lg2.approx.{ts} {}, {};",
-                    lg2.fmt_operand(),
-                    inner.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    mul.{ts} {}, {}, 0f3F317218;",
-                    dst.fmt_operand(),
-                    lg2.fmt_operand(),
-                )
-                .expect("write to String");
-                Ok(dst)
-            }
-            MF::Acosh => {
-                // acosh(x) = log(x + sqrt(x*x - 1))
-                let x_sq = self.alloc_for_scalar(scalar);
-                let diff = self.alloc_for_scalar(scalar);
-                let sq = self.alloc_for_scalar(scalar);
-                let inner = self.alloc_for_scalar(scalar);
-                let lg2 = self.alloc_for_scalar(scalar);
-                let dst = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    mul.{ts} {}, {}, {};",
-                    x_sq.fmt_operand(),
-                    arg.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    sub.{ts} {}, {}, 0f3F800000;",
-                    diff.fmt_operand(),
-                    x_sq.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    sqrt.rn.{ts} {}, {};",
-                    sq.fmt_operand(),
-                    diff.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    add.{ts} {}, {}, {};",
-                    inner.fmt_operand(),
-                    arg.fmt_operand(),
-                    sq.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    lg2.approx.{ts} {}, {};",
-                    lg2.fmt_operand(),
-                    inner.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    mul.{ts} {}, {}, 0f3F317218;",
-                    dst.fmt_operand(),
-                    lg2.fmt_operand(),
-                )
-                .expect("write to String");
-                Ok(dst)
-            }
-            MF::Atanh => {
-                // atanh(x) = 0.5 * log((1+x)/(1-x))
-                let one_plus = self.alloc_for_scalar(scalar);
-                let one_minus = self.alloc_for_scalar(scalar);
-                let ratio = self.alloc_for_scalar(scalar);
-                let lg2 = self.alloc_for_scalar(scalar);
-                let dst = self.alloc_for_scalar(scalar);
-                writeln!(
-                    self.body,
-                    "    add.{ts} {}, 0f3F800000, {};",
-                    one_plus.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    sub.{ts} {}, 0f3F800000, {};",
-                    one_minus.fmt_operand(),
-                    arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    div.rn.{ts} {}, {}, {};",
-                    ratio.fmt_operand(),
-                    one_plus.fmt_operand(),
-                    one_minus.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
-                    self.body,
-                    "    lg2.approx.{ts} {}, {};",
-                    lg2.fmt_operand(),
-                    ratio.fmt_operand(),
-                )
-                .expect("write to String");
-                // 0.5 * ln(2) * lg2(x) = 0.5 * 0.6931472 * lg2 ≈ 0.34657359
-                writeln!(
-                    self.body,
-                    "    mul.{ts} {}, {}, 0f3EB17218;",
-                    dst.fmt_operand(),
-                    lg2.fmt_operand(),
-                )
-                .expect("write to String");
-                Ok(dst)
-            }
+            MF::Asinh | MF::Acosh | MF::Atanh => self.eval_math_trig(fun, arg, arg1, scalar, ts),
             MF::Modf => {
                 // modf returns the fractional part; the integer part goes to the result pointer.
                 // In WGSL/naga context, modf(x) → fract(x), trunc is handled separately.
@@ -866,9 +472,8 @@ impl PtxEmitter<'_> {
             }
             MF::Ldexp => {
                 // ldexp(x, exp) = x * 2^exp
-                let exp_val = arg1.ok_or_else(|| {
-                    CompileError::NotImplemented("ldexp without arg1".into())
-                })?;
+                let exp_val =
+                    arg1.ok_or_else(|| CompileError::NotImplemented("ldexp without arg1".into()))?;
                 let pow2 = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(

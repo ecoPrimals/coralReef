@@ -140,7 +140,7 @@ pub struct OpLop2 {
 
 impl DisplayOp for OpLop2 {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "lop2.{} {} {}", self.op, self.srcs[0], self.srcs[1],)
+        write!(f, "lop2.{} {} {}", self.op, self.srcs[0], self.srcs[1])
     }
 }
 

@@ -71,7 +71,7 @@ pub(super) fn insert_texture_barriers(f: &mut Function, sm: &dyn ShaderModel) {
     }
     .solve();
 
-    for (block, mut sim) in f.blocks.iter_mut().zip(state_in.into_iter()) {
+    for (block, mut sim) in f.blocks.iter_mut().zip(state_in) {
         block.map_instrs(|instr| {
             if let Some(textures_left) = sim.visit_instr(&instr) {
                 let bar = Instr::new(OpTexDepBar { textures_left });

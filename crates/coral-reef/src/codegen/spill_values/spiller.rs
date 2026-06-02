@@ -599,6 +599,6 @@ pub(super) fn spill_values<S: Spill>(func: &mut Function, file: RegFile, limit: 
             .phi_srcs_ip()
             .or_else(|| pb.branch_ip())
             .unwrap_or(pb.instrs.len());
-        pb.instrs.splice(ip..ip, instrs.into_iter());
+        pb.instrs.splice(ip..ip, instrs);
     }
 }

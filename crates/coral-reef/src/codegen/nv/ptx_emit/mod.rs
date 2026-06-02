@@ -30,9 +30,11 @@ mod expr_misc;
 pub mod gemm;
 mod math;
 mod math_ext;
+mod math_ext_trig;
 mod pointers;
 mod ray_query;
 mod statements;
+mod subgroup;
 mod types;
 
 use std::collections::HashMap;
@@ -141,4 +143,3 @@ mod tests_core;
 mod tests_image;
 #[cfg(test)]
 mod tests_math_ext;
-

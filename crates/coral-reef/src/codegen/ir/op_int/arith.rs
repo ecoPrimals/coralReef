@@ -248,7 +248,7 @@ pub struct OpIMad {
 
 impl DisplayOp for OpIMad {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "imad {} {} {}", self.srcs[0], self.srcs[1], self.srcs[2],)
+        write!(f, "imad {} {} {}", self.srcs[0], self.srcs[1], self.srcs[2])
     }
 }
 impl_display_for_op!(OpIMad);

@@ -147,10 +147,7 @@ fn generate_order(g: &mut DepGraph, init_ready_list: Vec<usize>) -> (Vec<usize>,
     let mut instr_order = Vec::with_capacity(g.nodes.len());
     loop {
         // Move ready instructions to the ready list
-        loop {
-            let Some(fri) = future_ready_instrs.peek() else {
-                break;
-            };
+        while let Some(fri) = future_ready_instrs.peek() {
             if current_cycle < fri.ready_cycle.0 {
                 break;
             }

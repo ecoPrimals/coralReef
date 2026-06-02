@@ -134,10 +134,10 @@ fn legalize_instr(
 
         if !block_uniform {
             match &mut src.reference {
-                SrcRef::SSA(vec) => {
-                    if vec.is_uniform() && vec.comps() > 1 && !pinned.contains(vec) {
-                        b.copy_ssa_ref(vec, vec.file().to_warp());
-                    }
+                SrcRef::SSA(vec)
+                    if vec.is_uniform() && vec.comps() > 1 && !pinned.contains(vec) =>
+                {
+                    b.copy_ssa_ref(vec, vec.file().to_warp());
                 }
                 SrcRef::CBuf(CBufRef {
                     buf: CBuf::BindlessSSA(handle),

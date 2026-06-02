@@ -26,7 +26,7 @@ impl DisplayOp for OpFAdd {
         if self.ftz {
             write!(f, ".ftz")?;
         }
-        write!(f, " {} {}", self.srcs[0], self.srcs[1],)
+        write!(f, " {} {}", self.srcs[0], self.srcs[1])
     }
 }
 impl_display_for_op!(OpFAdd);
@@ -117,7 +117,7 @@ impl DisplayOp for OpFMul {
         } else if self.ftz {
             write!(f, ".ftz")?;
         }
-        write!(f, " {} {}", self.srcs[0], self.srcs[1],)
+        write!(f, " {} {}", self.srcs[0], self.srcs[1])
     }
 }
 impl_display_for_op!(OpFMul);
@@ -217,7 +217,7 @@ pub struct OpFSwzAdd {
 
 impl DisplayOp for OpFSwzAdd {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "fswzadd",)?;
+        write!(f, "fswzadd")?;
         if self.rnd_mode != FRndMode::NearestEven {
             write!(f, "{}", self.rnd_mode)?;
         }

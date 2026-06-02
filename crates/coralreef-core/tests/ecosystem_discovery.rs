@@ -191,7 +191,11 @@ fn live_discovery_toadstool_gpu_target_to_compile() {
     xdg.set(tmp.path().to_str().expect("utf8"));
 
     let devices = coralreef_core::discovery::discover_gpu_devices();
-    assert_eq!(devices.len(), 2, "should discover 2 GPU devices from toadStool");
+    assert_eq!(
+        devices.len(),
+        2,
+        "should discover 2 GPU devices from toadStool"
+    );
     assert_eq!(devices[0].vendor, "nvidia");
     assert_eq!(devices[0].arch.as_deref(), Some("sm86"));
     assert_eq!(devices[1].vendor, "amd");
@@ -231,11 +235,7 @@ fn live_discovery_mixed_primals_only_gpu_resolved() {
         "provides": ["compute.dispatch.submit", "gpu.dispatch"],
         "devices": [{"vendor": "nvidia", "arch": "sm70"}]
     });
-    std::fs::write(
-        discovery_dir.join("toadstool.json"),
-        toadstool.to_string(),
-    )
-    .expect("write");
+    std::fs::write(discovery_dir.join("toadstool.json"), toadstool.to_string()).expect("write");
 
     let beardog = serde_json::json!({
         "primal": "beardog",
@@ -244,11 +244,7 @@ fn live_discovery_mixed_primals_only_gpu_resolved() {
         "provides": ["auth.check", "btsp.negotiate", "crypto.sign"],
         "devices": []
     });
-    std::fs::write(
-        discovery_dir.join("beardog.json"),
-        beardog.to_string(),
-    )
-    .expect("write");
+    std::fs::write(discovery_dir.join("beardog.json"), beardog.to_string()).expect("write");
 
     let nestgate = serde_json::json!({
         "primal": "nestgate",
@@ -257,16 +253,16 @@ fn live_discovery_mixed_primals_only_gpu_resolved() {
         "provides": ["storage.read", "storage.write", "storage.delete"],
         "devices": []
     });
-    std::fs::write(
-        discovery_dir.join("nestgate.json"),
-        nestgate.to_string(),
-    )
-    .expect("write");
+    std::fs::write(discovery_dir.join("nestgate.json"), nestgate.to_string()).expect("write");
 
     xdg.set(tmp.path().to_str().expect("utf8"));
 
     let devices = coralreef_core::discovery::discover_gpu_devices();
-    assert_eq!(devices.len(), 1, "only toadStool's GPU device should appear");
+    assert_eq!(
+        devices.len(),
+        1,
+        "only toadStool's GPU device should appear"
+    );
     assert_eq!(devices[0].vendor, "nvidia");
     assert_eq!(devices[0].arch.as_deref(), Some("sm70"));
 }

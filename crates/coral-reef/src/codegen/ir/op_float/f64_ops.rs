@@ -20,7 +20,7 @@ impl DisplayOp for OpDAdd {
         if self.rnd_mode != FRndMode::NearestEven {
             write!(f, "{}", self.rnd_mode)?;
         }
-        write!(f, " {} {}", self.srcs[0], self.srcs[1],)
+        write!(f, " {} {}", self.srcs[0], self.srcs[1])
     }
 }
 impl_display_for_op!(OpDAdd);
@@ -43,7 +43,7 @@ impl DisplayOp for OpDMul {
         if self.rnd_mode != FRndMode::NearestEven {
             write!(f, "{}", self.rnd_mode)?;
         }
-        write!(f, " {} {}", self.srcs[0], self.srcs[1],)
+        write!(f, " {} {}", self.srcs[0], self.srcs[1])
     }
 }
 impl_display_for_op!(OpDMul);

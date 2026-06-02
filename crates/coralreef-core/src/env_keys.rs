@@ -39,8 +39,7 @@ pub const CORALREEF_TCP_BIND: &str = "CORALREEF_TCP_BIND";
 pub const CORALREEF_COMPILE_TIMEOUT_SECS: &str = "CORALREEF_COMPILE_TIMEOUT_SECS";
 
 /// Test-only shutdown join timeout override (honored in test/debug builds).
-pub const CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS: &str =
-    "CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS";
+pub const CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS: &str = "CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS";
 
 /// coralReef-specific auth mode override.
 pub const CORALREEF_AUTH_MODE: &str = "CORALREEF_AUTH_MODE";

@@ -121,7 +121,7 @@ impl DisplayOp for OpF2FP {
         if self.rnd_mode != FRndMode::NearestEven {
             write!(f, "{}", self.rnd_mode)?;
         }
-        write!(f, " {}, {}", self.srcs[0], self.srcs[1],)
+        write!(f, " {}, {}", self.srcs[0], self.srcs[1])
     }
 }
 impl_display_for_op!(OpF2FP);
@@ -259,7 +259,7 @@ impl DisplayOp for OpI2I {
         if self.saturate {
             write!(f, ".sat ")?;
         }
-        write!(f, "{}{} {}", self.dst_type, self.src_type, self.src,)?;
+        write!(f, "{}{} {}", self.dst_type, self.src_type, self.src)?;
         if self.abs {
             write!(f, ".abs")?;
         }
@@ -542,7 +542,7 @@ pub struct OpSel {
 
 impl DisplayOp for OpSel {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "sel {} {} {}", self.cond(), self.srcs[1], self.srcs[2],)
+        write!(f, "sel {} {} {}", self.cond(), self.srcs[1], self.srcs[2])
     }
 }
 impl_display_for_op!(OpSel);
@@ -726,7 +726,7 @@ impl Foldable for OpPopC {
 
 impl DisplayOp for OpPopC {
     fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "popc {}", self.src,)
+        write!(f, "popc {}", self.src)
     }
 }
 impl_display_for_op!(OpPopC);

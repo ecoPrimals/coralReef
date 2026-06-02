@@ -266,10 +266,8 @@ pub fn parse_xml(
                             current_field_offset = v;
                         }
                     }
-                    "FieldName" => {
-                        if in_field {
-                            current_field_name = text;
-                        }
+                    "FieldName" if in_field => {
+                        current_field_name = text;
                     }
                     "InstructionName" => current_instr_name = text,
                     "Description" => current_instr_desc = text,

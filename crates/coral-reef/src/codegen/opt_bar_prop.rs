@@ -74,11 +74,7 @@ impl BarPropPass {
     fn map_bar<'a>(&'a self, ssa: &'a SSAValue) -> Option<&'a SSAValue> {
         let mut ssa = ssa;
         let mut last_bar = None;
-        loop {
-            let Some(mapped) = self.ssa_map.get(ssa) else {
-                break;
-            };
-
+        while let Some(mapped) = self.ssa_map.get(ssa) {
             if mapped.file() == RegFile::Bar {
                 last_bar = Some(mapped);
             }

@@ -72,11 +72,8 @@ fn jump_thread(func: &mut Function) -> bool {
         // Is this block trivial?
         let block_label = func.blocks[i].label;
         match &func.blocks[i].instrs[..] {
-            [instr] => {
-                if instr.is_branch_always_taken() {
-                    // Upholds invariant 2 because we updated the branch above
-                    replacements.insert(block_label, clone_branch(&instr.op));
-                }
+            [instr] if instr.is_branch_always_taken() => {
+                replacements.insert(block_label, clone_branch(&instr.op));
             }
             [] if i + 1 < func.blocks.len() => {
                 // Empty block - falls through

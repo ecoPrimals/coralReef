@@ -65,7 +65,7 @@ impl PtxEmitter<'_> {
         // SM75+ inline ray tracing: allocate opaque query state.
         // The query handle is a 64-bit opaque token representing the
         // traversal state machine maintained by the RT cores.
-        writeln!(self.body, "    mov.u64 {}, 0;", query_handle.fmt_operand(),)
+        writeln!(self.body, "    mov.u64 {}, 0;", query_handle.fmt_operand())
             .expect("write to String");
 
         // Emit ray parameters into registers for the RT dispatch.
@@ -191,7 +191,7 @@ impl PtxEmitter<'_> {
             .get(&query)
             .map_or(PtxVal::Rd64(0), |s| s.query_handle.clone());
 
-        writeln!(self.body, "    // rt.trace.terminate {};", qh.fmt_operand(),)
+        writeln!(self.body, "    // rt.trace.terminate {};", qh.fmt_operand())
             .expect("write to String");
 
         Ok(())

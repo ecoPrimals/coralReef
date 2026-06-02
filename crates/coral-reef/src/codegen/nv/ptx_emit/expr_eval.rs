@@ -294,7 +294,12 @@ impl PtxEmitter<'_> {
             String::from("0")
         };
 
-        let dst = [self.alloc_r32(), self.alloc_r32(), self.alloc_r32(), self.alloc_r32()];
+        let dst = [
+            self.alloc_r32(),
+            self.alloc_r32(),
+            self.alloc_r32(),
+            self.alloc_r32(),
+        ];
         let dst_str = format!(
             "{{{}, {}, {}, {}}}",
             dst[0].fmt_operand(),
@@ -347,7 +352,12 @@ impl PtxEmitter<'_> {
 
         if let (true, Some(ref_expr)) = (is_depth, depth_ref) {
             return self.eval_depth_compare_sample(
-                tex_idx, &coord, array_val.as_ref(), dim, &level, ref_expr,
+                tex_idx,
+                &coord,
+                array_val.as_ref(),
+                dim,
+                &level,
+                ref_expr,
             );
         }
 
@@ -479,7 +489,12 @@ impl PtxEmitter<'_> {
         format!("{{{}}}", parts.join(", "))
     }
 
-    fn format_tex_coord(&self, coord: &PtxVal, array_val: Option<&PtxVal>, dim: ImageDim) -> String {
+    fn format_tex_coord(
+        &self,
+        coord: &PtxVal,
+        array_val: Option<&PtxVal>,
+        dim: ImageDim,
+    ) -> String {
         let mut parts: Vec<String> = Vec::new();
 
         if let Some(layer) = array_val {
@@ -548,9 +563,7 @@ impl PtxEmitter<'_> {
         }
 
         let surf_idx = self.surface_index(gv_handle).ok_or_else(|| {
-            CompileError::InvalidInput(
-                "ImageQuery source is not a recognized binding".into(),
-            )
+            CompileError::InvalidInput("ImageQuery source is not a recognized binding".into())
         })?;
         let dim = self.surfaces[surf_idx].dim;
 
@@ -693,8 +706,7 @@ impl PtxEmitter<'_> {
     /// allocate a default-false predicate as a fallback.
     fn eval_ray_query_proceed_result(&mut self) -> Result<PtxVal, CompileError> {
         let p = self.alloc_pred();
-        writeln!(self.body, "    setp.eq.u32 {}, 0, 1;", p.fmt_operand(),)
-            .expect("write to String");
+        writeln!(self.body, "    setp.eq.u32 {}, 0, 1;", p.fmt_operand()).expect("write to String");
         Ok(p)
     }
 
