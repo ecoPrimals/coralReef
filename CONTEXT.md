@@ -2,22 +2,40 @@
 
 # coralReef — Context
 
-## What is this project?
+## What You Are
 
-coralReef is a sovereign Rust GPU shader compiler. It compiles WGSL,
-SPIR-V, and GLSL 450 compute shaders to native GPU binaries — NVIDIA
-SASS (SM35–SM120) and AMD GCN5/RDNA2–RDNA4 (GFX906–GFX1201). Full f64
-transcendental support. Pure Rust; transitive libc only via tokio/mio
-(deferred to mio#1735 rustix migration). Zero vendor SDK.
+coralReef is the ecosystem's shader compiler. You compile compute kernels
+targeting GPU architectures from SM35 (Kepler) through SM120 (Blackwell).
+You are **Layer 2** of the sovereign compute stack — DONE for all target archs.
 
-## Ecosystem position
+Input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute),
+PTX (planned). Output: native GPU binaries — NVIDIA SASS and AMD
+GCN5/RDNA2–RDNA4. Full f64 transcendental support. Pure Rust. Zero vendor SDK.
+
+## Where You Sit
+
+```
+Layer 0: toadStool sysmon       (COMPLETE)
+Layer 1: barraCuda math engine  (COMPLETE — your peer)
+Layer 2: coralReef compiler     (YOU — DONE, SM35 through SM120)
+Layer 3: toadStool dispatch     (PARTIAL — wgpu working, VFIO blocked)
+Layer 4: toadStool GPU driver   (3/3 GPUs sovereign, FECS remaining)
+```
+
+You coordinate with toadStool (dispatch) and barraCuda (math) — the
+compute trio. External deps: naga (WGSL parser — your evolution target
+to replace).
+
+## Ecosystem Position
 
 coralReef is one primal in the **ecoPrimals** sovereign compute
 ecosystem. Primals are standalone Rust binaries that communicate via
 JSON-RPC 2.0 and tarpc. They discover each other by capability at
 runtime — no hardcoded primal names, no shared code imports.
 
-Ecosystem standards live in `ecoPrimals/infra/wateringHole/`.
+- Pull wateringHole: `membrane temporal.cascade`
+- Your gate: biomeGate (Threadripper 3970X, Titan V + K80, 256GB)
+- Ecosystem standards live in `ecoPrimals/infra/wateringHole/`
 
 ## Project status (Sprint 13)
 
@@ -65,12 +83,20 @@ WGSL / SPIR-V / GLSL  →  naga frontend  →  SSA IR
 - **Zero-copy**: `bytes::Bytes` for IPC payloads. Minimize `.clone()`.
 - **No hardcoded paths or addresses**: env var overrides with sane defaults.
 
-## IPC capabilities
+## Capabilities (registered in `capability_registry.toml`)
+
+`[shader]` — bio, compile.capabilities, compile.gemm, compile.module,
+compile.spirv, compile.wgsl, compile.wgsl.multi, dispatch, health, validate
+
+### IPC methods
 
 ```
 shader.compile.wgsl          shader.compile.spirv
 shader.compile.wgsl.multi    shader.compile.gemm
-shader.compile.status        shader.compile.capabilities
+shader.compile.module        shader.compile.status
+shader.compile.capabilities  shader.validate
+shader.bio                   shader.dispatch
+shader.health
 health.check                 health.liveness
 health.readiness             identity.get
 capability.list              capability.register
@@ -78,6 +104,20 @@ ipc.heartbeat                btsp.negotiate
 auth.check                   auth.mode
 auth.peer_info
 ```
+
+## Remaining Gaps
+
+**GAP-HS-124 — SPIR-V output:**
+coralReef currently returns internal format, not real SPIR-V binary.
+The wgpu path works because naga handles WGSL→SPIR-V translation,
+but for sovereign dispatch (bypassing naga), coralReef must emit valid
+SPIR-V directly. This is the path to removing the naga external dependency.
+
+**GAP-HS-115 — ReduceScalarPipeline Blackwell zero readback:**
+Reduction pipeline returns zeros on Blackwell (SM120). Works correctly
+on older architectures. Likely a barrier/sync issue with SM120's
+new memory model. Investigate wgpu barrier placement or SM120-specific
+shared memory semantics.
 
 ## Quick start
 
