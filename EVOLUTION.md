@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: May 29, 2026 (Phase 10 — Sprint 13 / Wave 61)
-**Phase**: 10 — Sprint 13 / Wave 61: Inverse trig, geometry math, bit ops, texture queries, DH-1 /tmp cleanup, module refactor. 3234 tests, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: June 2, 2026 (Phase 10 — Sprint 14 / Wave 68)
+**Phase**: 10 — Sprint 14 / Wave 68: SM120 barrier fix, sovereign SPIR-V emission, math pack/unpack builtins, module hardening. 3284 tests, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3234 tests. Zero clippy warnings.
+Pure Rust. Zero unsafe. 3284 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
@@ -219,12 +219,12 @@ through the full pipeline (naga → SSA IR → optimize → legalize → RA → 
 - [x] Tan (f32 via MUFU, f64 via sin/cos)
 - [x] Asin, Acos, Atan, Atan2
 - [x] Sinh, Cosh, Tanh, Asinh, Acosh, Atanh
-- [ ] Ldexp, Frexp, Modf
-- [ ] Transpose, Determinant, Inverse (matrix)
-- [ ] Pack/Unpack (2x16float, 4x8snorm, etc.)
+- [x] Ldexp, Frexp, Modf (Wave 67)
+- [x] Transpose, Determinant, Inverse (matrix) (Wave 68)
+- [x] Pack/Unpack (2x16float, 4x8snorm, etc.) (Wave 68)
 - [x] CountOneBits, ReverseBits, FirstLeadingBit, CountLeadingZeros
 - [x] FirstTrailingBit
-- [ ] ExtractBits, InsertBits
+- [x] ExtractBits, InsertBits (Wave 61)
 
 ---
 
@@ -267,10 +267,10 @@ early returns with standard control flow to ensure expr_map insertion.
 | ~~Remaining math functions~~ | **Done** (Sprint 4–11) — trig, hyperbolic, bit ops |
 | ~~Image/texture ops~~ | **Done** (Sprint 10–11) — ImageLoad/Store/Query/Sample/Gather/Atomic |
 | ~~Subgroup ops~~ | **Done** (Sprint 4) — ballot, reduce, shuffle, inclusive/exclusive scan |
-| Matrix math | Transpose, Determinant, Inverse |
-| Pack/Unpack | 2x16float, 4x8snorm, etc. |
-| ExtractBits/InsertBits | Bit manipulation builtins |
-| Ldexp/Frexp/Modf | Special float builtins |
+| ~~Matrix math~~ | **Done** (Wave 68) — Transpose, Determinant (2x2/3x3/4x4), Inverse (2x2) |
+| ~~Pack/Unpack~~ | **Done** (Wave 68) — 4x8unorm/snorm, 2x16float/unorm/snorm (all 10 variants) |
+| ~~ExtractBits/InsertBits~~ | **Done** (Wave 61) — `bfe.u32`/`bfi.b32` PTX emission |
+| ~~Ldexp/Frexp/Modf~~ | **Done** (Wave 67) — float decomposition builtins |
 
 ### Tier 4 — Full Silicon Exploitation (horizons)
 
@@ -537,7 +537,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 11: 3177 tests passing. Zero unsafe. Zero clippy warnings.
+Sprint 14 / Wave 68: 3284 tests passing. Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.

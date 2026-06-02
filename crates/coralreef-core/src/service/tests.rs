@@ -309,6 +309,49 @@ fn test_compile_wgsl_with_fma_separate() {
 }
 
 #[test]
+fn test_compile_wgsl_emits_sovereign_spirv() {
+    let req = CompileWgslRequest {
+        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: "sm_70".to_owned(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: None,
+    };
+    let resp = handle_compile_wgsl(&req).expect("should compile");
+    let spirv = resp
+        .spirv_binary
+        .expect("WGSL compile must emit sovereign SPIR-V");
+    assert!(spirv.len() >= 20, "SPIR-V must be non-trivial");
+    assert_eq!(spirv.len() % 4, 0, "SPIR-V must be word-aligned");
+    let magic = u32::from_le_bytes([spirv[0], spirv[1], spirv[2], spirv[3]]);
+    assert_eq!(magic, 0x0723_0203, "SPIR-V must have correct magic number");
+}
+
+#[test]
+fn test_compile_spirv_has_no_sovereign_spirv() {
+    let wgsl = "@compute @workgroup_size(1) fn main() {}";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("WGSL should parse");
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::default(),
+        naga::valid::Capabilities::empty(),
+    )
+    .validate(&module)
+    .expect("should validate");
+    let spirv_words =
+        naga::back::spv::write_vec(&module, &info, &naga::back::spv::Options::default(), None)
+            .expect("should produce SPIR-V");
+    let spirv_bytes: Vec<u8> = spirv_words.iter().flat_map(|w| w.to_le_bytes()).collect();
+    let resp = handle_compile_spirv(&spirv_bytes, "sm_70", 2, true).expect("should compile");
+    assert!(
+        resp.spirv_binary.is_none(),
+        "SPIR-V input path should not re-emit SPIR-V"
+    );
+}
+
+#[test]
 fn test_multi_device_compile_basic() {
     let req = MultiDeviceCompileRequest {
         wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
@@ -557,6 +600,7 @@ fn test_compile_response_serde_roundtrip() {
         }),
         compile_time_ms: Some(42.0),
         dispatch_hints: None,
+        spirv_binary: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     assert!(
@@ -615,6 +659,7 @@ fn test_compile_response_defaults_from_json() {
         info: None,
         compile_time_ms: None,
         dispatch_hints: None,
+        spirv_binary: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     assert!(!json.contains("\"compile_time_ms\""), "None should skip");

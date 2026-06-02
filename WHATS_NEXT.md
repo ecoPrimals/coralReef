@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 13 (pure compiler primal, math completeness, module hygiene).
+**Current position**: Phase 10 — Sprint 14 (pure compiler primal, sovereign SPIR-V, SM120 barrier fix, math pack/unpack completeness).
 
-**Last completed**: Wave 61 — Inverse trig (tan/atan/atan2/asin/acos), geometry math (reflect/faceForward), bit ops (extractBits/insertBits), texture query routing (txq.num_mip_levels/width/height/depth/array_size), DH-1 `/tmp` cleanup (3-tier socket resolution), math.rs + test module extraction (all files < 1000 LOC).
+**Last completed**: Wave 68 — SM120 `membar.sys` barrier fix (GAP-HS-115), sovereign SPIR-V emission via `naga::back::spv` (GAP-HS-124), 13 new math builtins (Pack/Unpack 4x8unorm/snorm, 2x16float/unorm/snorm, Transpose, Determinant 2x2/3x3/4x4, Inverse 2x2), `naga::Module` multi-entry-point hardening, `wgsl_to_spirv()` public API. Wave 67: Adapter-aware arch routing, copy-prop regression fix, hyperbolic trig (sinh/cosh/asinh/acosh/atanh), float decomposition (modf/frexp/ldexp), bit scan (firstTrailingBit/firstLeadingBit).
 
-**Tests**: 3234 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3284 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: May 29, 2026.
+**Last updated**: June 2, 2026.
 
-**Next focus**: Coverage push toward 90%. Vertex/Fragment shader compilation. Remaining data packing/matrix math builtins.
+**Next focus**: Coverage push toward 90%. Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
 ---
 
@@ -31,8 +31,8 @@
 11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
 12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
 13. ~~**Module refactor**~~ — **DONE** (Wave 61). `math.rs` split, test module extraction, all files < 1000 LOC.
-14. Coverage push toward 90% on remaining compiler crates
-15. `naga::Module` ingest path hardening (multiple entry points, validation)
+14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (Wave 68: 79.82% line, 85.36% function on coral-reef)
+15. ~~`naga::Module` ingest path hardening~~ — **DONE** (Wave 68). Multi-entry-point selection, compute-stage enforcement, improved error messages.
 
 ### Gate Deployment Readiness (Wave 67 — strandGate)
 
@@ -54,7 +54,7 @@ coralReef is assigned to strandGate (provenance trio + compute trio gate). Deplo
 ### Medium-Term Horizons (Sprint 14+)
 
 7. **Vertex + Fragment shader compilation** — graphics-stage entry points, SPH emission, graphics builtins, `dpdx`/`dpdy`, `discard`. Phase C: activates rasterizer + ROPs + full TMU pipeline.
-8. Remaining math builtins: Ldexp/Frexp/Modf, Transpose/Determinant/Inverse, Pack/Unpack
+8. ~~Remaining math builtins: Ldexp/Frexp/Modf, Transpose/Determinant/Inverse, Pack/Unpack~~ — **DONE** (Wave 67: Ldexp/Frexp/Modf; Wave 68: Transpose, Determinant, Inverse, all Pack/Unpack variants)
 9. Scan operation integer type support (subgroup reduce for i32/u32)
 
 ### Far Horizons
@@ -683,12 +683,12 @@ the full Spring absorption map.
 
 ---
 
-*The compiler evolves. Compute Trio domain split underway — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-4790 tests passing, zero failures. ~65% workspace line coverage (~82% non-hardware).
+*The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
+3284 tests passing, zero failures. ~80% coral-reef line coverage, 85% function coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
-GPU-agnostic auto-detection: any NVIDIA (SM35–SM120) or AMD (GCN5–RDNA4) GPU works out of the box.
-Wire contract aligned to Compute Trio specification: `binary_b64`, `target`, `shader_info` (with `gprs`, `shared_memory`, `barriers`, `workgroup`, `wave_size`, `local_memory`), `compile_time_ms`. Gate 1 satisfied: `shader.compile.capabilities` returns `targets` array.
-IPC: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3 encrypted frame loop; MethodGate pre-dispatch authorization (JH-0).
+Sovereign SPIR-V emission (Wave 68): `wgsl_to_spirv()` → valid SPIR-V binary for toadStool `vkCreateShaderModule`.
+SM120 barrier fix (Wave 68): `membar.sys` before thread retirement for Blackwell memory model.
+13 new math builtins (Wave 68): Pack/Unpack (4x8unorm/snorm, 2x16float/unorm/snorm), Transpose, Determinant, Inverse.
+IPC: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
-Zero `Result<_, String>` in production. Zero `eprintln!` in production library code.
-All pure Rust. Sovereignty is a runtime choice.*
+All pure Rust. Sovereignty is a compile choice.*

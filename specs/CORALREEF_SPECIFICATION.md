@@ -2,9 +2,9 @@
 
 # coralReef — Specification
 
-**Version**: 0.9.0
-**Date**: May 14, 2026
-**Status**: Phase 10 — Sprint 11 (Pure compiler primal, 3177 tests, zero unsafe)
+**Version**: 0.2.0
+**Date**: June 2, 2026
+**Status**: Phase 10 — Sprint 14 / Wave 68 (Pure compiler primal, 3284 tests, zero unsafe)
 
 ---
 
@@ -268,5 +268,5 @@ plan, pass definitions, and dependency tracking.
 
 ---
 
-**Date**: May 14, 2026
-**Version**: 0.9.0
+**Date**: June 2, 2026
+**Version**: 0.2.0

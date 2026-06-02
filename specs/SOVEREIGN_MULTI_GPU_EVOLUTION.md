@@ -336,7 +336,7 @@ Every external dependency has a planned evolution path:
 
 | Test Type | NVIDIA | AMD | Method |
 |-----------|:------:|:---:|--------|
-| Unit (encoder) | ✅ 4790 tests | ✅ 100+ tests | Instruction-level encoding verification |
+| Unit (encoder) | ✅ 3284 tests | ✅ 100+ tests | Instruction-level encoding verification |
 | Integration (pipeline) | ✅ Complete | ✅ Complete | WGSL → binary round-trip |
 | Property (proptest) | ✅ 5 tests | Extend | Random shader fuzzing |
 | Chaos | ✅ 6 tests | Extend | Concurrent, truncated, determinism |

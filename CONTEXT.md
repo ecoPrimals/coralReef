@@ -37,10 +37,10 @@ runtime — no hardcoded primal names, no shared code imports.
 - Your gate: biomeGate (Threadripper 3970X, Titan V + K80, 256GB)
 - Ecosystem standards live in `ecoPrimals/infra/wateringHole/`
 
-## Project status (Sprint 13)
+## Project status (Sprint 14)
 
-- **Tests**: 3234 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
-- **Sprint 13 (current)**: Vector math (normalize/length/cross/distance), texture load `tld.*`, `NumLayers`, RT core intersection builtins, depth comparison PTX, array/cube sampling, live toadStool discovery. Sprint 12: RayQuery PTX, compiler evolution, deep debt audit. Sprint 11: ImageSample/textureGather/ImageAtomic/WorkGroupUniformLoad. HMMA GEMM, subgroup ops, f64 fixes, IPC wire-compat aliases, texture format coverage. Legacy env vars deprecated.
+- **Tests**: 3284 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
+- **Sprint 14 (current)**: Wave 68 — SM120 `membar.sys` barrier fix (GAP-HS-115), sovereign SPIR-V emission via `naga::back::spv` (GAP-HS-124), math pack/unpack builtins (13 new PTX math ops), `naga::Module` multi-entry-point hardening, `wgsl_to_spirv()` public API. Wave 67: Adapter-aware arch routing, copy-prop multi-component fix, hyperbolic trig, float decomposition (modf/frexp/ldexp). Sprint 13: Inverse trig, geometry math, bit ops, texture queries, module refactor.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.
@@ -107,17 +107,18 @@ auth.peer_info
 
 ## Remaining Gaps
 
-**GAP-HS-124 — SPIR-V output:**
-coralReef currently returns internal format, not real SPIR-V binary.
-The wgpu path works because naga handles WGSL→SPIR-V translation,
-but for sovereign dispatch (bypassing naga), coralReef must emit valid
-SPIR-V directly. This is the path to removing the naga external dependency.
+**GAP-HS-124 — SPIR-V output: RESOLVED (Wave 68)**
+`wgsl_to_spirv()` now emits valid SPIR-V binary via `naga::back::spv::write_vec()`.
+The `spirv_binary: Option<Bytes>` field is populated in `CompileResponse` for
+WGSL compile paths. toadStool can pass this directly to `vkCreateShaderModule`.
+FRAGO: `FRAGO_CORALREEF_SPIRV_EMISSION_WAVE68_JUN02_2026.md`
 
-**GAP-HS-115 — ReduceScalarPipeline Blackwell zero readback:**
-Reduction pipeline returns zeros on Blackwell (SM120). Works correctly
-on older architectures. Likely a barrier/sync issue with SM120's
-new memory model. Investigate wgpu barrier placement or SM120-specific
-shared memory semantics.
+**GAP-HS-115 — ReduceScalarPipeline Blackwell zero readback: FIX APPLIED (Wave 68)**
+Root cause identified: missing `membar.sys` before `ret;`/`exit;` in PTX emitter
+for SM120+ targets. SASS inserts `insert_exit_system_membar()` automatically but
+PTX does not. Fix applied to `emitter.rs`, `statements.rs`, and `gemm.rs`.
+Awaiting hardware validation by hotSpring on RTX 5060.
+FRAGO: `FRAGO_CORALREEF_SM120_BARRIER_FIX_WAVE68_JUN02_2026.md`
 
 ## Quick start
 

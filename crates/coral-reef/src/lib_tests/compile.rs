@@ -56,6 +56,41 @@ fn main() {
 }
 
 #[test]
+fn test_wgsl_to_spirv_produces_valid_spirv() {
+    let spirv = wgsl_to_spirv(
+        "@compute @workgroup_size(1) fn main() {}",
+        &CompileOptions::default(),
+    )
+    .expect("should produce SPIR-V");
+    assert!(spirv.len() >= 20, "SPIR-V should be non-trivial");
+    assert_eq!(spirv.len() % 4, 0, "SPIR-V must be word-aligned");
+    let magic = u32::from_le_bytes([spirv[0], spirv[1], spirv[2], spirv[3]]);
+    assert_eq!(magic, 0x0723_0203, "SPIR-V magic");
+}
+
+#[test]
+fn test_wgsl_to_spirv_empty_rejected() {
+    let result = wgsl_to_spirv("", &CompileOptions::default());
+    assert!(matches!(result, Err(CompileError::InvalidInput(_))));
+}
+
+#[test]
+fn test_wgsl_to_spirv_roundtrip_through_compile() {
+    let opts = CompileOptions::default();
+    let spirv_bytes = wgsl_to_spirv("@compute @workgroup_size(1) fn main() {}", &opts)
+        .expect("should emit SPIR-V");
+    let words: Vec<u32> = spirv_bytes
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+        .collect();
+    let result = compile(&words, &opts);
+    assert!(
+        result.is_ok(),
+        "sovereign SPIR-V should re-compile: {result:?}"
+    );
+}
+
+#[test]
 fn test_compile_glsl_empty_rejected() {
     let result = compile_glsl("", &CompileOptions::default());
     assert!(matches!(result, Err(CompileError::InvalidInput(_))));

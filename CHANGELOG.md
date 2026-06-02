@@ -4,11 +4,38 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 67
+**Current status**: Phase 10 — Sprint 14 / Wave 68
 
 ---
 
 ## [Unreleased]
+
+### Wave 68: SM120 Barrier Fix, Sovereign SPIR-V, Math Pack/Unpack, Module Hardening (2026-06-02)
+
+#### Added
+- **Sovereign SPIR-V emission** (GAP-HS-124): `wgsl_to_spirv()` public API emits valid SPIR-V binary via `naga::back::spv::write_vec()`. `CompileResponse.spirv_binary: Option<Bytes>` populated for WGSL compile paths — toadStool can pass directly to `vkCreateShaderModule`
+- **13 math pack/unpack builtins** (PTX SM100+): `Pack4x8unorm`, `Pack4x8snorm`, `Unpack4x8unorm`, `Unpack4x8snorm`, `Pack2x16float`, `Unpack2x16float`, `Pack2x16unorm`, `Pack2x16snorm`, `Unpack2x16unorm`, `Unpack2x16snorm`, `Transpose` (2x2/3x3/4x4), `Determinant` (2x2/3x3/4x4), `Inverse` (2x2)
+- New module `crates/coral-reef/src/codegen/nv/ptx_emit/math_pack.rs` — dedicated PTX emission for data packing, matrix, and struct-returning math
+- `resolve_entry_point()` hardened: explicit compute-stage enforcement, improved error messages with available entry point list
+- 39 new tests: 11 math pack/unpack PTX, 5 module hardening, 3 SPIR-V emission, 2 service SPIR-V, 1 membar verification, + coverage improvements
+
+#### Fixed
+- **SM120 membar.sys barrier** (GAP-HS-115): PTX emitter now inserts `membar.sys` before `ret;`/`exit;` for SM120+ targets. SASS does this via `insert_exit_system_membar()` automatically but PTX does not — root cause of Blackwell zero readback in ReduceScalarPipeline
+- **tarpc bincode serialization**: Removed `#[serde(skip_serializing_if)]` from `spirv_binary` field — bincode is positional and `skip_serializing_if` caused `UnexpectedEof` on deserialization
+
+#### Changed
+- `CompileResponse` gains `spirv_binary: Option<Bytes>` field (set to `None` for SPIR-V input and GEMM compiles)
+- `eval_math()` catch-all now routes through `eval_math_pack()` before falling back to `NotImplemented`
+
+#### Metrics
+- 3284 tests, 0 failures, 0 clippy warnings, 0 unsafe
+- coral-reef lib: 79.82% line coverage, 85.36% function coverage
+
+#### FRAGOs
+- `FRAGO_CORALREEF_SM120_BARRIER_FIX_WAVE68_JUN02_2026.md` — hotSpring: rebuild + re-test ReduceScalarPipeline on RTX 5060
+- `FRAGO_CORALREEF_SPIRV_EMISSION_WAVE68_JUN02_2026.md` — hotSpring/toadStool: use `spirv_binary` for `vkCreateShaderModule`
+
+---
 
 ### Wave 67b: hotSpring Gap Resolution — Arch Routing & Copy Prop Fix (2026-06-01)
 

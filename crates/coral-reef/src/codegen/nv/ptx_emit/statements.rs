@@ -83,6 +83,7 @@ impl PtxEmitter<'_> {
                         self.inline_return_val = Some(val);
                     }
                 } else {
+                    writeln!(self.body, "    membar.sys;").expect("write to String");
                     writeln!(self.body, "    ret;").expect("write to String");
                 }
                 Ok(())
@@ -157,6 +158,7 @@ impl PtxEmitter<'_> {
                 Ok(())
             }
             naga::Statement::Kill => {
+                writeln!(self.body, "    membar.sys;").expect("write to String");
                 writeln!(self.body, "    exit;").expect("write to String");
                 Ok(())
             }

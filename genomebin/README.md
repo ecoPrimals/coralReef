@@ -20,8 +20,6 @@ Planned:
 ## Status
 
 **Active** — compiler pipeline fully operational (`cargo run -- compile`).
-AMD E2E dispatch verified (RX 6950 XT). NVIDIA VFIO dispatch
-pipeline functionally complete (BAR0 + DMA + GPFIFO + PFIFO + V2
-MMU). UVM dispatch pipeline code-complete (GPFIFO + USERD doorbell).
-Both NVIDIA paths await on-site hardware validation (RTX 5060).
-4790 tests, zero clippy warnings, zero FFI.
+Pure compiler primal — hardware dispatch delegated to toadStool (Sprint 9 excision).
+Sovereign SPIR-V emission (Wave 68), SM120 barrier fix, full math builtin coverage.
+3284 tests, zero clippy warnings, zero FFI, zero unsafe.
