@@ -69,7 +69,7 @@ mod unix_jsonrpc;
 #[cfg(unix)]
 #[allow(
     unused_imports,
-    reason = "pub API for integration tests; lint fires on bin target but not lib"
+    reason = "pub API for Unix embedders; lint fires on bin target but not lib"
 )]
 pub use unix_jsonrpc::unix_socket_path_for_base;
 #[cfg(unix)]
@@ -140,16 +140,17 @@ pub fn default_tcp_bind() -> String {
 
 /// Platform-aware default bind address for tarpc.
 ///
-/// On Unix: returns a path for a Unix domain socket using the centralized
-/// 3-tier resolution (`BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` →
-/// `/run/biomeos`). Zero `/tmp` writes.
+/// On Unix: returns a path for a Unix domain socket under `$XDG_RUNTIME_DIR`
+/// (or `std::env::temp_dir()` as fallback — no hardcoded paths per ecoBin),
+/// namespaced by the primal identity and family ID.
 /// On non-Unix: returns TCP loopback with OS-assigned port.
 #[cfg(feature = "tarpc-transport")]
 #[must_use]
 pub fn default_tarpc_bind() -> String {
     #[cfg(unix)]
     {
-        let dir = config::socket_dir();
+        let dir = config::discovery_dir()
+            .unwrap_or_else(|_| std::env::temp_dir().join(config::ecosystem_namespace()));
         let sock = dir.join(format!(
             "{}-{}-tarpc.sock",
             config::PRIMAL_NAME,
