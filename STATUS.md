@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: June 2, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 68 (SM120 membar.sys barrier fix (GAP-HS-115), sovereign SPIR-V emission (GAP-HS-124), 13 math pack/unpack builtins, naga::Module multi-entry-point hardening, wgsl_to_spirv() API. 3284 tests, zero unsafe, zero clippy warnings)
+**Last updated**: June 3, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 74 (Deep debt sweep: math_pack→math_matrix refactor, service/tests serde extraction, ray query fail-safe evolution, clippy::pedantic+nursery clean. 3283 tests, zero unsafe, zero clippy warnings)
 
 ---
 

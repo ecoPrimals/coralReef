@@ -119,11 +119,12 @@ impl PtxEmitter<'_> {
         )
         .expect("write to String");
 
-        // Stub: set proceed result to true (more candidates) for wiring tests.
-        // Hardware will replace this with actual RT core query.
+        // Fail-safe stub: no intersection candidates (traversal terminates).
+        // Real RT core dispatch (optix/hw inline RT) will replace this once
+        // vendor ISA documentation permits proper SM75+ inline RT emission.
         writeln!(
             self.body,
-            "    setp.eq.u32 {}, 1, 1;",
+            "    setp.eq.u32 {}, 0, 1;",
             result_pred.fmt_operand(),
         )
         .expect("write to String");

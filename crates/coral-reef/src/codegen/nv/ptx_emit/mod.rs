@@ -31,6 +31,7 @@ pub mod gemm;
 mod math;
 mod math_ext;
 mod math_ext_trig;
+mod math_matrix;
 mod math_pack;
 mod pointers;
 mod ray_query;

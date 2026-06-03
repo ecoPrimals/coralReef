@@ -4,11 +4,30 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 68
+**Current status**: Phase 10 — Sprint 14 / Wave 74
 
 ---
 
 ## [Unreleased]
+
+### Wave 74: Deep Debt Sweep — Smart Refactoring & Stub Evolution (2026-06-03)
+
+#### Changed
+- **math_pack.rs refactored** (904→662 LOC): Extracted matrix operations (transpose, determinant 2x2/3x3/4x4, inverse 2x2) to new cohesive `math_matrix.rs` (249 LOC) — linear algebra primitives separate from data-format pack/unpack conversions
+- **service/tests.rs refactored** (974→589 LOC): Extracted serde roundtrip tests to dedicated `tests_serde.rs` (409 LOC) — wire contract verification isolated from functional compile tests
+- **Ray query stub evolved** (fail-dangerous → fail-safe): `emit_ray_query_proceed` now returns `false` (no candidates / traversal terminates) instead of `true` (infinite loop). Real RT core dispatch will replace when vendor ISA documentation permits inline RT emission
+
+#### Audited (no changes needed)
+- `unsafe` code: `#![forbid(unsafe_code)]` holds on all crate roots, zero violations
+- Dependencies: Pure Rust — zero `*-sys`, zero C/FFI, zero `extern "C"`
+- Hardcoded values: Socket paths use 3-tier env resolution (`BIOMEOS_SOCKET_DIR` > `XDG_RUNTIME_DIR` > `/run/biomeos`), legacy aliases (`BEARDOG_SOCKET`, `PRIMALSPRING_AUTH_MODE`) properly emit deprecation warnings
+- `clippy::pedantic` + `clippy::nursery` pass clean with `-D warnings`
+- Production mocks: `Cpu`/`Npu` compile targets are proper `#[non_exhaustive]` extensibility (not mocks); `lower_f64` "placeholders" are compiler IR terminology for ops that get lowered
+
+#### Metrics
+- 3283 tests, 0 failures, 0 clippy warnings (pedantic + nursery)
+- All files under 800 LOC (production), 900 LOC (test)
+- Zero unsafe, zero C deps, zero production unwrap()
 
 ### Wave 68: SM120 Barrier Fix, Sovereign SPIR-V, Math Pack/Unpack, Module Hardening (2026-06-02)
 
