@@ -40,6 +40,6 @@ fn process(data: &Config) {
 - `dead_code` on struct fields reserved for future use: `#[allow(dead_code, reason = "...")]`
 
 ## Unsafe Code
-- Only in `coral-driver` (hardware ioctl, MMIO, DMA)
-- Every `unsafe` block has `// SAFETY: ...` comment
-- Wrap unsafe in safe abstractions at module boundary
+- `#![forbid(unsafe_code)]` on all crate roots — zero unsafe in this workspace
+- Hardware dispatch delegated to toadStool (separate primal via IPC)
+- No `extern "C"`, no `*-sys`, no FFI

@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 68 (SM120 barrier fix, sovereign SPIR-V emission, math pack/unpack builtins, module hardening; 3284 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 74 (Socket path unification, env-configurable timeouts, 3x3 inverse, SERVED_METHODS single-source, composition self-knowledge evolution; 3284 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -29,7 +29,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3284 passing, 0 failed
+cargo test --workspace     # 3284+ passing, 0 failed
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
