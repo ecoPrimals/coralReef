@@ -253,25 +253,45 @@ mod inner {
     ///
     /// When `runtime_dir` is `None`, falls back to `$TMPDIR`.
     /// Per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0:
-    /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
+    /// `{base}/biomeos/<primal>-<family_id>.sock`
     #[must_use]
     #[allow(
         dead_code,
         reason = "pub API consumed by integration tests, not the binary"
     )]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
-        let base = runtime_dir.unwrap_or_else(std::env::temp_dir);
+        let base = runtime_dir.unwrap_or_else(|| PathBuf::from("/run/biomeos"));
         base.join(crate::config::ecosystem_namespace())
             .join(crate::config::primal_socket_name())
     }
 
-    /// Default socket path per wateringHole standard.
+    /// Default socket path per wateringHole 3-tier resolution:
     ///
-    /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
-    /// Falls back to `$TMPDIR/biomeos/<primal>-<family_id>.sock` if XDG is unset.
+    /// 1. `$BIOMEOS_SOCKET_DIR` (explicit override)
+    /// 2. `$XDG_RUNTIME_DIR` (standard runtime directory)
+    /// 3. `/run/biomeos` (system fallback)
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
-        unix_socket_path_for_base(std::env::var(crate::env_keys::XDG_RUNTIME_DIR).ok().map(PathBuf::from))
+        let base = resolve_socket_base();
+        base.join(crate::config::ecosystem_namespace())
+            .join(crate::config::primal_socket_name())
+    }
+
+    /// 3-tier socket directory resolution (`BIOMEOS_SOCKET_DIR` > `XDG_RUNTIME_DIR` > `/run/biomeos`).
+    fn resolve_socket_base() -> PathBuf {
+        if let Ok(dir) = std::env::var(crate::env_keys::BIOMEOS_SOCKET_DIR) {
+            let trimmed = dir.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed);
+            }
+        }
+        if let Ok(dir) = std::env::var(crate::env_keys::XDG_RUNTIME_DIR) {
+            let trimmed = dir.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed);
+            }
+        }
+        PathBuf::from("/run/biomeos")
     }
 
     /// Start a Unix socket JSON-RPC server.
