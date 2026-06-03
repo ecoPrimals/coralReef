@@ -6,10 +6,10 @@ use std::time::Instant;
 use bytes::Bytes;
 use coral_reef::gemm::{GemmPrecision, GemmShape};
 use coral_reef::{AmdArch, CompileError, CompileOptions, FmaPolicy, GpuTarget, NvArch};
-
 use super::types::{
     CompilationInfoResponse, CompileRequest, CompileResponse, CompileWgslRequest,
-    DeviceCompileResult, GemmCompileRequest, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
+    DeviceCompileResult, GemmCompileRequest, MultiDeviceCompileRequest,
+    MultiDeviceCompileResponse,
 };
 
 const STATUS_SUCCESS: &str = "success";
@@ -205,6 +205,7 @@ pub fn handle_compile_spirv(
             execution_model: Some("simt".to_owned()),
         }),
         spirv_binary: None,
+        provenance: None,
     })
 }
 
@@ -283,6 +284,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
             execution_model: Some("simt".to_owned()),
         }),
         spirv_binary: spirv,
+        provenance: None,
     })
 }
 
@@ -425,5 +427,6 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
             execution_model: Some("simt".to_owned()),
         }),
         spirv_binary: None,
+        provenance: None,
     })
 }

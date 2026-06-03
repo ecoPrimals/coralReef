@@ -29,6 +29,7 @@ fn test_compile_response_serde_roundtrip() {
         compile_time_ms: Some(42.0),
         dispatch_hints: None,
         spirv_binary: None,
+        provenance: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     assert!(
@@ -88,6 +89,7 @@ fn test_compile_response_defaults_from_json() {
         compile_time_ms: None,
         dispatch_hints: None,
         spirv_binary: None,
+        provenance: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     assert!(!json.contains("\"compile_time_ms\""), "None should skip");

@@ -67,3 +67,6 @@ pub const BEARDOG_SOCKET: &str = "BEARDOG_SOCKET";
 
 /// Songbird discovery socket path from the composition launcher.
 pub const DISCOVERY_SOCKET: &str = "DISCOVERY_SOCKET";
+
+/// Gate identity for provenance tagging (e.g. `"strandGate"`, `"biomeGate"`).
+pub const BIOMEOS_GATE_ID: &str = "BIOMEOS_GATE_ID";

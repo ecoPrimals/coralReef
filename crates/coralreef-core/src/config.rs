@@ -99,6 +99,26 @@ pub const SERVED_METHODS: &[&str] = &[
     "auth.peer_info",
 ];
 
+/// Resolve the gate identity from `$BIOMEOS_GATE_ID`.
+///
+/// Falls back to `"unknown"` if not set — composition launchers should always
+/// inject this, but standalone dev builds proceed without it.
+#[must_use]
+pub fn gate_id() -> String {
+    std::env::var(env_keys::BIOMEOS_GATE_ID)
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+/// Compiler version string for provenance tagging.
+///
+/// Format: `"{name}/{version}+{build_hash}"` (e.g. `"coralreef-core/0.2.0+dev"`).
+#[must_use]
+pub fn compiler_version_string() -> String {
+    format!("{PRIMAL_NAME}/{PRIMAL_VERSION}+{PRIMAL_BUILD_HASH}")
+}
+
 /// Configuration validation error.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]

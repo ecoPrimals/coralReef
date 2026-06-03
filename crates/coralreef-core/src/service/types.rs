@@ -172,6 +172,69 @@ pub struct CompileResponse {
     /// and breaks when fields are conditionally omitted.
     #[serde(default)]
     pub spirv_binary: Option<Bytes>,
+    /// Artifact provenance for Dark Forest trust validation.
+    ///
+    /// Includes content hash, gate identity, and compiler version so
+    /// downstream consumers can verify artifact integrity without
+    /// re-compiling. Signature field is populated when bearDog is
+    /// available for BTSP artifact signing.
+    #[serde(default)]
+    pub provenance: Option<ArtifactProvenance>,
+}
+
+/// Provenance metadata for compiled shader artifacts.
+///
+/// Implements Dark Forest Invariant 3: no unsigned artifacts cross trust
+/// boundaries. The `content_hash` field is always populated; the `signature`
+/// field requires bearDog integration for BTSP artifact signing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactProvenance {
+    /// SHA-256 hash of the compiled binary (hex-encoded).
+    pub content_hash: String,
+    /// Algorithm used for the content hash.
+    #[serde(default = "default_hash_algorithm")]
+    pub hash_algorithm: String,
+    /// Gate that performed the compilation.
+    pub gate_of_compilation: String,
+    /// Compiler identity and version.
+    pub compiler_version: String,
+    /// BTSP signature over the content hash, if bearDog signing is available.
+    /// Hex-encoded Ed25519 or HMAC signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    /// Key identifier used for the signature (for key rotation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<String>,
+}
+
+fn default_hash_algorithm() -> String {
+    "sha256".to_owned()
+}
+
+impl CompileResponse {
+    /// Attach provenance metadata for cross-gate trust validation.
+    ///
+    /// Called by the JSON-RPC dispatch layer before sending responses over
+    /// trust boundaries. Not used in the tarpc path (intra-gate, already trusted).
+    #[must_use]
+    pub fn with_provenance(mut self) -> Self {
+        use sha2::{Digest, Sha256};
+        let hash = Sha256::digest(&self.binary);
+        let mut hex_str = String::with_capacity(64);
+        for byte in &hash {
+            use std::fmt::Write;
+            let _ = write!(hex_str, "{byte:02x}");
+        }
+        self.provenance = Some(ArtifactProvenance {
+            content_hash: hex_str,
+            hash_algorithm: "sha256".to_owned(),
+            gate_of_compilation: crate::config::gate_id(),
+            compiler_version: crate::config::compiler_version_string(),
+            signature: None,
+            key_id: None,
+        });
+        self
+    }
 }
 
 /// Hints for the dispatch layer about hardware unit targeting.
