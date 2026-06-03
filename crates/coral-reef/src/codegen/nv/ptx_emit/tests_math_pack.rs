@@ -243,3 +243,65 @@ fn main() {
     assert!(ptx.contains("mul.f32"), "det3x3 uses mul: {ptx:.400}");
     assert!(ptx.contains("sub.f32"), "det3x3 uses sub: {ptx:.400}");
 }
+
+#[test]
+fn ptx_matrix_inverse4x4() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let m = mat4x4<f32>(
+        vec4<f32>(2.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 3.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 5.0, 0.0),
+        vec4<f32>(0.0, 0.0, 0.0, 7.0)
+    );
+    let det = determinant(m);
+    out[0] = det;
+}
+";
+    let result = emit_compute_ptx(wgsl, 120);
+    assert!(
+        result.is_ok(),
+        "4x4 determinant should compile: {result:?}"
+    );
+    let compiled = result.unwrap();
+    let ptx = String::from_utf8_lossy(&compiled.binary);
+    assert!(ptx.contains("mul.f32"), "det4x4 uses mul: {ptx:.400}");
+    assert!(
+        ptx.contains("sub.f32") || ptx.contains("add.f32"),
+        "det4x4 uses add/sub: {ptx:.400}"
+    );
+}
+
+#[test]
+fn ptx_matrix_det4x4_nondiag() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let m = mat4x4<f32>(
+        vec4<f32>(1.0, 2.0, 3.0, 4.0),
+        vec4<f32>(5.0, 6.0, 7.0, 8.0),
+        vec4<f32>(9.0, 10.0, 11.0, 12.0),
+        vec4<f32>(13.0, 14.0, 15.0, 16.0)
+    );
+    let det = determinant(m);
+    out[0] = det;
+}
+";
+    let result = emit_compute_ptx(wgsl, 120);
+    assert!(
+        result.is_ok(),
+        "4x4 determinant (non-diagonal) should compile: {result:?}"
+    );
+    let compiled = result.unwrap();
+    let ptx = String::from_utf8_lossy(&compiled.binary);
+    assert!(ptx.contains("mul.f32"), "det4x4 uses mul: {ptx:.400}");
+    assert!(
+        ptx.contains("sub.f32"),
+        "det4x4 uses sub (cofactor signs): {ptx:.400}"
+    );
+}

@@ -257,7 +257,7 @@ async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
         "pid": std::process::id(),
         "socket": socket_path.to_string_lossy(),
         "capabilities": ["compile", "shader_compile", "gpu"],
-        "methods": crate::service::SERVED_METHODS,
+        "methods": config::SERVED_METHODS,
         "signal_tiers": ["node"],
         "cost_hints": {
             "compile": 60.0,
@@ -401,7 +401,7 @@ mod tests {
             "pid": std::process::id(),
             "socket": socket_path.to_string_lossy(),
             "capabilities": ["compile", "shader_compile", "gpu"],
-            "methods": crate::service::SERVED_METHODS,
+            "methods": config::SERVED_METHODS,
             "signal_tiers": ["node"],
             "cost_hints": {
                 "compile": 60.0,

@@ -76,6 +76,29 @@ pub const PRIMAL_SESSION: &str = match option_env!("CORALREEF_SESSION") {
     None => PRIMAL_VERSION,
 };
 
+/// All JSON-RPC methods served by this primal.
+///
+/// Single source of truth for both `capability.list` responses and
+/// `primal.announce` advertisements. Add new methods here.
+pub const SERVED_METHODS: &[&str] = &[
+    "shader.compile.spirv",
+    "shader.compile.wgsl",
+    "shader.compile.status",
+    "shader.compile.capabilities",
+    "shader.compile.wgsl.multi",
+    "shader.compile.gemm",
+    "health.check",
+    "health.liveness",
+    "health.readiness",
+    "health.version",
+    "identity.get",
+    "capability.list",
+    "btsp.negotiate",
+    "auth.check",
+    "auth.mode",
+    "auth.peer_info",
+];
+
 /// Configuration validation error.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]

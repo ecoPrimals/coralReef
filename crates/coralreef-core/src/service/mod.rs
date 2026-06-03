@@ -56,28 +56,8 @@ pub fn handle_identity_get() -> IdentityGetResponse {
         .unwrap_or_else(IdentityGetResponse::fallback)
 }
 
-/// All JSON-RPC methods served by this primal.
-///
-/// Single source of truth for both `capability.list` responses and
-/// `primal.announce` advertisements. Add new methods here.
-pub const SERVED_METHODS: &[&str] = &[
-    "shader.compile.spirv",
-    "shader.compile.wgsl",
-    "shader.compile.status",
-    "shader.compile.capabilities",
-    "shader.compile.wgsl.multi",
-    "shader.compile.gemm",
-    "health.check",
-    "health.liveness",
-    "health.readiness",
-    "health.version",
-    "identity.get",
-    "capability.list",
-    "btsp.negotiate",
-    "auth.check",
-    "auth.mode",
-    "auth.peer_info",
-];
+/// Re-export from config — single source of truth accessible without cfg gates.
+pub use crate::config::SERVED_METHODS;
 
 /// `capability.list` — Wire Standard L3 method inventory plus domain discovery.
 ///

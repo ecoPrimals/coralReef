@@ -167,46 +167,52 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "json") {
-            if let Ok(contents) = std::fs::read_to_string(&path) {
-                if let Ok(discovery) = serde_json::from_str::<DiscoveryEntry>(&contents) {
-                    let provides_ids: Vec<String> =
-                        discovery.provides.iter().map(|c| c.id.clone()).collect();
-                    let caps: &[String] = if provides_ids.is_empty() {
-                        &discovery.capabilities
-                    } else {
-                        &provides_ids
-                    };
-                    let has_gpu_cap = caps.iter().any(|c| {
-                        c == "gpu.dispatch"
-                            || c.starts_with("gpu.")
-                            || c.starts_with("gpu-")
-                            || c.starts_with("compute.dispatch")
-                            || c.starts_with("compute.hardware")
-                            || c == "science.gpu.dispatch"
-                    });
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(discovery) = serde_json::from_str::<DiscoveryEntry>(&contents) else {
+            continue;
+        };
 
-                    if has_gpu_cap {
-                        for dev in &discovery.devices {
-                            devices.push(GpuDeviceDescriptor {
-                                vendor: dev.vendor.clone(),
-                                arch: dev.arch.clone(),
-                                render_node: dev.render_node.clone(),
-                                driver: dev.driver.clone(),
-                                memory_bytes: dev.memory_bytes,
-                                source: "ecosystem".to_string(),
-                            });
-                        }
+        let provides_ids: Vec<String> =
+            discovery.provides.iter().map(|c| c.id.clone()).collect();
+        let caps: &[String] = if provides_ids.is_empty() {
+            &discovery.capabilities
+        } else {
+            &provides_ids
+        };
+        let has_gpu_cap = caps.iter().any(|c| {
+            c == "gpu.dispatch"
+                || c.starts_with("gpu.")
+                || c.starts_with("gpu-")
+                || c.starts_with("compute.dispatch")
+                || c.starts_with("compute.hardware")
+                || c == "science.gpu.dispatch"
+        });
 
-                        if discovery.devices.is_empty() {
-                            tracing::debug!(
-                                path = %path.display(),
-                                "ecosystem provider found with GPU capability but no device list"
-                            );
-                        }
-                    }
-                }
-            }
+        if !has_gpu_cap {
+            continue;
+        }
+
+        for dev in &discovery.devices {
+            devices.push(GpuDeviceDescriptor {
+                vendor: dev.vendor.clone(),
+                arch: dev.arch.clone(),
+                render_node: dev.render_node.clone(),
+                driver: dev.driver.clone(),
+                memory_bytes: dev.memory_bytes,
+                source: "ecosystem".to_string(),
+            });
+        }
+
+        if discovery.devices.is_empty() {
+            tracing::debug!(
+                path = %path.display(),
+                "ecosystem provider found with GPU capability but no device list"
+            );
         }
     }
 

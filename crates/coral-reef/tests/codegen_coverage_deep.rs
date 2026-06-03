@@ -46,7 +46,8 @@ fn compile_wgsl_raw_sm(wgsl: &str, sm: u8) {
     assert!(!bin.is_empty(), "SM{sm}: empty binary");
 }
 
-/// `textureLoad` in compute is not wired for all targets yet; succeed on `Ok` or `NotImplemented`.
+/// `textureLoad` in compute — SM120+ PTX emitter fully supports texture compute;
+/// SM35-SM89 native codegen lacks IR-level ImageLoad translation (prologue passes through).
 #[test]
 fn deep_texture_load_try_each_nv() {
     let wgsl = r"
@@ -57,11 +58,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     out[gid.x] = textureLoad(tex, vec2<i32>(i32(gid.x), 0), 0);
 }
 ";
+    // SM120+ uses PTX emitter which has full ImageLoad support.
+    let bin = compile_for(wgsl, NvArch::Sm120)
+        .unwrap_or_else(|e| panic!("sm_120: textureLoad compute compile failed: {e}"));
+    assert!(!bin.is_empty(), "sm_120: empty binary");
+
+    // SM35-SM89 native codegen: ImageLoad expression translation not yet in IR path.
+    // Prologue no longer blocks, but expression evaluation returns NotImplemented.
     for &nv in NvArch::ALL {
+        if nv.sm() >= 100 {
+            continue;
+        }
         match compile_for(wgsl, nv) {
             Ok(bin) => assert!(!bin.is_empty(), "{nv}: empty binary"),
             Err(CompileError::NotImplemented(_)) => {}
-            Err(e) => panic!("{nv}: {e}"),
+            Err(e) => panic!("{nv}: unexpected error: {e}"),
         }
     }
 }

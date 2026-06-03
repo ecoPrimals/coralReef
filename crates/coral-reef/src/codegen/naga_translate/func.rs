@@ -225,9 +225,12 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     let _ = binding;
                 }
                 naga::AddressSpace::Handle => {
-                    return Err(CompileError::NotImplemented(
-                        "texture/sampler bindings in compute prologue not yet supported".into(),
-                    ));
+                    // Texture/sampler globals: the binding metadata is used
+                    // by expression evaluation (ImageLoad, ImageSample, etc.)
+                    // when it encounters GlobalVariable(handle). No prologue
+                    // setup needed — PTX tex/surf declarations are emitted
+                    // on first use.
+                    let _ = binding;
                 }
                 naga::AddressSpace::Immediate => {
                     // Push constants: treated like a read-only uniform
