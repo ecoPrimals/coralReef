@@ -189,14 +189,11 @@ pub fn jsonrpc_bind_to_unix_path(bind: &str) -> Option<PathBuf> {
 
 /// Resolve our own UDS path (for the `socket` field in `primal.announce`).
 ///
-/// Same logic as `ipc::default_unix_socket_path()` but accessible without the
-/// `ipc` module (which is cfg-gated behind `test`/`e2e` in the library).
+/// Delegates to [`config::default_socket_path`] — the single canonical
+/// source of truth for socket path resolution. This guarantees the
+/// advertised path in `primal.announce` matches the actual bind path.
 fn resolve_own_socket_path() -> PathBuf {
-    let base = std::env::var(env_keys::XDG_RUNTIME_DIR)
-        .ok()
-        .map_or_else(std::env::temp_dir, PathBuf::from);
-    base.join(config::ecosystem_namespace())
-        .join(config::primal_socket_name())
+    config::default_socket_path()
 }
 
 /// Connect-probe a Unix socket to determine if a listener is alive.
@@ -260,7 +257,7 @@ async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
         "pid": std::process::id(),
         "socket": socket_path.to_string_lossy(),
         "capabilities": ["compile", "shader_compile", "gpu"],
-        "methods": ANNOUNCED_METHODS,
+        "methods": crate::service::SERVED_METHODS,
         "signal_tiers": ["node"],
         "cost_hints": {
             "compile": 60.0,
@@ -275,28 +272,6 @@ async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
     });
     send_jsonrpc_line(path, "primal.announce", params, 3_u64).await
 }
-
-/// Methods announced to biomeOS Neural API for routing.
-///
-/// Kept in sync with `handle_capability_list()` in `service/mod.rs`.
-const ANNOUNCED_METHODS: &[&str] = &[
-    "shader.compile.spirv",
-    "shader.compile.wgsl",
-    "shader.compile.status",
-    "shader.compile.capabilities",
-    "shader.compile.wgsl.multi",
-    "shader.compile.gemm",
-    "health.check",
-    "health.liveness",
-    "health.readiness",
-    "health.version",
-    "identity.get",
-    "capability.list",
-    "btsp.negotiate",
-    "auth.check",
-    "auth.mode",
-    "auth.peer_info",
-];
 
 #[cfg(unix)]
 async fn send_ipc_heartbeat(path: &Path) -> Result<(), EcosystemError> {
@@ -341,7 +316,7 @@ async fn send_jsonrpc_line(
 
     let mut reader = BufReader::new(stream);
     let mut buf = String::new();
-    let _ = timeout(Duration::from_secs(2), reader.read_line(&mut buf)).await;
+    let _ = timeout(config::registry_timeout(), reader.read_line(&mut buf)).await;
 
     Ok(())
 }
@@ -426,7 +401,7 @@ mod tests {
             "pid": std::process::id(),
             "socket": socket_path.to_string_lossy(),
             "capabilities": ["compile", "shader_compile", "gpu"],
-            "methods": ANNOUNCED_METHODS,
+            "methods": crate::service::SERVED_METHODS,
             "signal_tiers": ["node"],
             "cost_hints": {
                 "compile": 60.0,

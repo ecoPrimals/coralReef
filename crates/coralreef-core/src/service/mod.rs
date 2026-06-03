@@ -56,6 +56,29 @@ pub fn handle_identity_get() -> IdentityGetResponse {
         .unwrap_or_else(IdentityGetResponse::fallback)
 }
 
+/// All JSON-RPC methods served by this primal.
+///
+/// Single source of truth for both `capability.list` responses and
+/// `primal.announce` advertisements. Add new methods here.
+pub const SERVED_METHODS: &[&str] = &[
+    "shader.compile.spirv",
+    "shader.compile.wgsl",
+    "shader.compile.status",
+    "shader.compile.capabilities",
+    "shader.compile.wgsl.multi",
+    "shader.compile.gemm",
+    "health.check",
+    "health.liveness",
+    "health.readiness",
+    "health.version",
+    "identity.get",
+    "capability.list",
+    "btsp.negotiate",
+    "auth.check",
+    "auth.mode",
+    "auth.peer_info",
+];
+
 /// `capability.list` — Wire Standard L3 method inventory plus domain discovery.
 ///
 /// Includes advertised [`crate::capability::Capability`] ids plus JSON-RPC namespaces
@@ -69,24 +92,7 @@ pub fn handle_capability_list() -> CapabilityListResponse {
     domains.insert("health".into());
     domains.insert("identity".into());
 
-    let methods = vec![
-        "shader.compile.spirv".into(),
-        "shader.compile.wgsl".into(),
-        "shader.compile.status".into(),
-        "shader.compile.capabilities".into(),
-        "shader.compile.wgsl.multi".into(),
-        "shader.compile.gemm".into(),
-        "health.check".into(),
-        "health.liveness".into(),
-        "health.readiness".into(),
-        "health.version".into(),
-        "identity.get".into(),
-        "capability.list".into(),
-        "btsp.negotiate".into(),
-        "auth.check".into(),
-        "auth.mode".into(),
-        "auth.peer_info".into(),
-    ];
+    let methods = SERVED_METHODS.iter().map(|&s| s.into()).collect();
 
     let transport: Vec<Cow<'static, str>> = {
         let mut t = vec![Cow::Borrowed("tcp"), Cow::Borrowed("tarpc")];

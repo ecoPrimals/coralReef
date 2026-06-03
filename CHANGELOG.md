@@ -10,24 +10,30 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Wave 74: Deep Debt Sweep — Smart Refactoring & Stub Evolution (2026-06-03)
+### Wave 74: Evolution Sweep — Composition, Coverage, Self-Knowledge (2026-06-03)
+
+#### Added
+- **3x3 matrix inverse** (`emit_inverse3x3`): Cofactor-based adjugate/det inverse for 3x3 matrices via PTX
+- **`config::socket_base_dir()`**: Canonical 3-tier socket resolution — single source of truth
+- **`config::default_socket_path()`**: Canonical primal socket path for bind + announce
+- **`config::shutdown_timeout()`** / **`config::registry_timeout()`**: Env-configurable via `$CORALREEF_SHUTDOWN_TIMEOUT_SECS` / `$CORALREEF_REGISTRY_TIMEOUT_SECS`
+- **`service::SERVED_METHODS`**: Single `pub const` eliminating duplication between capability.list and primal.announce
+
+#### Fixed
+- **Socket path divergence** (composition bug): ecosystem announced wrong path when `BIOMEOS_SOCKET_DIR` set — now both bind and announce use `config::default_socket_path()`
+- **`ANNOUNCED_METHODS` duplication**: Removed from ecosystem.rs — now references `service::SERVED_METHODS`
+- **AMD `tanh` error clarity**: Precise "should lower to Exp2+Rcp+FMul" (defensive guard)
 
 #### Changed
-- **math_pack.rs refactored** (904→662 LOC): Extracted matrix operations (transpose, determinant 2x2/3x3/4x4, inverse 2x2) to new cohesive `math_matrix.rs` (249 LOC) — linear algebra primitives separate from data-format pack/unpack conversions
-- **service/tests.rs refactored** (974→589 LOC): Extracted serde roundtrip tests to dedicated `tests_serde.rs` (409 LOC) — wire contract verification isolated from functional compile tests
-- **Ray query stub evolved** (fail-dangerous → fail-safe): `emit_ray_query_proceed` now returns `false` (no candidates / traversal terminates) instead of `true` (infinite loop). Real RT core dispatch will replace when vendor ISA documentation permits inline RT emission
-
-#### Audited (no changes needed)
-- `unsafe` code: `#![forbid(unsafe_code)]` holds on all crate roots, zero violations
-- Dependencies: Pure Rust — zero `*-sys`, zero C/FFI, zero `extern "C"`
-- Hardcoded values: Socket paths use 3-tier env resolution (`BIOMEOS_SOCKET_DIR` > `XDG_RUNTIME_DIR` > `/run/biomeos`), legacy aliases (`BEARDOG_SOCKET`, `PRIMALSPRING_AUTH_MODE`) properly emit deprecation warnings
-- `clippy::pedantic` + `clippy::nursery` pass clean with `-D warnings`
-- Production mocks: `Cpu`/`Npu` compile targets are proper `#[non_exhaustive]` extensibility (not mocks); `lower_f64` "placeholders" are compiler IR terminology for ops that get lowered
+- math_pack.rs refactored (904→662), service/tests.rs refactored (974→589)
+- Ray query stub evolved (fail-dangerous → fail-safe)
+- All ipc/btsp socket resolution delegates to `config::socket_base_dir()`
+- `clippy::pedantic` + `clippy::nursery` pass clean
 
 #### Metrics
-- 3283 tests, 0 failures, 0 clippy warnings (pedantic + nursery)
-- All files under 800 LOC (production), 900 LOC (test)
+- 3284 tests, 0 failures, 0 clippy warnings
 - Zero unsafe, zero C deps, zero production unwrap()
+- Socket path: single canonical resolution across all modules
 
 ### Wave 68: SM120 Barrier Fix, Sovereign SPIR-V, Math Pack/Unpack, Module Hardening (2026-06-02)
 

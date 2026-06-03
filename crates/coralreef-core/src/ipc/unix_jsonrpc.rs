@@ -260,38 +260,19 @@ mod inner {
         reason = "pub API consumed by integration tests, not the binary"
     )]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
-        let base = runtime_dir.unwrap_or_else(|| PathBuf::from("/run/biomeos"));
+        let base = runtime_dir.unwrap_or_else(crate::config::socket_base_dir);
         base.join(crate::config::ecosystem_namespace())
             .join(crate::config::primal_socket_name())
     }
 
-    /// Default socket path per wateringHole 3-tier resolution:
+    /// Default socket path per wateringHole 3-tier resolution.
     ///
-    /// 1. `$BIOMEOS_SOCKET_DIR` (explicit override)
-    /// 2. `$XDG_RUNTIME_DIR` (standard runtime directory)
-    /// 3. `/run/biomeos` (system fallback)
+    /// Delegates to [`crate::config::default_socket_path`] — the single
+    /// canonical resolution. See [`crate::config::socket_base_dir`] for the
+    /// 3-tier algorithm.
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
-        let base = resolve_socket_base();
-        base.join(crate::config::ecosystem_namespace())
-            .join(crate::config::primal_socket_name())
-    }
-
-    /// 3-tier socket directory resolution (`BIOMEOS_SOCKET_DIR` > `XDG_RUNTIME_DIR` > `/run/biomeos`).
-    fn resolve_socket_base() -> PathBuf {
-        if let Ok(dir) = std::env::var(crate::env_keys::BIOMEOS_SOCKET_DIR) {
-            let trimmed = dir.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed);
-            }
-        }
-        if let Ok(dir) = std::env::var(crate::env_keys::XDG_RUNTIME_DIR) {
-            let trimmed = dir.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed);
-            }
-        }
-        PathBuf::from("/run/biomeos")
+        crate::config::default_socket_path()
     }
 
     /// Start a Unix socket JSON-RPC server.

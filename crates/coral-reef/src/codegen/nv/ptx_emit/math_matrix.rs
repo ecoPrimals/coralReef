@@ -60,6 +60,7 @@ impl PtxEmitter<'_> {
         let n = cols.len();
         match n {
             2 => self.emit_inverse2x2(cols),
+            3 => self.emit_inverse3x3(cols),
             _ => Err(CompileError::NotImplemented(
                 format!("inverse for {n}x{n} matrix").into(),
             )),
@@ -245,5 +246,69 @@ impl PtxEmitter<'_> {
             PtxVal::Vec(vec![r00, r10]),
             PtxVal::Vec(vec![r01, r11]),
         ]))
+    }
+
+    /// inverse(3x3) via cofactor matrix / determinant.
+    ///
+    /// inv(M) = adj(M) / det(M), where adj(M)[i][j] = cofactor(M, j, i).
+    fn emit_inverse3x3(&mut self, cols: &[PtxVal]) -> Result<PtxVal, CompileError> {
+        let det = self.emit_det3x3(cols)?;
+        let rcp = self.alloc_r32();
+        writeln!(
+            self.body,
+            "    rcp.approx.f32 {}, {};",
+            rcp.fmt_operand(),
+            det.fmt_operand(),
+        )
+        .expect("write to String");
+
+        let mut result_cols: Vec<PtxVal> = Vec::with_capacity(3);
+        for col in 0..3_usize {
+            let mut result_row: Vec<PtxVal> = Vec::with_capacity(3);
+            for row in 0..3_usize {
+                let cofactor = self.emit_cofactor3x3(cols, row, col)?;
+                let scaled = self.emit_fmul(&cofactor, &rcp);
+                result_row.push(scaled);
+            }
+            result_cols.push(PtxVal::Vec(result_row));
+        }
+        Ok(PtxVal::Vec(result_cols))
+    }
+
+    /// Cofactor(M, i, j) = (-1)^(i+j) * det(minor(M, i, j))
+    fn emit_cofactor3x3(
+        &mut self,
+        cols: &[PtxVal],
+        exclude_row: usize,
+        exclude_col: usize,
+    ) -> Result<PtxVal, CompileError> {
+        let mut minor_cols: Vec<PtxVal> = Vec::with_capacity(2);
+        for c in 0..3_usize {
+            if c == exclude_col {
+                continue;
+            }
+            let mut minor_col: Vec<PtxVal> = Vec::with_capacity(2);
+            for r in 0..3_usize {
+                if r == exclude_row {
+                    continue;
+                }
+                minor_col.push(self.get_mat_elem(cols, c, r));
+            }
+            minor_cols.push(PtxVal::Vec(minor_col));
+        }
+        let det_minor = self.emit_det2x2(&minor_cols)?;
+        if (exclude_row + exclude_col) % 2 == 0 {
+            Ok(det_minor)
+        } else {
+            let neg = self.alloc_r32();
+            writeln!(
+                self.body,
+                "    neg.f32 {}, {};",
+                neg.fmt_operand(),
+                det_minor.fmt_operand(),
+            )
+            .expect("write to String");
+            Ok(neg)
+        }
     }
 }

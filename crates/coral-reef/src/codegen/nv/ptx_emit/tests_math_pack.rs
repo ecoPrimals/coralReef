@@ -215,3 +215,31 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         "membar.sys must come before ret: membar@{membar_pos} ret@{ret_pos}"
     );
 }
+
+#[test]
+fn ptx_matrix_inverse3x3() {
+    let wgsl = r"
+@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let m = mat3x3<f32>(
+        vec3<f32>(1.0, 0.0, 0.0),
+        vec3<f32>(0.0, 2.0, 0.0),
+        vec3<f32>(0.0, 0.0, 4.0)
+    );
+    let inv = transpose(m);
+    let det = determinant(m);
+    out[0] = det;
+}
+";
+    let result = emit_compute_ptx(wgsl, 120);
+    assert!(
+        result.is_ok(),
+        "3x3 determinant should compile: {result:?}"
+    );
+    let compiled = result.unwrap();
+    let ptx = String::from_utf8_lossy(&compiled.binary);
+    assert!(ptx.contains("mul.f32"), "det3x3 uses mul: {ptx:.400}");
+    assert!(ptx.contains("sub.f32"), "det3x3 uses sub: {ptx:.400}");
+}

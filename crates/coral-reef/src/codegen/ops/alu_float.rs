@@ -103,7 +103,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpTranscendental {
             }
             TranscendentalOp::Tanh => {
                 return Err(CompileError::NotImplemented(
-                    "AMD encoding for f32 tanh not yet available".into(),
+                    "OpTranscendental(Tanh) reached AMD encoder — IR should lower to Exp2+Rcp+FMul".into(),
                 ));
             }
         };

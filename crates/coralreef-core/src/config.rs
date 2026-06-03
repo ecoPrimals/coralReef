@@ -12,6 +12,28 @@ use crate::env_keys;
 /// Default timeout for graceful shutdown (SIGTERM/SIGINT).
 pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Default ecosystem registry RPC timeout.
+pub const DEFAULT_REGISTRY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Resolve the shutdown timeout (env-configurable via `$CORALREEF_SHUTDOWN_TIMEOUT_SECS`).
+#[must_use]
+pub fn shutdown_timeout() -> Duration {
+    parse_duration_env(env_keys::CORALREEF_SHUTDOWN_TIMEOUT_SECS, DEFAULT_SHUTDOWN_TIMEOUT)
+}
+
+/// Resolve the ecosystem registry RPC timeout (env-configurable via `$CORALREEF_REGISTRY_TIMEOUT_SECS`).
+#[must_use]
+pub fn registry_timeout() -> Duration {
+    parse_duration_env(env_keys::CORALREEF_REGISTRY_TIMEOUT_SECS, DEFAULT_REGISTRY_TIMEOUT)
+}
+
+fn parse_duration_env(key: &str, default: Duration) -> Duration {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map_or(default, Duration::from_secs)
+}
+
 /// Default ecosystem namespace for shared directories (discovery, sockets).
 ///
 /// Per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0 — all primals share the
@@ -136,27 +158,57 @@ pub fn primal_socket_name() -> String {
     format!("{}-{}.sock", PRIMAL_NAME, family_id())
 }
 
+/// 3-tier socket base directory resolution.
+///
+/// Resolution order (first non-empty wins):
+/// 1. `$BIOMEOS_SOCKET_DIR` — explicit override from composition launcher
+/// 2. `$XDG_RUNTIME_DIR` — Linux/freedesktop runtime directory
+/// 3. `/run/biomeos` — system fallback (standard for production deployments)
+///
+/// This is the canonical resolution used by both socket binding and
+/// `primal.announce` advertisement. All paths that need the socket base
+/// directory must use this function to avoid path divergence.
+#[must_use]
+pub fn socket_base_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var(env_keys::BIOMEOS_SOCKET_DIR) {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    if let Ok(dir) = std::env::var(env_keys::XDG_RUNTIME_DIR) {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    PathBuf::from("/run/biomeos")
+}
+
+/// Resolve the default Unix socket path for this primal.
+///
+/// Uses [`socket_base_dir`] + ecosystem namespace + primal socket name.
+/// This is the canonical path that both the server binds on and
+/// `primal.announce` advertises.
+#[must_use]
+pub fn default_socket_path() -> PathBuf {
+    socket_base_dir()
+        .join(ecosystem_namespace())
+        .join(primal_socket_name())
+}
+
 /// Resolve the shared socket/discovery directory for all ecoPrimals.
 ///
 /// Resolution order (first non-empty wins):
 /// 1. `$BIOMEOS_SOCKET_DIR` — explicit override from composition launcher
 /// 2. `$XDG_RUNTIME_DIR/{namespace}` — Linux/freedesktop standard
-/// 3. `{temp_dir}/{namespace}` — portability fallback
+/// 3. `/run/biomeos` — system fallback
 ///
 /// # Errors
 ///
-/// Returns an error if `$XDG_RUNTIME_DIR` is not set and the temp
-/// directory is unusable (extremely unlikely).
+/// Returns an error if the resolution fails (extremely unlikely).
 pub fn discovery_dir() -> std::io::Result<PathBuf> {
-    if let Ok(dir) = std::env::var(env_keys::BIOMEOS_SOCKET_DIR) {
-        let trimmed = dir.trim();
-        if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
-        }
-    }
-    let base =
-        std::env::var(env_keys::XDG_RUNTIME_DIR).map_or_else(|_| std::env::temp_dir(), PathBuf::from);
-    Ok(base.join(ecosystem_namespace()))
+    Ok(socket_base_dir().join(ecosystem_namespace()))
 }
 
 /// Resolve the security-domain provider socket path.

@@ -38,6 +38,12 @@ pub const CORALREEF_TCP_BIND: &str = "CORALREEF_TCP_BIND";
 /// Compile deadline for CPU-heavy shader compilation over IPC (seconds).
 pub const CORALREEF_COMPILE_TIMEOUT_SECS: &str = "CORALREEF_COMPILE_TIMEOUT_SECS";
 
+/// Graceful shutdown timeout (seconds). Default: 30.
+pub const CORALREEF_SHUTDOWN_TIMEOUT_SECS: &str = "CORALREEF_SHUTDOWN_TIMEOUT_SECS";
+
+/// Ecosystem registry JSON-RPC timeout (seconds). Default: 2.
+pub const CORALREEF_REGISTRY_TIMEOUT_SECS: &str = "CORALREEF_REGISTRY_TIMEOUT_SECS";
+
 /// Test-only shutdown join timeout override (honored in test/debug builds).
 pub const CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS: &str = "CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS";
 
