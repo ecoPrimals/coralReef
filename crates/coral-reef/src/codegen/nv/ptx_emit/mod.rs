@@ -26,6 +26,7 @@ mod emitter;
 mod expr_arith;
 mod expr_cast;
 mod expr_eval;
+mod expr_image;
 mod expr_misc;
 pub mod gemm;
 mod math;

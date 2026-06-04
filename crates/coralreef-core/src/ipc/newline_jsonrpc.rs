@@ -134,8 +134,9 @@ pub fn dispatch_jsonrpc(
         "shader.compile.wgsl.multi" => {
             let req: service::MultiDeviceCompileRequest = extract_params(params)?;
             match service::handle_compile_wgsl_multi(req) {
-                Ok(resp) => serde_json::to_value(resp)
-                    .map_err(|e| IpcServiceError::internal(e.to_string())),
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
                 Err(e) => Err(IpcServiceError::from(e)),
             }
         }

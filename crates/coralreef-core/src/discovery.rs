@@ -177,8 +177,7 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
             continue;
         };
 
-        let provides_ids: Vec<String> =
-            discovery.provides.iter().map(|c| c.id.clone()).collect();
+        let provides_ids: Vec<String> = discovery.provides.iter().map(|c| c.id.clone()).collect();
         let caps: &[String] = if provides_ids.is_empty() {
             &discovery.capabilities
         } else {

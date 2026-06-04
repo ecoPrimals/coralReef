@@ -18,13 +18,19 @@ pub const DEFAULT_REGISTRY_TIMEOUT: Duration = Duration::from_secs(2);
 /// Resolve the shutdown timeout (env-configurable via `$CORALREEF_SHUTDOWN_TIMEOUT_SECS`).
 #[must_use]
 pub fn shutdown_timeout() -> Duration {
-    parse_duration_env(env_keys::CORALREEF_SHUTDOWN_TIMEOUT_SECS, DEFAULT_SHUTDOWN_TIMEOUT)
+    parse_duration_env(
+        env_keys::CORALREEF_SHUTDOWN_TIMEOUT_SECS,
+        DEFAULT_SHUTDOWN_TIMEOUT,
+    )
 }
 
 /// Resolve the ecosystem registry RPC timeout (env-configurable via `$CORALREEF_REGISTRY_TIMEOUT_SECS`).
 #[must_use]
 pub fn registry_timeout() -> Duration {
-    parse_duration_env(env_keys::CORALREEF_REGISTRY_TIMEOUT_SECS, DEFAULT_REGISTRY_TIMEOUT)
+    parse_duration_env(
+        env_keys::CORALREEF_REGISTRY_TIMEOUT_SECS,
+        DEFAULT_REGISTRY_TIMEOUT,
+    )
 }
 
 fn parse_duration_env(key: &str, default: Duration) -> Duration {

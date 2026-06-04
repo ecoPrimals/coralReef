@@ -3,12 +3,12 @@
 
 use super::*;
 use bytes::Bytes;
+use std::sync::Arc;
 use types::{
     CompilationInfoResponse, CompileRequest, CompileResponse, CompileSpirvRequestTarpc,
     DeviceCompileResult, DeviceTarget, HealthResponse, MultiDeviceCompileRequest,
     MultiDeviceCompileResponse,
 };
-use std::sync::Arc;
 
 #[test]
 fn test_compile_response_serde_roundtrip() {

@@ -136,18 +136,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     data[gid.x] = data[gid.x] * 2.0 + 1.0;
 }
 ";
-    let spirv_bytes =
-        wgsl_to_spirv(wgsl, &CompileOptions::default()).expect("should emit SPIR-V");
+    let spirv_bytes = wgsl_to_spirv(wgsl, &CompileOptions::default()).expect("should emit SPIR-V");
     let words: Vec<u32> = spirv_bytes
         .chunks_exact(4)
         .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
         .collect();
 
-    let module = naga::front::spv::parse_u8_slice(
-        &spirv_bytes,
-        &naga::front::spv::Options::default(),
-    )
-    .expect("emitted SPIR-V should be parseable by naga");
+    let module =
+        naga::front::spv::parse_u8_slice(&spirv_bytes, &naga::front::spv::Options::default())
+            .expect("emitted SPIR-V should be parseable by naga");
 
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -171,13 +168,10 @@ fn my_kernel(@builtin(global_invocation_id) gid: vec3<u32>) {
     out[gid.x] = gid.x;
 }
 ";
-    let spirv_bytes =
-        wgsl_to_spirv(wgsl, &CompileOptions::default()).expect("should emit SPIR-V");
-    let module = naga::front::spv::parse_u8_slice(
-        &spirv_bytes,
-        &naga::front::spv::Options::default(),
-    )
-    .expect("parse emitted SPIR-V");
+    let spirv_bytes = wgsl_to_spirv(wgsl, &CompileOptions::default()).expect("should emit SPIR-V");
+    let module =
+        naga::front::spv::parse_u8_slice(&spirv_bytes, &naga::front::spv::Options::default())
+            .expect("parse emitted SPIR-V");
 
     assert!(
         !module.entry_points.is_empty(),
@@ -207,11 +201,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         ..CompileOptions::default()
     };
     let spirv_bytes = wgsl_to_spirv(wgsl, &opts).expect("f32 arithmetic should emit SPIR-V");
-    let module = naga::front::spv::parse_u8_slice(
-        &spirv_bytes,
-        &naga::front::spv::Options::default(),
-    )
-    .expect("emitted SPIR-V should parse");
+    let module =
+        naga::front::spv::parse_u8_slice(&spirv_bytes, &naga::front::spv::Options::default())
+            .expect("emitted SPIR-V should parse");
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
@@ -235,11 +227,9 @@ fn main(@builtin(local_invocation_index) lid: u32) {
 ";
     let spirv_bytes =
         wgsl_to_spirv(wgsl, &CompileOptions::default()).expect("atomics should emit SPIR-V");
-    let module = naga::front::spv::parse_u8_slice(
-        &spirv_bytes,
-        &naga::front::spv::Options::default(),
-    )
-    .expect("atomic SPIR-V should parse");
+    let module =
+        naga::front::spv::parse_u8_slice(&spirv_bytes, &naga::front::spv::Options::default())
+            .expect("atomic SPIR-V should parse");
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
@@ -266,11 +256,9 @@ fn main(@builtin(local_invocation_index) lid: u32, @builtin(global_invocation_id
 ";
     let spirv_bytes = wgsl_to_spirv(wgsl, &CompileOptions::default())
         .expect("shared memory + barrier should emit SPIR-V");
-    let module = naga::front::spv::parse_u8_slice(
-        &spirv_bytes,
-        &naga::front::spv::Options::default(),
-    )
-    .expect("shared memory SPIR-V should parse");
+    let module =
+        naga::front::spv::parse_u8_slice(&spirv_bytes, &naga::front::spv::Options::default())
+            .expect("shared memory SPIR-V should parse");
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
@@ -300,11 +288,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
     let spirv_bytes = wgsl_to_spirv(wgsl, &CompileOptions::default())
         .expect("complex control flow should emit SPIR-V");
-    let module = naga::front::spv::parse_u8_slice(
-        &spirv_bytes,
-        &naga::front::spv::Options::default(),
-    )
-    .expect("control flow SPIR-V should parse");
+    let module =
+        naga::front::spv::parse_u8_slice(&spirv_bytes, &naga::front::spv::Options::default())
+            .expect("control flow SPIR-V should parse");
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),

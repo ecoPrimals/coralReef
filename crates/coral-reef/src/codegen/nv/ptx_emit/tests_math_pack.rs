@@ -234,10 +234,7 @@ fn main() {
 }
 ";
     let result = emit_compute_ptx(wgsl, 120);
-    assert!(
-        result.is_ok(),
-        "3x3 determinant should compile: {result:?}"
-    );
+    assert!(result.is_ok(), "3x3 determinant should compile: {result:?}");
     let compiled = result.unwrap();
     let ptx = String::from_utf8_lossy(&compiled.binary);
     assert!(ptx.contains("mul.f32"), "det3x3 uses mul: {ptx:.400}");
@@ -262,10 +259,7 @@ fn main() {
 }
 ";
     let result = emit_compute_ptx(wgsl, 120);
-    assert!(
-        result.is_ok(),
-        "4x4 determinant should compile: {result:?}"
-    );
+    assert!(result.is_ok(), "4x4 determinant should compile: {result:?}");
     let compiled = result.unwrap();
     let ptx = String::from_utf8_lossy(&compiled.binary);
     assert!(ptx.contains("mul.f32"), "det4x4 uses mul: {ptx:.400}");

@@ -417,7 +417,10 @@ pub fn wgsl_to_spirv(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, Co
 
 /// Build naga SPIR-V backend options from [`CompileOptions`].
 fn build_spirv_backend_options(options: &CompileOptions) -> naga::back::spv::Options<'static> {
-    let spv = options.spirv.as_ref().map_or_else(SpirVOptions::default, Clone::clone);
+    let spv = options
+        .spirv
+        .as_ref()
+        .map_or_else(SpirVOptions::default, Clone::clone);
     let zero_init = if spv.zero_init_workgroup_memory {
         naga::back::spv::ZeroInitializeWorkgroupMemoryMode::Polyfill
     } else {

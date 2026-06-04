@@ -35,7 +35,7 @@ impl PtxEmitter<'_> {
             MF::Transpose => Ok(Some(self.emit_transpose(arg)?)),
             MF::Determinant => Ok(Some(self.emit_determinant(arg)?)),
             MF::Inverse => Ok(Some(self.emit_matrix_inverse(arg)?)),
-            _ => Ok(None),  // Matrix ops dispatched here, implemented in math_matrix.rs
+            _ => Ok(None), // Matrix ops dispatched here, implemented in math_matrix.rs
         }
     }
 

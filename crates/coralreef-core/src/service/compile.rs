@@ -3,14 +3,13 @@
 
 use std::time::Instant;
 
+use super::types::{
+    CompilationInfoResponse, CompileRequest, CompileResponse, CompileWgslRequest,
+    DeviceCompileResult, GemmCompileRequest, MultiDeviceCompileRequest, MultiDeviceCompileResponse,
+};
 use bytes::Bytes;
 use coral_reef::gemm::{GemmPrecision, GemmShape};
 use coral_reef::{AmdArch, CompileError, CompileOptions, FmaPolicy, GpuTarget, NvArch};
-use super::types::{
-    CompilationInfoResponse, CompileRequest, CompileResponse, CompileWgslRequest,
-    DeviceCompileResult, GemmCompileRequest, MultiDeviceCompileRequest,
-    MultiDeviceCompileResponse,
-};
 
 const STATUS_SUCCESS: &str = "success";
 
