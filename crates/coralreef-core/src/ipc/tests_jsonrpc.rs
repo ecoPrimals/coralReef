@@ -138,6 +138,8 @@ async fn test_jsonrpc_compile_wgsl_shader() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
 
     let response: Result<service::CompileResponse, _> =

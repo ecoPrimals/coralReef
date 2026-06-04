@@ -57,6 +57,8 @@ fn compile_stage(source: &str, arch: &str) -> CompileResponse {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     compile::handle_compile_wgsl(&req).expect("stage should compile")
 }

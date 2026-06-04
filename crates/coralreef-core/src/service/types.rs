@@ -91,6 +91,15 @@ pub struct CompileWgslRequest {
     /// than requiring the caller to know the exact architecture string.
     #[serde(default)]
     pub adapter: Option<AdapterDescriptor>,
+    /// When `true`, additionally emit portable SPIR-V binary alongside
+    /// the native binary. The SPIR-V is returned in `spirv_binary` field
+    /// of the response. Defaults to `false`.
+    #[serde(default)]
+    pub emit_spirv: bool,
+    /// SPIR-V version to target as `[major, minor]` (e.g. `[1, 5]`).
+    /// Only used when `emit_spirv` is `true`. Defaults to `[1, 3]`.
+    #[serde(default)]
+    pub spirv_version: Option<[u8; 2]>,
 }
 
 /// Precision routing advice carried in compile requests (from `barraCuda`).

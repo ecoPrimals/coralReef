@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: June 3, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 74 (Socket path unification, env-configurable timeouts, SERVED_METHODS single source of truth, 3x3 matrix inverse, config::socket_base_dir() canonical resolution. 3284 tests, zero unsafe, zero clippy warnings)
+**Version**: 0.2.0 — Sprint 14 / Wave 76 (SPIR-V portable output configurable: version targeting, conditional emit. Artifact provenance headers on all compile responses. SpirVOptions for lang_version/zero_init/loop_bounding. Capability metadata advertises spirv_output. 3301 tests, zero unsafe, zero clippy warnings)
 
 ---
 

@@ -40,6 +40,8 @@ async fn test_concurrent_jsonrpc_requests() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
 
     let handles: Vec<_> = (0..50)
@@ -156,6 +158,8 @@ async fn test_concurrent_tarpc_requests() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
 
     let handles: Vec<_> = (0..50)

@@ -64,8 +64,16 @@ pub fn self_description() -> SelfDescription {
                 version: env!("CARGO_PKG_VERSION").into(),
                 metadata: serde_json::json!({
                     "input_formats": ["spirv", "wgsl", "glsl"],
+                    "output_formats": ["native_binary", "spirv"],
                     "architectures": all_archs,
                     "fma_policies": ["auto", "fused", "separate"],
+                    "spirv_output": {
+                        "supported": true,
+                        "versions": ["1.0", "1.3", "1.5", "1.6"],
+                        "default_version": "1.3",
+                        "field": "emit_spirv",
+                        "provenance": true,
+                    },
                     "compile_latency": {
                         "unit": "ms",
                         "note": "measured on typical compute shaders (64-thread workgroup, f32 ALU)",

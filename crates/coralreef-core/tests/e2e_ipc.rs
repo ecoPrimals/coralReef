@@ -100,6 +100,8 @@ async fn e2e_ipc_full_integration() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     let wgsl_result: Result<service::CompileResponse, _> =
         client.request("shader.compile.wgsl", [wgsl_req]).await;

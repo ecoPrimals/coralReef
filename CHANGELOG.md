@@ -4,11 +4,31 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 74
+**Current status**: Phase 10 — Sprint 14 / Wave 76
 
 ---
 
 ## [Unreleased]
+
+### Wave 76: SPIR-V Portable Output & Mesh Capability (2026-06-03)
+
+#### Added
+- `SpirVOptions` struct: configurable SPIR-V version targeting (`(1,3)`, `(1,5)`, `(1,6)`), `zero_init_workgroup_memory`, `force_loop_bounding`
+- `CompileOptions.spirv` field for SPIR-V backend control
+- `CompileWgslRequest.emit_spirv` — opt-in SPIR-V output alongside native binary
+- `CompileWgslRequest.spirv_version` — target specific SPIR-V version `[major, minor]`
+- Capability metadata now advertises `output_formats: ["native_binary", "spirv"]` and `spirv_output` details
+- 3 provenance unit tests: `test_provenance_attached_on_with_provenance`, `test_provenance_serde_roundtrip`, `test_provenance_hash_deterministic`
+- SPIR-V output validation tests: naga validates emitted SPIR-V, entry point preservation, version targeting, atomics, shared memory, complex control flow
+- Service tests: `test_compile_wgsl_no_spirv_when_emit_false`, `test_compile_wgsl_spirv_version_targeting`
+
+#### Changed
+- `wgsl_to_spirv()` now respects `CompileOptions.spirv` for version/flags (was hardcoded defaults)
+- `handle_compile_wgsl` SPIR-V emission is now conditional on `emit_spirv` request field (was always-on)
+- Mesh capability readiness confirmed: Songbird propagation fixed upstream, `shader.compile` registers correctly
+
+#### Metrics
+- 3301 tests, 0 failures, 0 clippy warnings, 0 unsafe blocks
 
 ### Wave 74: Evolution Sweep — Composition, Coverage, Self-Knowledge (2026-06-03)
 

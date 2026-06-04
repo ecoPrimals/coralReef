@@ -229,6 +229,8 @@ fn test_compile_wgsl_fp64_strategy_software_overrides_bool() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     let result = handle_compile_wgsl(&req);
     assert!(
@@ -251,6 +253,8 @@ fn test_compile_wgsl_fp64_strategy_native_uses_fp64_software_flag() {
         fma_policy: Some("fused".to_owned()),
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     let result = handle_compile_wgsl(&req);
     assert!(result.is_ok(), "native strategy should compile: {result:?}");
@@ -408,4 +412,87 @@ fn test_tarpc_compile_error_serde_roundtrip() {
     let rt: TarpcCompileError = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(rt.message, "unsupported architecture: foo_bar");
     assert_eq!(rt.to_string(), err.to_string());
+}
+
+#[test]
+fn test_provenance_attached_on_with_provenance() {
+    let resp = CompileResponse {
+        binary: Bytes::from(vec![0xDE, 0xAD, 0xBE, 0xEF]),
+        size: 4,
+        arch: Some("sm_70".to_owned()),
+        status: Some("success".to_owned()),
+        info: None,
+        compile_time_ms: None,
+        dispatch_hints: None,
+        spirv_binary: None,
+        provenance: None,
+    };
+    assert!(resp.provenance.is_none());
+
+    let resp = resp.with_provenance();
+    let prov = resp.provenance.as_ref().expect("provenance should be set");
+    assert_eq!(prov.hash_algorithm, "sha256");
+    assert_eq!(prov.content_hash.len(), 64, "SHA-256 hex is 64 chars");
+    assert!(!prov.compiler_version.is_empty());
+    assert!(!prov.gate_of_compilation.is_empty());
+    assert!(prov.signature.is_none(), "no bearDog signing yet");
+}
+
+#[test]
+fn test_provenance_serde_roundtrip() {
+    let resp = CompileResponse {
+        binary: Bytes::from(vec![1, 2, 3, 4, 5]),
+        size: 5,
+        arch: Some("rdna2".to_owned()),
+        status: Some("success".to_owned()),
+        info: None,
+        compile_time_ms: Some(1.5),
+        dispatch_hints: None,
+        spirv_binary: None,
+        provenance: None,
+    }
+    .with_provenance();
+
+    let json = serde_json::to_string(&resp).expect("serialize");
+    assert!(json.contains("\"provenance\""), "provenance in JSON");
+    assert!(json.contains("\"content_hash\""), "content_hash in JSON");
+    assert!(json.contains("\"sha256\""), "hash_algorithm in JSON");
+
+    let rt: CompileResponse = serde_json::from_str(&json).expect("deserialize");
+    let prov = rt.provenance.expect("provenance roundtrip");
+    assert_eq!(prov.content_hash, resp.provenance.unwrap().content_hash);
+}
+
+#[test]
+fn test_provenance_hash_deterministic() {
+    let binary = vec![42u8; 128];
+    let resp1 = CompileResponse {
+        binary: Bytes::from(binary.clone()),
+        size: 128,
+        arch: None,
+        status: None,
+        info: None,
+        compile_time_ms: None,
+        dispatch_hints: None,
+        spirv_binary: None,
+        provenance: None,
+    }
+    .with_provenance();
+    let resp2 = CompileResponse {
+        binary: Bytes::from(binary),
+        size: 128,
+        arch: None,
+        status: None,
+        info: None,
+        compile_time_ms: None,
+        dispatch_hints: None,
+        spirv_binary: None,
+        provenance: None,
+    }
+    .with_provenance();
+    assert_eq!(
+        resp1.provenance.unwrap().content_hash,
+        resp2.provenance.unwrap().content_hash,
+        "same binary should produce same hash"
+    );
 }

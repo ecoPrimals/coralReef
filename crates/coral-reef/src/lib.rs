@@ -138,6 +138,30 @@ pub enum Fp64Strategy {
     F32Only,
 }
 
+/// Options specific to SPIR-V portable output (`wgsl_to_spirv`).
+#[derive(Debug, Clone)]
+pub struct SpirVOptions {
+    /// Target SPIR-V version as `(major, minor)`. Defaults to `(1, 3)`.
+    /// Vulkan 1.1 requires at least SPIR-V 1.3.
+    pub version: (u8, u8),
+    /// Zero-initialize workgroup memory. Safety-default `true` — prevents
+    /// information leaks between workgroups at a small performance cost.
+    pub zero_init_workgroup_memory: bool,
+    /// Force loop bounding — inject bounded iteration to prevent
+    /// hangs on drivers that cannot detect finite loops.
+    pub force_loop_bounding: bool,
+}
+
+impl Default for SpirVOptions {
+    fn default() -> Self {
+        Self {
+            version: (1, 3),
+            zero_init_workgroup_memory: true,
+            force_loop_bounding: false,
+        }
+    }
+}
+
 /// Compile options for the shader compiler.
 #[derive(Debug, Clone)]
 pub struct CompileOptions {
@@ -161,6 +185,9 @@ pub struct CompileOptions {
     /// Catches malformed IR early with clear diagnostics. Disable for
     /// trusted modules where validation overhead is unwanted.
     pub validate: bool,
+    /// SPIR-V output options — controls the portable compilation path.
+    /// When `None`, uses `SpirVOptions::default()`.
+    pub spirv: Option<SpirVOptions>,
 }
 
 impl CompileOptions {
@@ -203,6 +230,7 @@ impl Default for CompileOptions {
             fma_policy: FmaPolicy::default(),
             entry_point: None,
             validate: true,
+            spirv: None,
         }
     }
 }
@@ -376,15 +404,46 @@ pub fn wgsl_to_spirv(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, Co
         .validate(&module)
         .map_err(|e| CompileError::Validation(format!("{e}").into()))?;
 
-    let spv_words =
-        naga::back::spv::write_vec(&module, &info, &naga::back::spv::Options::default(), None)
-            .map_err(|e| CompileError::Encoding(format!("SPIR-V emit: {e}").into()))?;
+    let spv_opts = build_spirv_backend_options(options);
+    let spv_words = naga::back::spv::write_vec(&module, &info, &spv_opts, None)
+        .map_err(|e| CompileError::Encoding(format!("SPIR-V emit: {e}").into()))?;
 
     let mut bytes = Vec::with_capacity(spv_words.len() * 4);
     for word in &spv_words {
         bytes.extend_from_slice(&word.to_le_bytes());
     }
     Ok(bytes)
+}
+
+/// Build naga SPIR-V backend options from [`CompileOptions`].
+fn build_spirv_backend_options(options: &CompileOptions) -> naga::back::spv::Options<'static> {
+    let spv = options.spirv.as_ref().map_or_else(SpirVOptions::default, Clone::clone);
+    let zero_init = if spv.zero_init_workgroup_memory {
+        naga::back::spv::ZeroInitializeWorkgroupMemoryMode::Polyfill
+    } else {
+        naga::back::spv::ZeroInitializeWorkgroupMemoryMode::None
+    };
+    let flags = if options.debug_info {
+        naga::back::spv::WriterFlags::DEBUG
+            | naga::back::spv::WriterFlags::LABEL_VARYINGS
+            | naga::back::spv::WriterFlags::CLAMP_FRAG_DEPTH
+    } else {
+        naga::back::spv::WriterFlags::LABEL_VARYINGS
+            | naga::back::spv::WriterFlags::CLAMP_FRAG_DEPTH
+    };
+    naga::back::spv::Options {
+        lang_version: spv.version,
+        flags,
+        fake_missing_bindings: true,
+        binding_map: naga::back::spv::BindingMap::default(),
+        capabilities: None,
+        bounds_check_policies: naga::proc::BoundsCheckPolicies::default(),
+        zero_initialize_workgroup_memory: zero_init,
+        force_loop_bounding: spv.force_loop_bounding,
+        ray_query_initialization_tracking: true,
+        use_storage_input_output_16: true,
+        debug_info: None,
+    }
 }
 
 /// Compile WGSL source to native GPU binary using a custom [`Frontend`].

@@ -226,6 +226,8 @@ fn test_compile_wgsl_empty() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     assert!(handle_compile_wgsl(&req).is_err());
 }
@@ -268,6 +270,8 @@ fn test_handle_compile_wgsl_unsupported_arch() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     let result = handle_compile_wgsl(&req);
     assert!(result.is_err());
@@ -303,6 +307,8 @@ fn test_compile_wgsl_with_fma_separate() {
         fma_policy: Some("separate".to_owned()),
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     let result = handle_compile_wgsl(&req);
     assert!(result.is_ok(), "FMA separate should compile: {result:?}");
@@ -319,6 +325,8 @@ fn test_compile_wgsl_emits_sovereign_spirv() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: true,
+        spirv_version: None,
     };
     let resp = handle_compile_wgsl(&req).expect("should compile");
     let spirv = resp
@@ -328,6 +336,51 @@ fn test_compile_wgsl_emits_sovereign_spirv() {
     assert_eq!(spirv.len() % 4, 0, "SPIR-V must be word-aligned");
     let magic = u32::from_le_bytes([spirv[0], spirv[1], spirv[2], spirv[3]]);
     assert_eq!(magic, 0x0723_0203, "SPIR-V must have correct magic number");
+}
+
+#[test]
+fn test_compile_wgsl_no_spirv_when_emit_false() {
+    let req = CompileWgslRequest {
+        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: "sm_70".to_owned(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let resp = handle_compile_wgsl(&req).expect("should compile");
+    assert!(
+        resp.spirv_binary.is_none(),
+        "spirv_binary should be None when emit_spirv=false"
+    );
+}
+
+#[test]
+fn test_compile_wgsl_spirv_version_targeting() {
+    let req = CompileWgslRequest {
+        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: "sm_70".to_owned(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: None,
+        emit_spirv: true,
+        spirv_version: Some([1, 5]),
+    };
+    let resp = handle_compile_wgsl(&req).expect("should compile");
+    let spirv = resp.spirv_binary.expect("SPIR-V should be emitted");
+    let ver_word = u32::from_le_bytes([spirv[4], spirv[5], spirv[6], spirv[7]]);
+    let expected = (1u32 << 16) | (5u32 << 8);
+    assert_eq!(
+        ver_word, expected,
+        "should emit SPIR-V 1.5: {ver_word:#010x} vs {expected:#010x}"
+    );
 }
 
 #[test]
@@ -533,6 +586,8 @@ fn test_compile_wgsl_request_serde_roundtrip() {
         fma_policy: Some("fused".to_owned()),
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     let json = serde_json::to_string(&req).unwrap();
     let roundtrip: CompileWgslRequest = serde_json::from_str(&json).unwrap();

@@ -253,14 +253,24 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
         .map_or(req.fp64_software, |s| s == "software");
     let fma = parse_fma_policy(req.fma_policy.as_deref());
     let effective_arch = resolve_arch(&req.arch, req.adapter.as_ref());
-    let options = build_options(&effective_arch, req.opt_level, fp64_sw, fma)?;
+    let mut options = build_options(&effective_arch, req.opt_level, fp64_sw, fma)?;
+    if let Some(ver) = req.spirv_version {
+        options.spirv = Some(coral_reef::SpirVOptions {
+            version: ver.into(),
+            ..coral_reef::SpirVOptions::default()
+        });
+    }
     let wave_size = wave_size_for(options.target);
     let hardware_hint = dispatch_hint_from_precision_advice(req.precision_advice.as_ref());
     let t0 = Instant::now();
     let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
-    let spirv = coral_reef::wgsl_to_spirv(req.wgsl_source.as_ref(), &options)
-        .map(Bytes::from)
-        .ok();
+    let spirv = if req.emit_spirv {
+        coral_reef::wgsl_to_spirv(req.wgsl_source.as_ref(), &options)
+            .map(Bytes::from)
+            .ok()
+    } else {
+        None
+    };
     let elapsed = t0.elapsed();
     let size = compiled.binary.len();
     Ok(CompileResponse {

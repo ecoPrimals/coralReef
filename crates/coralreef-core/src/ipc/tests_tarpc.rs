@@ -342,6 +342,8 @@ async fn test_tarpc_compile_wgsl() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     let result = client.wgsl(tarpc::context::current(), req).await.unwrap();
     assert!(result.is_ok(), "WGSL compile should succeed");
@@ -629,6 +631,8 @@ async fn test_tarpc_unix_wgsl_compile_roundtrip() {
         fma_policy: None,
         precision_advice: None,
         adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
     };
     let response = client
         .wgsl(tarpc::context::current(), request)
