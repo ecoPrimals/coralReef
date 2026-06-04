@@ -5,9 +5,8 @@ use super::*;
 use bytes::Bytes;
 use std::sync::Arc;
 use types::{
-    CompilationInfoResponse, CompileRequest, CompileResponse, CompileSpirvRequestTarpc,
-    DeviceCompileResult, DeviceTarget, HealthResponse, MultiDeviceCompileRequest,
-    MultiDeviceCompileResponse,
+    CompilationInfoResponse, CompileResponse, CompileSpirvRequestTarpc, DeviceCompileResult,
+    DeviceTarget, HealthResponse, MultiDeviceCompileResponse,
 };
 
 #[test]

@@ -359,4 +359,97 @@ mod tests {
             "must advertise shader.health capability"
         );
     }
+
+    #[test]
+    fn mesh_registration_payload_is_songbird_compatible() {
+        let desc = self_description();
+        let transports = vec![
+            Transport {
+                protocol: "jsonrpc".into(),
+                address: "unix:///run/user/1000/biomeos/ecoPrimals/coralreef-default.sock".into(),
+            },
+            Transport {
+                protocol: "tarpc".into(),
+                address: "127.0.0.1:0".into(),
+            },
+        ];
+        let desc = with_transports(desc, transports);
+
+        let payload = serde_json::json!({
+            "name": "coralreef",
+            "version": env!("CARGO_PKG_VERSION"),
+            "provides": desc.provides,
+            "requires": desc.requires,
+            "transports": desc.transports,
+        });
+
+        let payload_str = serde_json::to_string(&payload).expect("serialize registration");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&payload_str).expect("parse registration");
+
+        assert_eq!(parsed["name"], "coralreef");
+        let provides = parsed["provides"].as_array().expect("provides is array");
+        let compile_cap = provides
+            .iter()
+            .find(|c| c["id"] == "shader.compile")
+            .expect("shader.compile in provides");
+        assert!(!compile_cap["version"].as_str().unwrap_or("").is_empty());
+        assert!(compile_cap["metadata"]["architectures"].is_array());
+        assert!(
+            compile_cap["metadata"]["spirv_output"]["supported"]
+                .as_bool()
+                .unwrap_or(false)
+        );
+
+        let transports = parsed["transports"]
+            .as_array()
+            .expect("transports is array");
+        assert!(
+            transports.iter().any(|t| t["protocol"] == "jsonrpc"),
+            "must have jsonrpc transport for mesh discovery"
+        );
+
+        let requires = parsed["requires"].as_array().expect("requires is array");
+        assert!(
+            requires.iter().any(|r| r["id"] == "compute.dispatch"),
+            "mesh peers need to know our compute.dispatch dependency"
+        );
+    }
+
+    #[test]
+    fn discovery_peers_response_matches_shader_compile_schema() {
+        let desc = self_description();
+        let compile_cap = desc
+            .provides
+            .iter()
+            .find(|c| c.id == "shader.compile")
+            .expect("shader.compile exists");
+
+        let meta = &compile_cap.metadata;
+        assert!(meta["input_formats"].is_array());
+        assert!(meta["output_formats"].is_array());
+        assert!(meta["architectures"].is_array());
+
+        let output_formats: Vec<&str> = meta["output_formats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(
+            output_formats.contains(&"spirv"),
+            "mesh peers should see SPIR-V as output format"
+        );
+        assert!(
+            output_formats.contains(&"native_binary"),
+            "mesh peers should see native_binary as output format"
+        );
+
+        let spirv = &meta["spirv_output"];
+        assert!(spirv["supported"].as_bool().unwrap_or(false));
+        assert!(spirv["versions"].is_array());
+        assert_eq!(spirv["default_version"], "1.3");
+        assert_eq!(spirv["field"], "emit_spirv");
+        assert!(spirv["provenance"].as_bool().unwrap_or(false));
+    }
 }

@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: June 3, 2026 (Sprint 14 / Wave 77: 3303 tests. Deep debt sweep complete — all prod files <800L, full audit clean. SPIR-V portable output, provenance, capability metadata. Zero debt)
+**Last updated**: June 4, 2026 (Sprint 14 / Wave 78: 3307 tests. Mesh registration verified, SPIR-V e2e pipeline validated. Deep debt sweep complete — all prod files <800L, full audit clean. Zero debt)
 
 ---
 

@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 77 (pure compiler primal, configurable SPIR-V output, artifact provenance, deep debt clean).
+**Current position**: Phase 10 — Sprint 14 / Wave 78 (mesh propagation verified, SPIR-V end-to-end pipeline validated).
 
-**Last completed**: Wave 77 — Deep debt sweep (smart refactoring of last >800L files, full audit clean). Wave 76 — SPIR-V portable output (`SpirVOptions`, conditional `emit_spirv`, version targeting, capability metadata). Wave 74 — Composition evolution (socket unification, math_matrix extraction, provenance headers).
+**Last completed**: Wave 78 — Mesh registration payload validation (Songbird-compatible), SPIR-V end-to-end test (compile → provenance → naga re-validation). Wave 77 — Deep debt sweep (smart refactoring of last >800L files, full audit clean). Wave 76 — SPIR-V portable output (`SpirVOptions`, conditional `emit_spirv`, version targeting, capability metadata).
 
-**Tests**: 3303 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3307 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 3, 2026.
+**Last updated**: June 4, 2026.
 
 **Next focus**: Coverage push toward 90%. Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 

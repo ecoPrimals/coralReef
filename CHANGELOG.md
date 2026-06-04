@@ -4,11 +4,25 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 77
+**Current status**: Phase 10 — Sprint 14 / Wave 78
 
 ---
 
 ## [Unreleased]
+
+### Wave 78: Mesh Propagation & SPIR-V End-to-End Verification (2026-06-04)
+
+#### Added
+- `mesh_registration_payload_is_songbird_compatible` test: validates `capability.register` payload serialization, transport advertisement, SPIR-V metadata presence
+- `discovery_peers_response_matches_shader_compile_schema` test: verifies peers see correct output_formats (spirv, native_binary), SPIR-V version list, provenance flag
+- `test_spirv_end_to_end_compile_provenance_output` test: full pipeline (WGSL → native + SPIR-V → provenance → naga re-validation → entry point assertion)
+- `spv-in` feature added to naga dev-dependency for SPIR-V roundtrip validation in tests
+
+#### Changed
+- Removed unused imports from `service/tests.rs` and `service/tests_serde.rs` (hygiene)
+
+#### Metrics
+- 3307 tests, 0 failures, 0 clippy warnings
 
 ### Wave 77: Deep Debt Sweep — Smart Refactoring & Full Audit (2026-06-03)
 
