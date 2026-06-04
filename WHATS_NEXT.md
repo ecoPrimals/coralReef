@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 (pure compiler primal, sovereign SPIR-V, SM120 barrier fix, math pack/unpack completeness).
+**Current position**: Phase 10 — Sprint 14 / Wave 77 (pure compiler primal, configurable SPIR-V output, artifact provenance, deep debt clean).
 
-**Last completed**: Wave 68 — SM120 `membar.sys` barrier fix (GAP-HS-115), sovereign SPIR-V emission via `naga::back::spv` (GAP-HS-124), 13 new math builtins (Pack/Unpack 4x8unorm/snorm, 2x16float/unorm/snorm, Transpose, Determinant 2x2/3x3/4x4, Inverse 2x2), `naga::Module` multi-entry-point hardening, `wgsl_to_spirv()` public API. Wave 67: Adapter-aware arch routing, copy-prop regression fix, hyperbolic trig (sinh/cosh/asinh/acosh/atanh), float decomposition (modf/frexp/ldexp), bit scan (firstTrailingBit/firstLeadingBit).
+**Last completed**: Wave 77 — Deep debt sweep (smart refactoring of last >800L files, full audit clean). Wave 76 — SPIR-V portable output (`SpirVOptions`, conditional `emit_spirv`, version targeting, capability metadata). Wave 74 — Composition evolution (socket unification, math_matrix extraction, provenance headers).
 
-**Tests**: 3284 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3303 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 2, 2026.
+**Last updated**: June 3, 2026.
 
 **Next focus**: Coverage push toward 90%. Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 

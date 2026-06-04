@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: June 2, 2026 (Sprint 14 / Wave 68: 3284 tests. SM120 barrier fix, sovereign SPIR-V emission, math pack/unpack builtins, module hardening. Zero debt)
+**Last updated**: June 3, 2026 (Sprint 14 / Wave 77: 3303 tests. Deep debt sweep complete — all prod files <800L, full audit clean. SPIR-V portable output, provenance, capability metadata. Zero debt)
 
 ---
 

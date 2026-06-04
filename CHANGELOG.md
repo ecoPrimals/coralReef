@@ -4,11 +4,29 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 76
+**Current status**: Phase 10 — Sprint 14 / Wave 77
 
 ---
 
 ## [Unreleased]
+
+### Wave 77: Deep Debt Sweep — Smart Refactoring & Full Audit (2026-06-03)
+
+#### Changed
+- `expr_eval.rs` (834L→340L): Extracted image/texture/surface evaluation into new `expr_image.rs` (492L) — cohesive PTX image load, sample, query, gather operations
+- `math.rs` (809L→646L): Moved `Tanh`/`Sinh`/`Cosh` implementations into `math_ext_trig.rs` (428L→592L) where trig/hyperbolic ops belong
+- Formatting normalized across workspace via `cargo fmt`
+
+#### Audit Results (all clean)
+- **Unsafe code**: All isolated to test files (env var mutation, Rust 1.85+), all with SAFETY docs + mutex serialization. All prod crates `#![forbid(unsafe_code)]`
+- **External dependencies**: 100% pure Rust — zero C/C++, zero `*-sys`, zero openssl/ring/vendor SDKs
+- **Hardcoded values**: All paths use 3-tier resolution (env override → XDG → fallback). Zero primal name coupling
+- **Production mocks**: None — `coral-reef-stubs` is legitimate compiler IR, not a mock
+- **NotImplemented stubs**: All are legitimate architecture boundaries (mesh/task shaders, hardware-specific PTX features) or defensive error paths
+
+#### Metrics
+- 3303 tests, 0 failures, 0 clippy warnings, 0 unsafe in production
+- Zero production files over 800 lines (excluding tests and ISA-generated tables)
 
 ### Wave 76: SPIR-V Portable Output & Mesh Capability (2026-06-03)
 
