@@ -1,0 +1,141 @@
+# coralReef Capability Registry
+# biomeOS-compatible runtime capability overlay.
+# See: wateringHole CAPABILITY_WIRE_STANDARD
+#
+# biomeOS reads this file to discover coralReef capabilities
+# without requiring the primal to be running.
+
+[primal]
+name = "coralreef"
+version = "0.2.0"
+description = "Sovereign Rust GPU shader compiler — WGSL/SPIR-V/GLSL to native binary"
+license = "AGPL-3.0-or-later"
+protocol = "jsonrpc-2.0"
+transport = ["uds", "tcp", "tarpc"]
+
+[domains.shader]
+description = "GPU shader compilation (WGSL, SPIR-V, GLSL → native binary + portable SPIR-V)"
+methods = ["compile.spirv", "compile.wgsl", "compile.wgsl.multi", "compile.gemm", "compile.status", "compile.capabilities"]
+
+[domains.health]
+description = "Health, liveness, readiness, and version probes"
+methods = ["check", "liveness", "readiness", "version"]
+
+[domains.identity]
+description = "Primal self-description for ecosystem discovery"
+methods = ["get"]
+
+[domains.capability]
+description = "Capability discovery (Wire Standard L3)"
+methods = ["list"]
+
+[domains.btsp]
+description = "BTSP Phase 3 session negotiation (ChaCha20-Poly1305 AEAD)"
+methods = ["negotiate"]
+
+[domains.auth]
+description = "MethodGate authorization and peer introspection"
+methods = ["check", "mode", "peer_info"]
+
+# Consumed capabilities — what coralReef needs from the ecosystem
+[consumed]
+"compute.dispatch" = { reason = "dispatch compiled shader binaries on GPU hardware", provider = "toadstool" }
+"capability.register" = { reason = "advertise shader.compile to ecosystem registry", provider = "songbird" }
+"ipc.heartbeat" = { reason = "keepalive with ecosystem registry", provider = "songbird" }
+
+# GPU architecture targets
+[targets.nvidia]
+architectures = ["sm35", "sm50", "sm60", "sm70", "sm75", "sm80", "sm86", "sm89", "sm90", "sm120"]
+features = ["f64_transcendentals", "tensor_cores", "ray_tracing", "cooperative_matrix"]
+
+[targets.amd]
+architectures = ["gcn5", "rdna2", "rdna3", "rdna4"]
+features = ["f64_native", "wave64"]
+
+# Per-operation metadata for biomeOS dispatch graph
+[operations."shader.compile.wgsl"]
+depends_on = []
+cost = "high"
+stability = "stable"
+description = "Compile WGSL source to native GPU binary (+ optional SPIR-V)"
+
+[operations."shader.compile.spirv"]
+depends_on = []
+cost = "high"
+stability = "stable"
+description = "Compile SPIR-V bytecode to native GPU binary"
+
+[operations."shader.compile.wgsl.multi"]
+depends_on = []
+cost = "high"
+stability = "stable"
+description = "Compile WGSL to multiple GPU targets simultaneously"
+
+[operations."shader.compile.gemm"]
+depends_on = []
+cost = "high"
+stability = "stable"
+description = "Generate tensor-core GEMM kernel (HMMA via mma.sync)"
+
+[operations."shader.compile.status"]
+depends_on = []
+cost = "low"
+stability = "stable"
+description = "Compiler health and supported architecture list"
+
+[operations."shader.compile.capabilities"]
+depends_on = []
+cost = "low"
+stability = "stable"
+description = "Structured capability report (archs, f64, math ops)"
+
+[operations."health.check"]
+depends_on = []
+cost = "low"
+stability = "stable"
+
+[operations."health.liveness"]
+depends_on = []
+cost = "low"
+stability = "stable"
+
+[operations."health.readiness"]
+depends_on = []
+cost = "low"
+stability = "stable"
+
+[operations."health.version"]
+depends_on = []
+cost = "low"
+stability = "stable"
+
+[operations."identity.get"]
+depends_on = []
+cost = "low"
+stability = "stable"
+
+[operations."capability.list"]
+depends_on = []
+cost = "low"
+stability = "stable"
+
+[operations."btsp.negotiate"]
+depends_on = []
+cost = "medium"
+stability = "stable"
+description = "Upgrade connection to encrypted AEAD channel"
+
+[operations."auth.check"]
+depends_on = []
+cost = "low"
+stability = "stable"
+
+[operations."auth.mode"]
+depends_on = []
+cost = "low"
+stability = "stable"
+
+[operations."auth.peer_info"]
+depends_on = []
+cost = "low"
+stability = "stable"
