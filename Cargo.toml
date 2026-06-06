@@ -10,6 +10,15 @@ members = [
     "crates/primal-rpc-client",
     "tools/amd-isa-gen",
 ]
+default-members = [
+    "crates/coralreef-core",
+    "crates/coral-reef",
+    "crates/coral-reef-isa",
+    "crates/coral-reef-stubs",
+    "crates/coral-reef-bitview",
+    "crates/nak-ir-proc",
+    "crates/primal-rpc-client",
+]
 exclude = [
     "fuzz",
 ]

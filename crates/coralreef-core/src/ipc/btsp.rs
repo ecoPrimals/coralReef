@@ -256,6 +256,25 @@ fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
     discover_by_capability(&sock_dir, "btsp.session.create")
 }
 
+/// Directory-based security socket discovery (steps 3-5 of the resolution chain).
+///
+/// Extracted for testability: takes an explicit directory rather than reading
+/// from env/config. Production code calls this via [`discover_security_socket`].
+#[cfg(test)]
+fn discover_security_socket_in_dir(sock_dir: &std::path::Path, family_id: &str) -> Option<PathBuf> {
+    let scoped = sock_dir.join(format!("{SECURITY_DOMAIN}-{family_id}.sock"));
+    if scoped.exists() {
+        return Some(scoped);
+    }
+
+    let unscoped = sock_dir.join(format!("{SECURITY_DOMAIN}.sock"));
+    if unscoped.exists() {
+        return Some(unscoped);
+    }
+
+    discover_by_capability(sock_dir, "btsp.session.create")
+}
+
 /// Scan discovery files for a primal advertising a specific method.
 fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {
     let entries = std::fs::read_dir(sock_dir).ok()?;
@@ -445,7 +464,14 @@ mod tests {
 
     #[test]
     fn discover_returns_none_when_no_socket() {
-        assert!(discover_security_socket("nonexistent-test-family").is_none());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sock_dir = dir.path().join("biomeos");
+        std::fs::create_dir_all(&sock_dir).expect("create");
+        let result = discover_security_socket_in_dir(&sock_dir, "nonexistent-test-family-9f3a7b");
+        assert!(
+            result.is_none(),
+            "expected None when no matching socket exists, got {result:?}"
+        );
     }
 
     #[tokio::test]
