@@ -426,6 +426,37 @@ fn make_response_internal_error_jsonrpc_code() {
 
 #[cfg(unix)]
 #[test]
+fn dispatch_capability_list_singular() {
+    let result = super::newline_jsonrpc::dispatch("capability.list", serde_json::json!({}));
+    assert!(result.is_ok());
+    let val = result.unwrap();
+    assert!(val["methods"].is_array());
+    assert!(val["capabilities"].is_array());
+    assert!(val["transport"].is_array());
+}
+
+#[cfg(unix)]
+#[test]
+fn dispatch_capabilities_list_plural_alias() {
+    let result = super::newline_jsonrpc::dispatch("capabilities.list", serde_json::json!({}));
+    assert!(result.is_ok());
+    let val = result.unwrap();
+    assert!(val["methods"].is_array());
+    assert!(val["capabilities"].is_array());
+    let methods: Vec<String> = val["methods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+        .collect();
+    assert!(
+        methods.contains(&"capabilities.list".to_owned()),
+        "capabilities.list must be in methods list"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn dispatch_handler_error_returns_handler_phase() {
     let params = serde_json::json!({
         "wgsl_source": "invalid wgsl {{",

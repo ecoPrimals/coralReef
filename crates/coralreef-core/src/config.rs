@@ -99,6 +99,7 @@ pub const SERVED_METHODS: &[&str] = &[
     "health.version",
     "identity.get",
     "capability.list",
+    "capabilities.list",
     "btsp.negotiate",
     "auth.check",
     "auth.mode",

@@ -168,7 +168,7 @@ pub fn dispatch_jsonrpc(
             let resp = service::handle_identity_get();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
-        "capability.list" => {
+        "capability.list" | "capabilities.list" => {
             let resp = service::handle_capability_list();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
