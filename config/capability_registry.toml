@@ -28,6 +28,7 @@ methods = ["get"]
 [domains.capability]
 description = "Capability discovery (Wire Standard L3)"
 methods = ["list"]
+aliases = { "capabilities.list" = "capability.list" }
 
 [domains.btsp]
 description = "BTSP Phase 3 session negotiation (ChaCha20-Poly1305 AEAD)"
@@ -118,6 +119,7 @@ stability = "stable"
 depends_on = []
 cost = "low"
 stability = "stable"
+aliases = ["capabilities.list"]
 
 [operations."btsp.negotiate"]
 depends_on = []
