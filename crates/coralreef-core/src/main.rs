@@ -257,6 +257,10 @@ fn log_composition_env() {
             env_keys::BIOMEOS_SOCKET_DIR,
             std::env::var(env_keys::BIOMEOS_SOCKET_DIR).ok(),
         ),
+        (
+            env_keys::TRANSPORT_ENDPOINT,
+            std::env::var(env_keys::TRANSPORT_ENDPOINT).ok(),
+        ),
     ];
     for (name, val) in vars {
         if let Some(v) = val {
@@ -305,78 +309,137 @@ async fn cmd_server(
     tarpc_bind: &str,
     socket_override: Option<&std::path::Path>,
 ) -> UniBinExit {
+    use ipc::transport::{ResolvedBind, resolve_bind};
+
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
         return UniBinExit::ConfigError;
     }
 
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
-    tracing::info!(rpc_bind, tarpc_bind, "binding addresses");
     log_composition_env();
+
+    let bind = match resolve_bind(rpc_bind, socket_override) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!(error = %e, "TRANSPORT_ENDPOINT resolution failed");
+            return UniBinExit::ConfigError;
+        }
+    };
 
     let (tarpc_actual_bind, unix_jsonrpc_override) = resolve_uds_binds(tarpc_bind);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
 
-    let (rpc_addr, rpc_handle) =
-        match ipc::start_newline_tcp_jsonrpc(rpc_bind, shutdown_rx.clone()).await {
-            Ok(x) => x,
-            Err(e) => {
-                tracing::error!(error = %e, "failed to start JSON-RPC server");
-                return UniBinExit::GeneralError;
-            }
-        };
+    let mut rpc_handle: Option<tokio::task::JoinHandle<()>> = None;
+    let mut rpc_addr: Option<std::net::SocketAddr> = None;
+    #[cfg(unix)]
+    let mut unix_jsonrpc_path: Option<std::path::PathBuf> = None;
+    #[cfg(unix)]
+    let mut unix_jsonrpc_handle: Option<tokio::task::JoinHandle<()>> = None;
 
-    #[cfg(unix)]
-    let unix_jsonrpc_path = socket_override
-        .map(std::path::PathBuf::from)
-        .or(unix_jsonrpc_override)
-        .unwrap_or_else(ipc::default_unix_socket_path);
-    #[cfg(unix)]
-    let unix_jsonrpc_handle = {
-        match ipc::start_unix_jsonrpc_server(&unix_jsonrpc_path, shutdown_rx.clone()).await {
-            Ok((_path, handle)) => {
-                tracing::info!(path = %unix_jsonrpc_path.display(), "Unix JSON-RPC server started");
-                Some(handle)
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "Unix JSON-RPC server failed to start (ecosystem primal discovery degraded)");
-                None
+    match &bind {
+        ResolvedBind::TcpOnly { addr } => {
+            tracing::info!(addr, tarpc_bind, "binding TCP (transport-injected) + tarpc");
+            match ipc::start_newline_tcp_jsonrpc(addr, shutdown_rx.clone()).await {
+                Ok((bound, handle)) => {
+                    rpc_addr = Some(bound);
+                    rpc_handle = Some(handle);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to start TCP JSON-RPC server");
+                    return UniBinExit::GeneralError;
+                }
             }
         }
-    };
+        #[cfg(unix)]
+        ResolvedBind::UdsOnly { path } => {
+            tracing::info!(path = %path.display(), tarpc_bind, "binding UDS (transport-injected) + tarpc");
+            match ipc::start_unix_jsonrpc_server(path, shutdown_rx.clone()).await {
+                Ok((_path, handle)) => {
+                    unix_jsonrpc_path = Some(path.clone());
+                    unix_jsonrpc_handle = Some(handle);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to start Unix JSON-RPC server");
+                    return UniBinExit::GeneralError;
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        ResolvedBind::UdsOnly { .. } => {
+            tracing::error!("UDS transport injection not supported on this platform");
+            return UniBinExit::ConfigError;
+        }
+        ResolvedBind::Both {
+            tcp_bind,
+            socket_override: sock_ovr,
+        } => {
+            tracing::info!(tcp_bind, tarpc_bind, "binding addresses (standalone mode)");
+            match ipc::start_newline_tcp_jsonrpc(tcp_bind, shutdown_rx.clone()).await {
+                Ok((bound, handle)) => {
+                    rpc_addr = Some(bound);
+                    rpc_handle = Some(handle);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to start JSON-RPC server");
+                    return UniBinExit::GeneralError;
+                }
+            }
+            #[cfg(unix)]
+            {
+                let path = sock_ovr
+                    .clone()
+                    .or(unix_jsonrpc_override)
+                    .unwrap_or_else(ipc::default_unix_socket_path);
+                match ipc::start_unix_jsonrpc_server(&path, shutdown_rx.clone()).await {
+                    Ok((_p, handle)) => {
+                        tracing::info!(path = %path.display(), "Unix JSON-RPC server started");
+                        unix_jsonrpc_path = Some(path);
+                        unix_jsonrpc_handle = Some(handle);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Unix JSON-RPC server failed to start (ecosystem primal discovery degraded)");
+                    }
+                }
+            }
+        }
+    }
 
     let (tarpc_bound, tarpc_handle) =
         match ipc::start_tarpc_server(&tarpc_actual_bind, shutdown_rx.clone()).await {
             Ok(x) => x,
             Err(e) => {
                 tracing::error!(error = %e, "failed to start tarpc server");
-                rpc_handle.abort();
+                if let Some(h) = &rpc_handle {
+                    h.abort();
+                }
                 return UniBinExit::GeneralError;
             }
         };
 
-    let mut transports = vec![
-        coralreef_core::capability::Transport {
+    let mut transports = Vec::new();
+    if let Some(addr) = rpc_addr {
+        transports.push(coralreef_core::capability::Transport {
             protocol: "jsonrpc".into(),
-            address: rpc_addr.to_string().into(),
-        },
-        coralreef_core::capability::Transport {
-            protocol: format!("tarpc+{}", tarpc_bound.protocol()).into(),
-            address: tarpc_bound.to_string().into(),
-        },
-    ];
+            address: addr.to_string().into(),
+        });
+    }
+    transports.push(coralreef_core::capability::Transport {
+        protocol: format!("tarpc+{}", tarpc_bound.protocol()).into(),
+        address: tarpc_bound.to_string().into(),
+    });
     #[cfg(unix)]
-    if unix_jsonrpc_handle.is_some() {
+    if let Some(ref path) = unix_jsonrpc_path {
         transports.push(coralreef_core::capability::Transport {
             protocol: "jsonrpc+unix".into(),
-            address: format!("unix://{}", unix_jsonrpc_path.display()).into(),
+            address: format!("unix://{}", path.display()).into(),
         });
     }
     let desc = coralreef_core::capability::self_description();
     let desc = coralreef_core::capability::with_transports(desc, transports);
     tracing::info!(
-        rpc_addr = %rpc_addr,
+        rpc_addr = ?rpc_addr,
         tarpc_addr = %tarpc_bound,
         provides = ?desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
         requires = ?desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
@@ -400,8 +463,10 @@ async fn cmd_server(
 
     let join_timeout = shutdown_join_timeout();
     let shutdown_result = tokio::time::timeout(join_timeout, async move {
-        if let Err(e) = rpc_handle.await {
-            tracing::warn!(error = %e, "JSON-RPC task join failed during shutdown");
+        if let Some(h) = rpc_handle {
+            if let Err(e) = h.await {
+                tracing::warn!(error = %e, "JSON-RPC task join failed during shutdown");
+            }
         }
         if let Err(e) = tarpc_handle.await {
             tracing::warn!(error = %e, "tarpc task join failed during shutdown");
@@ -427,59 +492,118 @@ async fn cmd_server(
 
 #[cfg(not(feature = "tarpc-transport"))]
 async fn cmd_server(rpc_bind: &str, socket_override: Option<&std::path::Path>) -> UniBinExit {
+    use ipc::transport::{ResolvedBind, resolve_bind};
+
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
         return UniBinExit::ConfigError;
     }
 
     tracing::info!("{} server starting (JSON-RPC only)", env!("CARGO_PKG_NAME"));
-    tracing::info!(rpc_bind, "binding addresses");
     log_composition_env();
 
-    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
-
-    let (rpc_addr, rpc_handle) =
-        match ipc::start_newline_tcp_jsonrpc(rpc_bind, shutdown_rx.clone()).await {
-            Ok(x) => x,
-            Err(e) => {
-                tracing::error!(error = %e, "failed to start JSON-RPC server");
-                return UniBinExit::GeneralError;
-            }
-        };
-
-    #[cfg(unix)]
-    let unix_jsonrpc_path = socket_override
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(ipc::default_unix_socket_path);
-    #[cfg(unix)]
-    let unix_jsonrpc_handle = {
-        match ipc::start_unix_jsonrpc_server(&unix_jsonrpc_path, shutdown_rx.clone()).await {
-            Ok((_path, handle)) => {
-                tracing::info!(path = %unix_jsonrpc_path.display(), "Unix JSON-RPC server started");
-                Some(handle)
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "Unix JSON-RPC server failed to start (ecosystem primal discovery degraded)");
-                None
-            }
+    let bind = match resolve_bind(rpc_bind, socket_override) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!(error = %e, "TRANSPORT_ENDPOINT resolution failed");
+            return UniBinExit::ConfigError;
         }
     };
 
-    let mut transports = vec![coralreef_core::capability::Transport {
-        protocol: "jsonrpc".into(),
-        address: rpc_addr.to_string().into(),
-    }];
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
+
+    let mut rpc_handle: Option<tokio::task::JoinHandle<()>> = None;
+    let mut rpc_addr: Option<std::net::SocketAddr> = None;
     #[cfg(unix)]
-    if unix_jsonrpc_handle.is_some() {
+    let mut unix_jsonrpc_path: Option<std::path::PathBuf> = None;
+    #[cfg(unix)]
+    let mut unix_jsonrpc_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+    match &bind {
+        ResolvedBind::TcpOnly { addr } => {
+            tracing::info!(addr, "binding TCP (transport-injected)");
+            match ipc::start_newline_tcp_jsonrpc(addr, shutdown_rx.clone()).await {
+                Ok((bound, handle)) => {
+                    rpc_addr = Some(bound);
+                    rpc_handle = Some(handle);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to start TCP JSON-RPC server");
+                    return UniBinExit::GeneralError;
+                }
+            }
+        }
+        #[cfg(unix)]
+        ResolvedBind::UdsOnly { path } => {
+            tracing::info!(path = %path.display(), "binding UDS (transport-injected)");
+            match ipc::start_unix_jsonrpc_server(path, shutdown_rx.clone()).await {
+                Ok((_path, handle)) => {
+                    unix_jsonrpc_path = Some(path.clone());
+                    unix_jsonrpc_handle = Some(handle);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to start Unix JSON-RPC server");
+                    return UniBinExit::GeneralError;
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        ResolvedBind::UdsOnly { .. } => {
+            tracing::error!("UDS transport injection not supported on this platform");
+            return UniBinExit::ConfigError;
+        }
+        ResolvedBind::Both {
+            tcp_bind,
+            socket_override: sock_ovr,
+        } => {
+            tracing::info!(tcp_bind, "binding addresses (standalone mode)");
+            match ipc::start_newline_tcp_jsonrpc(tcp_bind, shutdown_rx.clone()).await {
+                Ok((bound, handle)) => {
+                    rpc_addr = Some(bound);
+                    rpc_handle = Some(handle);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to start JSON-RPC server");
+                    return UniBinExit::GeneralError;
+                }
+            }
+            #[cfg(unix)]
+            {
+                let path = sock_ovr
+                    .clone()
+                    .unwrap_or_else(ipc::default_unix_socket_path);
+                match ipc::start_unix_jsonrpc_server(&path, shutdown_rx.clone()).await {
+                    Ok((_p, handle)) => {
+                        tracing::info!(path = %path.display(), "Unix JSON-RPC server started");
+                        unix_jsonrpc_path = Some(path);
+                        unix_jsonrpc_handle = Some(handle);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Unix JSON-RPC server failed to start (ecosystem primal discovery degraded)");
+                    }
+                }
+            }
+        }
+    }
+
+    let mut transports = Vec::new();
+    if let Some(addr) = rpc_addr {
+        transports.push(coralreef_core::capability::Transport {
+            protocol: "jsonrpc".into(),
+            address: addr.to_string().into(),
+        });
+    }
+    #[cfg(unix)]
+    if let Some(ref path) = unix_jsonrpc_path {
         transports.push(coralreef_core::capability::Transport {
             protocol: "jsonrpc+unix".into(),
-            address: format!("unix://{}", unix_jsonrpc_path.display()).into(),
+            address: format!("unix://{}", path.display()).into(),
         });
     }
     let desc = coralreef_core::capability::self_description();
     let desc = coralreef_core::capability::with_transports(desc, transports);
     tracing::info!(
-        rpc_addr = %rpc_addr,
+        rpc_addr = ?rpc_addr,
         provides = ?desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
         requires = ?desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
         "{} ready — capability advertisement prepared", env!("CARGO_PKG_NAME")
@@ -502,8 +626,10 @@ async fn cmd_server(rpc_bind: &str, socket_override: Option<&std::path::Path>) -
 
     let join_timeout = shutdown_join_timeout();
     let shutdown_result = tokio::time::timeout(join_timeout, async move {
-        if let Err(e) = rpc_handle.await {
-            tracing::warn!(error = %e, "JSON-RPC task join failed during shutdown");
+        if let Some(h) = rpc_handle {
+            if let Err(e) = h.await {
+                tracing::warn!(error = %e, "JSON-RPC task join failed during shutdown");
+            }
         }
         #[cfg(unix)]
         if let Some(h) = unix_jsonrpc_handle {

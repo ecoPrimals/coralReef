@@ -70,3 +70,10 @@ pub const DISCOVERY_SOCKET: &str = "DISCOVERY_SOCKET";
 
 /// Gate identity for provenance tagging (e.g. `"strandGate"`, `"biomeGate"`).
 pub const BIOMEOS_GATE_ID: &str = "BIOMEOS_GATE_ID";
+
+/// Transport endpoint injection (JSON string).
+///
+/// When set, the launcher or Tower Atomic decides our transport — we don't self-bind.
+/// Format: `{"transport":"uds","path":"/run/biomeos/coralreef.sock"}`
+///       | `{"transport":"tcp","host":"127.0.0.1","port":9200}`
+pub const TRANSPORT_ENDPOINT: &str = "TRANSPORT_ENDPOINT";

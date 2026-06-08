@@ -27,6 +27,7 @@ use crate::env_keys;
 
 pub mod error;
 pub mod method_gate;
+pub mod transport;
 
 #[cfg(feature = "tarpc-transport")]
 mod tarpc_transport;
