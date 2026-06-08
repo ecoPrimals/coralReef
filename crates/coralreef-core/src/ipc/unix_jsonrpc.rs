@@ -265,17 +265,15 @@ mod inner {
             .join(crate::config::primal_socket_name())
     }
 
-    /// Default socket path per wateringHole standard.
+    /// Default socket path per wateringHole standard (3-tier resolution).
     ///
-    /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
-    /// Falls back to `$TMPDIR/biomeos/<primal>-<family_id>.sock` if XDG is unset.
+    /// Resolution order:
+    /// 1. `$BIOMEOS_SOCKET_DIR` — explicit override
+    /// 2. `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
+    /// 3. `/run/biomeos/<primal>-<family_id>.sock`
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
-        unix_socket_path_for_base(
-            std::env::var(crate::env_keys::XDG_RUNTIME_DIR)
-                .ok()
-                .map(PathBuf::from),
-        )
+        crate::config::default_socket_path()
     }
 
     /// Start a Unix socket JSON-RPC server.
