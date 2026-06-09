@@ -78,6 +78,9 @@ chacha20poly1305 = "0.10"
 getrandom = "0.3"
 zeroize = { version = "1", features = ["derive"] }
 
+# Shader IR (naga — pure Rust SPIR-V/WGSL/GLSL frontend/backend)
+naga = "28"
+
 # Testing
 proptest = "1"
 tempfile = "3"

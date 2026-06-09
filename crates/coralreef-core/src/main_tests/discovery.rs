@@ -2,10 +2,11 @@
 use super::*;
 
 use coralreef_core::capability::{Capability, SelfDescription, Transport};
+use coralreef_core::server_lifecycle::{remove_discovery_file_from, write_discovery_file_to};
 
 #[test]
 fn discovery_dir_returns_path() {
-    let dir = discovery_dir().unwrap();
+    let dir = coralreef_core::config::discovery_dir().unwrap();
     assert!(dir.ends_with(crate::config::ECOSYSTEM_NAMESPACE));
 }
 
@@ -72,7 +73,7 @@ async fn remove_discovery_file_idempotent() {
 
 #[test]
 fn discovery_dir_leaf_is_ecosystem_namespace() {
-    let dir = discovery_dir().expect("discovery_dir");
+    let dir = coralreef_core::config::discovery_dir().expect("discovery_dir");
     assert_eq!(
         dir.file_name().and_then(|n| n.to_str()),
         Some(crate::config::ECOSYSTEM_NAMESPACE),

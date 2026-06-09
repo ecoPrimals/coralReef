@@ -25,6 +25,21 @@ use crate::capability::SelfDescription;
 use crate::config;
 use crate::env_keys;
 
+// biomeOS dispatch graph cost/latency hints for `primal.announce`.
+// These are approximate performance metadata — not SLA guarantees.
+/// Relative compute cost: basic compilation path.
+const COST_COMPILE: f64 = 60.0;
+/// Relative compute cost: full shader compilation pipeline.
+const COST_SHADER_COMPILE: f64 = 80.0;
+/// Relative compute cost: GPU dispatch coordination.
+const COST_GPU_DISPATCH: f64 = 100.0;
+/// Expected latency: basic compilation (milliseconds).
+const LATENCY_COMPILE_MS: u32 = 500;
+/// Expected latency: full shader compilation (milliseconds).
+const LATENCY_SHADER_COMPILE_MS: u32 = 800;
+/// Expected latency: GPU dispatch coordination (milliseconds).
+const LATENCY_GPU_DISPATCH_MS: u32 = 50;
+
 /// Errors from ecosystem JSON-RPC calls (non-fatal; logged at debug level).
 #[derive(Debug, Error)]
 pub enum EcosystemError {
@@ -87,10 +102,11 @@ pub fn spawn_registration(desc: SelfDescription) {
 async fn heartbeat_loop(path: PathBuf) {
     use tokio::time::{MissedTickBehavior, interval};
 
+    const DEFAULT_HEARTBEAT_INTERVAL_SECS: u64 = 45;
     let heartbeat_secs = std::env::var(env_keys::CORALREEF_HEARTBEAT_SECS)
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(45u64);
+        .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SECS);
     let mut ticker = interval(Duration::from_secs(heartbeat_secs));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     ticker.tick().await;
@@ -260,14 +276,14 @@ async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
         "methods": config::SERVED_METHODS,
         "signal_tiers": ["node"],
         "cost_hints": {
-            "compile": 60.0,
-            "shader_compile": 80.0,
-            "gpu": 100.0
+            "compile": COST_COMPILE,
+            "shader_compile": COST_SHADER_COMPILE,
+            "gpu": COST_GPU_DISPATCH
         },
         "latency_estimates": {
-            "compile": 500,
-            "shader_compile": 800,
-            "gpu": 50
+            "compile": LATENCY_COMPILE_MS,
+            "shader_compile": LATENCY_SHADER_COMPILE_MS,
+            "gpu": LATENCY_GPU_DISPATCH_MS
         }
     });
     send_jsonrpc_line(path, "primal.announce", params, 3_u64).await

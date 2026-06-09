@@ -63,6 +63,6 @@ name = "unix_jsonrpc_default_socket_path_env"
 required-features = ["e2e"]
 
 [dev-dependencies]
-naga = { version = "28", features = ["wgsl-in", "spv-in", "spv-out"] }
+naga = { workspace = true, features = ["wgsl-in", "spv-in", "spv-out"] }
 primal-rpc-client = { path = "../primal-rpc-client" }
 tempfile.workspace = true

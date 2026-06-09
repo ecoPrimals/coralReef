@@ -13,11 +13,19 @@ use coral_reef::{AmdArch, CompileError, CompileOptions, FmaPolicy, GpuTarget, Nv
 
 const STATUS_SUCCESS: &str = "success";
 
+/// PCI vendor ID: NVIDIA Corporation.
+const PCI_VENDOR_NVIDIA: u32 = 0x10DE;
+/// PCI vendor ID: Advanced Micro Devices (AMD).
+const PCI_VENDOR_AMD: u32 = 0x1002;
+
+/// Default wave/warp size for Intel GPUs (EU SIMD width).
+const INTEL_DEFAULT_WAVE_SIZE: u32 = 16;
+
 /// Derive the wave/warp size from a compilation target.
 fn wave_size_for(target: GpuTarget) -> u32 {
     match target {
         GpuTarget::Amd(amd) => u32::from(amd.default_wave_size()),
-        GpuTarget::Intel(_) => 16,
+        GpuTarget::Intel(_) => INTEL_DEFAULT_WAVE_SIZE,
         _ => 32,
     }
 }
@@ -69,7 +77,7 @@ fn resolve_arch(arch: &str, adapter: Option<&super::types::AdapterDescriptor>) -
 /// Infer SM/ISA architecture from adapter hardware identity.
 fn infer_arch_from_adapter(ad: &super::types::AdapterDescriptor) -> Option<String> {
     let name = ad.device_name.to_lowercase();
-    if ad.vendor_id == 0x10DE {
+    if ad.vendor_id == PCI_VENDOR_NVIDIA {
         if name.contains("5060")
             || name.contains("5070")
             || name.contains("5080")
@@ -102,7 +110,7 @@ fn infer_arch_from_adapter(ad: &super::types::AdapterDescriptor) -> Option<Strin
             return Some("sm_70".to_owned());
         }
     }
-    if ad.vendor_id == 0x1002 {
+    if ad.vendor_id == PCI_VENDOR_AMD {
         if name.contains("7900") || name.contains("gfx1100") || name.contains("rdna3") {
             return Some("rdna3".to_owned());
         }

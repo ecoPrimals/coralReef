@@ -282,6 +282,9 @@ where
 /// Default compile timeout (seconds). Override with `CORALREEF_COMPILE_TIMEOUT_SECS`.
 const DEFAULT_COMPILE_TIMEOUT_SECS: u64 = 120;
 
+/// Timeout for first-byte protocol detection on new TCP connections.
+const TCP_PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub(super) fn compile_timeout() -> std::time::Duration {
     let secs = std::env::var(env_keys::CORALREEF_COMPILE_TIMEOUT_SECS)
         .ok()
@@ -343,7 +346,7 @@ pub async fn start_newline_tcp_jsonrpc(
                             let first_byte = {
                                 let mut buf = [0u8; 1];
                                 match tokio::time::timeout(
-                                    std::time::Duration::from_secs(5),
+                                    TCP_PEEK_TIMEOUT,
                                     stream.peek(&mut buf),
                                 )
                                 .await
