@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 74 (Socket path unification, env-configurable timeouts, 3x3 inverse, SERVED_METHODS single-source, composition self-knowledge evolution; 3284 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 107 (Transport evolution, capabilities.list IPC compliance, socket cleanup, deep debt; 3304 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

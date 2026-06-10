@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 78 (mesh propagation verified, SPIR-V end-to-end pipeline validated).
+**Current position**: Phase 10 — Sprint 14 / Wave 107 (4-gate mesh LIVE, transport evolution complete, socket cleanup done).
 
-**Last completed**: Wave 78 — Mesh registration payload validation (Songbird-compatible), SPIR-V end-to-end test (compile → provenance → naga re-validation). Wave 77 — Deep debt sweep (smart refactoring of last >800L files, full audit clean). Wave 76 — SPIR-V portable output (`SpirVOptions`, conditional `emit_spirv`, version targeting, capability metadata).
+**Last completed**: Wave 107 — PRIMAL-SOCKET-CLEANUP (eliminate /tmp from production paths). Wave 101 — Deep debt (server_lifecycle extraction, named constants, naga hoisted to workspace deps). Wave 100 — TRANSPORT_ENDPOINT injection (sourDough wire-compatible). Wave 99 — capabilities.list IPC compliance (12/12 PASS). Wave 79 — Headless fix (default-members excludes amd-isa-gen).
 
-**Tests**: 3307 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3304 passing, 0 failed. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 4, 2026.
+**Last updated**: June 10, 2026.
 
 **Next focus**: Coverage push toward 90%. Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 

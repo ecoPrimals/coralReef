@@ -4,11 +4,61 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 78
+**Current status**: Phase 10 — Sprint 14 / Wave 107
 
 ---
 
 ## [Unreleased]
+
+### Wave 107: PRIMAL-SOCKET-CLEANUP (2026-06-10)
+
+#### Fixed
+- `default_tarpc_bind()` fallback: `std::env::temp_dir()` → `config::socket_base_dir()` (3-tier resolution)
+- `unix_socket_path_for_base()` fallback: `std::env::temp_dir()` → `config::socket_base_dir()`
+- Zero `/tmp` usage in any production socket path — enables `ProtectSystem=strict` systemd hardening
+
+### Wave 101: Deep Debt — Server Lifecycle Extraction (2026-06-08)
+
+#### Added
+- `server_lifecycle.rs`: extracted `write_discovery_file`, `remove_discovery_file`, `write_pid_file`, `remove_pid_file`, `wait_for_shutdown_signal` from `main.rs`
+- Named constants: `TCP_PEEK_TIMEOUT`, `DEFAULT_HEARTBEAT_INTERVAL_SECS`, `PCI_VENDOR_NVIDIA`, `PCI_VENDOR_AMD`, `INTEL_DEFAULT_WAVE_SIZE`, cost/latency hint constants
+
+#### Changed
+- `main.rs` reduced from 827 to 704 lines
+- `naga` dependency hoisted to `[workspace.dependencies]`
+- Eliminated duplication between per-crate naga version declarations
+
+### Wave 100: Transport Evolution — TRANSPORT_ENDPOINT Injection (2026-06-08)
+
+#### Added
+- `ipc::transport` module: `TransportEndpoint` enum (Uds/Tcp/MeshRelay), `ResolvedBind` enum, `resolve_bind()` function
+- sourDough wire-compatible `#[serde(tag = "transport")]` format — zero new deps
+- `TRANSPORT_ENDPOINT` env var accepted at startup (launcher/Tower Atomic injection)
+- 19 new transport tests (wire format, resolution, error paths)
+
+#### Changed
+- `cmd_server` uses `resolve_bind()` for dynamic transport setup based on env injection
+- `log_composition_env()` now logs `TRANSPORT_ENDPOINT`
+
+### Wave 99: capabilities.list IPC Compliance (2026-06-08)
+
+#### Added
+- `capabilities.list` alias in newline JSON-RPC dispatch (plural form probed by ecosystem)
+- `capabilities.list` added to `SERVED_METHODS` and `capability_registry.toml`
+- 2 new dispatch tests: `dispatch_capability_list_singular`, `dispatch_capabilities_list_plural_alias`
+
+#### Fixed
+- `default_unix_socket_path()` now delegates to `config::default_socket_path()` for canonical 3-tier resolution
+
+### Wave 79: Headless Fix — Default Members (2026-06-05)
+
+#### Fixed
+- VPS deployment regression: `cargo build --release` no longer builds `tools/amd-isa-gen`
+- Added `default-members` to workspace `Cargo.toml` excluding `tools/amd-isa-gen`
+- Flaky `discover_returns_none_when_no_socket` test isolated via temp dir
+
+#### Metrics
+- 3304 tests, 0 failures, 0 clippy warnings
 
 ### Wave 78: Mesh Propagation & SPIR-V End-to-End Verification (2026-06-04)
 

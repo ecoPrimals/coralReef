@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: June 4, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 78 (Mesh capability propagation verified: shader.compile Songbird-compatible payload with SPIR-V metadata. SPIR-V end-to-end tested: compile → provenance → naga validation. Unused import hygiene. 3307 tests, zero clippy warnings)
+**Last updated**: June 10, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 107 (Transport evolution: TRANSPORT_ENDPOINT injection. capabilities.list IPC compliance (12/12). Socket cleanup: zero /tmp in production. Deep debt: server_lifecycle extraction, named constants, naga hoisted. 3304 tests, zero clippy warnings. 4-gate mesh LIVE.)
 
 ---
 
@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A+ | Single binary: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef server`: `--rpc-bind` (NDJSON primary), `--socket PATH` (UDS override for NUCLEUS launcher). Diesel binaries excised Sprint 9 |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 16 served methods (`shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*`), 4 consumed (`capability.register`, `ipc.heartbeat`, `primal.announce`, `compute.dispatch`), Songbird `ecosystem` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 17 served methods (`shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 4 consumed (`capability.register`, `ipc.heartbeat`, `primal.announce`, `compute.dispatch`), Songbird `ecosystem` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (sourDough wire-compatible), **zero /tmp** socket paths |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -22,7 +22,7 @@
 | coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to toadStool |
 | coralGpu | — | *Excised Sprint 9* — dispatch delegated to toadStool |
 | Code structure | A+ | Smart refactoring: error.rs 928→mod(412)+vfio(523) (Iter 101), nv/mod.rs 857→747+fecs_init(124) (Iter 101), pfifo.rs 882→695+bar2_init(199) (Iter 101), ioctl 929→655 (Iter 97), channel 896→594 (Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
-| Tests | A+ | 3307 passing, 0 failed, IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening, SPIR-V version targeting, provenance hash determinism, **mesh registration payload validation**, **SPIR-V e2e compile→provenance→validation** |
+| Tests | A+ | 3304 passing, 0 failed, IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening, SPIR-V version targeting, provenance hash determinism, mesh registration payload validation, SPIR-V e2e compile→provenance→validation, **TransportEndpoint injection tests (19)**, **capabilities.list dispatch**, **socket cleanup paths** |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -852,7 +852,7 @@
 | AMD hardware stress tests | ✅ | Large buffers (4MB, 64MB), sequential dispatches, rapid alloc/free, concurrent buffers |
 | NVIDIA probe tests | ✅ | Driver discovery, device open, multi-GPU enumeration |
 | Showcase suite (8 demos) | ✅ | Progressive: hello-compiler → compute triangle (coralReef → toadStool → barraCuda) |
-| Hardware testing documentation | ✅ | `docs/HARDWARE_TESTING.md` — Titan team handoff, parity matrix, CI config |
+| Hardware testing documentation | — | *Archived Sprint 9 (hardware dispatch → toadStool)* |
 | Test expansion | ✅ | 1191 → 1285 passing (+94 tests), 35 → 60 ignored (+25 hardware-gated) |
 
 ### Phase 10 — Iteration 25 Completions (Math Evolution + Debt Zero + Full Sovereignty)

@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: June 4, 2026 (Sprint 14 / Wave 78: 3307 tests. Mesh registration verified, SPIR-V e2e pipeline validated. Deep debt sweep complete — all prod files <800L, full audit clean. Zero debt)
+**Last updated**: June 10, 2026 (Sprint 14 / Wave 107: 3304 tests. Transport evolution (TRANSPORT_ENDPOINT). capabilities.list (12/12 IPC). Socket cleanup (zero /tmp). server_lifecycle extraction. 4-gate mesh LIVE. Zero debt)
 
 ---
 
