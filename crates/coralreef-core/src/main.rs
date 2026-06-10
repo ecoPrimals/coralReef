@@ -326,6 +326,7 @@ async fn cmd_server(
         }
     };
 
+    let skip_tarpc = matches!(bind, ResolvedBind::TcpOnly { .. });
     let (tarpc_actual_bind, unix_jsonrpc_override) = resolve_uds_binds(tarpc_bind);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
@@ -405,9 +406,17 @@ async fn cmd_server(
         }
     }
 
-    let (tarpc_bound, tarpc_handle) =
+    let mut tarpc_bound: Option<ipc::BoundAddr> = None;
+    let mut tarpc_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+    if skip_tarpc {
+        tracing::info!("PRIMAL_BIND_MODE=tcp_only — skipping tarpc server (JSON-RPC TCP serves all methods)");
+    } else {
         match ipc::start_tarpc_server(&tarpc_actual_bind, shutdown_rx.clone()).await {
-            Ok(x) => x,
+            Ok((bound, handle)) => {
+                tarpc_bound = Some(bound);
+                tarpc_handle = Some(handle);
+            }
             Err(e) => {
                 tracing::error!(error = %e, "failed to start tarpc server");
                 if let Some(h) = &rpc_handle {
@@ -415,7 +424,8 @@ async fn cmd_server(
                 }
                 return UniBinExit::GeneralError;
             }
-        };
+        }
+    }
 
     let mut transports = Vec::new();
     if let Some(addr) = rpc_addr {
@@ -424,10 +434,12 @@ async fn cmd_server(
             address: addr.to_string().into(),
         });
     }
-    transports.push(coralreef_core::capability::Transport {
-        protocol: format!("tarpc+{}", tarpc_bound.protocol()).into(),
-        address: tarpc_bound.to_string().into(),
-    });
+    if let Some(ref bound) = tarpc_bound {
+        transports.push(coralreef_core::capability::Transport {
+            protocol: format!("tarpc+{}", bound.protocol()).into(),
+            address: bound.to_string().into(),
+        });
+    }
     #[cfg(unix)]
     if let Some(ref path) = unix_jsonrpc_path {
         transports.push(coralreef_core::capability::Transport {
@@ -439,7 +451,7 @@ async fn cmd_server(
     let desc = coralreef_core::capability::with_transports(desc, transports);
     tracing::info!(
         rpc_addr = ?rpc_addr,
-        tarpc_addr = %tarpc_bound,
+        tarpc_addr = ?tarpc_bound,
         provides = ?desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
         requires = ?desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
         "{} ready — capability advertisement prepared", env!("CARGO_PKG_NAME")
@@ -467,8 +479,10 @@ async fn cmd_server(
                 tracing::warn!(error = %e, "JSON-RPC task join failed during shutdown");
             }
         }
-        if let Err(e) = tarpc_handle.await {
-            tracing::warn!(error = %e, "tarpc task join failed during shutdown");
+        if let Some(h) = tarpc_handle {
+            if let Err(e) = h.await {
+                tracing::warn!(error = %e, "tarpc task join failed during shutdown");
+            }
         }
         #[cfg(unix)]
         if let Some(h) = unix_jsonrpc_handle {
