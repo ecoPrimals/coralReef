@@ -251,7 +251,8 @@ mod inner {
 
     /// Build the socket path from an explicit base directory.
     ///
-    /// When `runtime_dir` is `None`, falls back to `$TMPDIR`.
+    /// When `runtime_dir` is `None`, falls back to the canonical socket
+    /// base directory (3-tier resolution, never `/tmp`).
     /// Per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0:
     /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
     #[must_use]
@@ -260,7 +261,7 @@ mod inner {
         reason = "pub API consumed by integration tests, not the binary"
     )]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
-        let base = runtime_dir.unwrap_or_else(std::env::temp_dir);
+        let base = runtime_dir.unwrap_or_else(crate::config::socket_base_dir);
         base.join(crate::config::ecosystem_namespace())
             .join(crate::config::primal_socket_name())
     }

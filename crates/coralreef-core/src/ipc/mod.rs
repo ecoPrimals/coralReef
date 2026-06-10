@@ -141,17 +141,16 @@ pub fn default_tcp_bind() -> String {
 
 /// Platform-aware default bind address for tarpc.
 ///
-/// On Unix: returns a path for a Unix domain socket under `$XDG_RUNTIME_DIR`
-/// (or `std::env::temp_dir()` as fallback — no hardcoded paths per ecoBin),
-/// namespaced by the primal identity and family ID.
+/// On Unix: returns a path for a Unix domain socket under the canonical
+/// socket directory (3-tier resolution: `$BIOMEOS_SOCKET_DIR` >
+/// `$XDG_RUNTIME_DIR` > `/run/biomeos`), namespaced by primal identity.
 /// On non-Unix: returns TCP loopback with OS-assigned port.
 #[cfg(feature = "tarpc-transport")]
 #[must_use]
 pub fn default_tarpc_bind() -> String {
     #[cfg(unix)]
     {
-        let dir = config::discovery_dir()
-            .unwrap_or_else(|_| std::env::temp_dir().join(config::ecosystem_namespace()));
+        let dir = config::socket_base_dir().join(config::ecosystem_namespace());
         let sock = dir.join(format!(
             "{}-{}-tarpc.sock",
             config::PRIMAL_NAME,
