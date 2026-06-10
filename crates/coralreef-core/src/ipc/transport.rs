@@ -148,18 +148,39 @@ pub fn resolve_bind(
     cli_tcp_bind: &str,
     cli_socket: Option<&std::path::Path>,
 ) -> Result<ResolvedBind, TransportResolveError> {
+    let bind_mode = bind_mode_from_env();
+
+    if bind_mode == BindModeOverride::TcpOnly {
+        tracing::info!("PRIMAL_BIND_MODE=tcp_only — skipping UDS, binding TCP only");
+        return Ok(ResolvedBind::TcpOnly {
+            addr: cli_tcp_bind.to_owned(),
+        });
+    }
+
     if let Some(parsed) = TransportEndpoint::from_env() {
         let endpoint = parsed.map_err(TransportResolveError::InvalidJson)?;
         match endpoint {
             TransportEndpoint::Uds { path } => {
-                tracing::info!(
-                    transport = "uds",
-                    path = %path,
-                    "transport injected by launcher"
-                );
-                Ok(ResolvedBind::UdsOnly {
-                    path: std::path::PathBuf::from(path),
-                })
+                if bind_mode == BindModeOverride::Fallback {
+                    tracing::info!(
+                        transport = "uds+tcp_fallback",
+                        path = %path,
+                        "PRIMAL_BIND_MODE=fallback — upgrading UdsOnly to Both for graceful degradation"
+                    );
+                    Ok(ResolvedBind::Both {
+                        tcp_bind: cli_tcp_bind.to_owned(),
+                        socket_override: Some(std::path::PathBuf::from(path)),
+                    })
+                } else {
+                    tracing::info!(
+                        transport = "uds",
+                        path = %path,
+                        "transport injected by launcher"
+                    );
+                    Ok(ResolvedBind::UdsOnly {
+                        path: std::path::PathBuf::from(path),
+                    })
+                }
             }
             TransportEndpoint::Tcp { host, port } => {
                 let addr = format!("{host}:{port}");
@@ -179,6 +200,29 @@ pub fn resolve_bind(
             tcp_bind: cli_tcp_bind.to_owned(),
             socket_override: cli_socket.map(std::path::Path::to_path_buf),
         })
+    }
+}
+
+/// `PRIMAL_BIND_MODE` override for server-side transport selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BindModeOverride {
+    /// Default — no override, use normal resolution.
+    Normal,
+    /// Skip UDS entirely, bind TCP only.
+    TcpOnly,
+    /// Try UDS, fall back to TCP on permission error (grapheneGate/Android).
+    Fallback,
+}
+
+fn bind_mode_from_env() -> BindModeOverride {
+    match std::env::var("PRIMAL_BIND_MODE")
+        .unwrap_or_default()
+        .to_lowercase()
+        .as_str()
+    {
+        "tcp_only" | "tcp" => BindModeOverride::TcpOnly,
+        "fallback" | "auto" => BindModeOverride::Fallback,
+        _ => BindModeOverride::Normal,
     }
 }
 
