@@ -144,11 +144,30 @@ pub enum ResolvedBind {
 ///
 /// Returns an error if `$TRANSPORT_ENDPOINT` is set but contains invalid JSON
 /// or specifies an unsupported transport for server binding.
+#[allow(dead_code, reason = "pub API for ecosystem consumers without bind-mode override")]
 pub fn resolve_bind(
     cli_tcp_bind: &str,
     cli_socket: Option<&std::path::Path>,
 ) -> Result<ResolvedBind, TransportResolveError> {
-    let bind_mode = bind_mode_from_env();
+    resolve_bind_with_mode(cli_tcp_bind, cli_socket, None)
+}
+
+/// Resolve server bind configuration with an explicit bind-mode override.
+///
+/// When `cli_bind_mode` is `Some`, it takes precedence over the
+/// `$PRIMAL_BIND_MODE` environment variable. This supports the
+/// standard primal startup envelope (`--bind-mode` CLI flag).
+///
+/// # Errors
+///
+/// Returns an error if `$TRANSPORT_ENDPOINT` is set but contains invalid JSON
+/// or specifies an unsupported transport for server binding.
+pub fn resolve_bind_with_mode(
+    cli_tcp_bind: &str,
+    cli_socket: Option<&std::path::Path>,
+    cli_bind_mode: Option<&str>,
+) -> Result<ResolvedBind, TransportResolveError> {
+    let bind_mode = cli_bind_mode.map_or_else(bind_mode_from_env, parse_bind_mode);
 
     if bind_mode == BindModeOverride::TcpOnly {
         tracing::info!("PRIMAL_BIND_MODE=tcp_only — skipping UDS, binding TCP only");
@@ -220,6 +239,14 @@ fn bind_mode_from_env() -> BindModeOverride {
         .to_lowercase()
         .as_str()
     {
+        "tcp_only" | "tcp" => BindModeOverride::TcpOnly,
+        "fallback" | "auto" => BindModeOverride::Fallback,
+        _ => BindModeOverride::Normal,
+    }
+}
+
+fn parse_bind_mode(mode: &str) -> BindModeOverride {
+    match mode.to_lowercase().as_str() {
         "tcp_only" | "tcp" => BindModeOverride::TcpOnly,
         "fallback" | "auto" => BindModeOverride::Fallback,
         _ => BindModeOverride::Normal,

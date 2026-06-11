@@ -12,11 +12,15 @@ fn parse_cli_server_defaults() {
     let cli = parse_cli_from(["coralreef", "server"]).unwrap();
     match &cli.command {
         Commands::Server {
+            port,
+            bind_mode,
             rpc_bind,
             socket,
             tarpc_bind,
         } => {
-            assert!(rpc_bind.contains("127.0.0.1"));
+            assert!(port.is_none());
+            assert!(bind_mode.is_none());
+            assert!(rpc_bind.is_none());
             assert!(socket.is_none());
             assert!(tarpc_bind.is_none());
         }
@@ -99,8 +103,9 @@ fn parse_cli_server_custom_bind_addresses() {
             rpc_bind,
             socket,
             tarpc_bind,
+            ..
         } => {
-            assert_eq!(rpc_bind, "127.0.0.1:9999");
+            assert_eq!(rpc_bind.as_deref(), Some("127.0.0.1:9999"));
             assert!(socket.is_none());
             assert_eq!(
                 tarpc_bind.as_deref(),
@@ -221,8 +226,9 @@ fn parse_cli_server_rpc_bind_only() {
             rpc_bind,
             socket,
             tarpc_bind,
+            ..
         } => {
-            assert_eq!(rpc_bind, "127.0.0.1:8888");
+            assert_eq!(rpc_bind.as_deref(), Some("127.0.0.1:8888"));
             assert!(socket.is_none());
             assert!(tarpc_bind.is_none());
         }
@@ -460,4 +466,57 @@ fn parse_cli_rejects_negative_style_opt_level() {
         result.is_err(),
         "negative opt-level is not a valid u32 for clap"
     );
+}
+
+#[test]
+fn parse_cli_server_standard_envelope_port() {
+    let cli = parse_cli_from(["coralreef", "server", "--port", "9730"]).unwrap();
+    match &cli.command {
+        Commands::Server { port, bind_mode, rpc_bind, .. } => {
+            assert_eq!(*port, Some(9730));
+            assert!(bind_mode.is_none());
+            assert!(rpc_bind.is_none());
+        }
+        _ => panic!("expected Server command"),
+    }
+}
+
+#[test]
+fn parse_cli_server_standard_envelope_bind_mode() {
+    let cli =
+        parse_cli_from(["coralreef", "server", "--port", "9730", "--bind-mode", "tcp_only"])
+            .unwrap();
+    match &cli.command {
+        Commands::Server { port, bind_mode, .. } => {
+            assert_eq!(*port, Some(9730));
+            assert_eq!(bind_mode.as_deref(), Some("tcp_only"));
+        }
+        _ => panic!("expected Server command"),
+    }
+}
+
+#[test]
+fn parse_cli_server_port_conflicts_with_rpc_bind() {
+    let result = parse_cli_from([
+        "coralreef", "server", "--port", "9730", "--rpc-bind", "127.0.0.1:9730",
+    ]);
+    assert!(result.is_err(), "--port and --rpc-bind should conflict");
+}
+
+#[test]
+fn resolve_effective_bind_port_takes_precedence() {
+    let bind = resolve_effective_bind(Some(9730), None);
+    assert_eq!(bind, "127.0.0.1:9730");
+}
+
+#[test]
+fn resolve_effective_bind_rpc_bind_deprecated_path() {
+    let bind = resolve_effective_bind(None, Some("0.0.0.0:8888"));
+    assert_eq!(bind, "0.0.0.0:8888");
+}
+
+#[test]
+fn resolve_effective_bind_defaults_to_env_or_fallback() {
+    let bind = resolve_effective_bind(None, None);
+    assert!(bind.contains("127.0.0.1"), "should default to loopback: {bind}");
 }

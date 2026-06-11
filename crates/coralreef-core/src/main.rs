@@ -49,10 +49,20 @@ struct Cli {
 enum Commands {
     /// Start the IPC server (JSON-RPC 2.0, optionally tarpc).
     Server {
-        /// Bind address for newline-delimited JSON-RPC over TCP.
-        /// Respects `$CORALREEF_TCP_BIND` for deployment configuration.
-        #[arg(long, default_value_t = default_tcp_bind())]
-        rpc_bind: String,
+        /// TCP port for JSON-RPC listener (standard envelope).
+        /// Binds to 127.0.0.1:PORT. Use --rpc-bind for full address control.
+        #[arg(long, conflicts_with = "rpc_bind")]
+        port: Option<u16>,
+
+        /// Transport bind mode. Overrides `$PRIMAL_BIND_MODE` env var.
+        /// Values: `tcp_only`, `fallback`, `auto`.
+        #[arg(long)]
+        bind_mode: Option<String>,
+
+        /// Full bind address (host:port) for JSON-RPC TCP.
+        /// Respects `$CORALREEF_TCP_BIND` env. Prefer --port for standard deployments.
+        #[arg(long, hide = true)]
+        rpc_bind: Option<String>,
 
         /// Unix domain socket path for JSON-RPC.
         /// Overrides the default `$XDG_RUNTIME_DIR/biomeos/<primal>.sock`.
@@ -137,20 +147,23 @@ async fn main() -> ExitCode {
 
     let exit = match cli.command {
         Commands::Server {
+            port,
+            bind_mode,
             rpc_bind,
             socket,
             #[cfg(feature = "tarpc-transport")]
             tarpc_bind,
         } => {
+            let effective_bind = resolve_effective_bind(port, rpc_bind.as_deref());
             #[cfg(feature = "tarpc-transport")]
             let tarpc_bind = tarpc_bind.unwrap_or_else(ipc::default_tarpc_bind);
             #[cfg(feature = "tarpc-transport")]
             {
-                cmd_server(&rpc_bind, &tarpc_bind, socket.as_deref()).await
+                cmd_server(&effective_bind, &tarpc_bind, socket.as_deref(), bind_mode.as_deref()).await
             }
             #[cfg(not(feature = "tarpc-transport"))]
             {
-                cmd_server(&rpc_bind, socket.as_deref()).await
+                cmd_server(&effective_bind, socket.as_deref(), bind_mode.as_deref()).await
             }
         }
         Commands::Compile {
@@ -164,6 +177,20 @@ async fn main() -> ExitCode {
     };
 
     exit.into()
+}
+
+/// Resolve effective TCP bind address from standard envelope flags.
+///
+/// Priority: `--rpc-bind` (deprecated full address) > `--port` (standard) >
+/// `$CORALREEF_TCP_BIND` env > `127.0.0.1:0` (OS-assigned).
+fn resolve_effective_bind(port: Option<u16>, rpc_bind: Option<&str>) -> String {
+    if let Some(addr) = rpc_bind {
+        return addr.to_owned();
+    }
+    if let Some(p) = port {
+        return format!("127.0.0.1:{p}");
+    }
+    default_tcp_bind()
 }
 
 fn parse_cli() -> Result<Cli, clap::Error> {
@@ -307,8 +334,9 @@ async fn cmd_server(
     rpc_bind: &str,
     tarpc_bind: &str,
     socket_override: Option<&std::path::Path>,
+    bind_mode: Option<&str>,
 ) -> UniBinExit {
-    use ipc::transport::{ResolvedBind, resolve_bind};
+    use ipc::transport::{ResolvedBind, resolve_bind_with_mode};
 
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
@@ -318,7 +346,7 @@ async fn cmd_server(
     tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
     log_composition_env();
 
-    let bind = match resolve_bind(rpc_bind, socket_override) {
+    let bind = match resolve_bind_with_mode(rpc_bind, socket_override, bind_mode) {
         Ok(b) => b,
         Err(e) => {
             tracing::error!(error = %e, "TRANSPORT_ENDPOINT resolution failed");
@@ -504,8 +532,8 @@ async fn cmd_server(
 }
 
 #[cfg(not(feature = "tarpc-transport"))]
-async fn cmd_server(rpc_bind: &str, socket_override: Option<&std::path::Path>) -> UniBinExit {
-    use ipc::transport::{ResolvedBind, resolve_bind};
+async fn cmd_server(rpc_bind: &str, socket_override: Option<&std::path::Path>, bind_mode: Option<&str>) -> UniBinExit {
+    use ipc::transport::{ResolvedBind, resolve_bind_with_mode};
 
     if let Err(e) = config::validate_insecure_guard() {
         tracing::error!(error = %e, "configuration rejected");
@@ -515,7 +543,7 @@ async fn cmd_server(rpc_bind: &str, socket_override: Option<&std::path::Path>) -
     tracing::info!("{} server starting (JSON-RPC only)", env!("CARGO_PKG_NAME"));
     log_composition_env();
 
-    let bind = match resolve_bind(rpc_bind, socket_override) {
+    let bind = match resolve_bind_with_mode(rpc_bind, socket_override, bind_mode) {
         Ok(b) => b,
         Err(e) => {
             tracing::error!(error = %e, "TRANSPORT_ENDPOINT resolution failed");
