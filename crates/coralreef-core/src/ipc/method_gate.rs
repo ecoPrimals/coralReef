@@ -47,6 +47,7 @@ const PUBLIC_METHOD_PREFIXES: &[&str] = &["health."];
 
 /// Methods that are always public (exact match).
 const PUBLIC_METHODS: &[&str] = &[
+    "health",
     "identity.get",
     "capabilities.list",
     "capability.list",
@@ -315,6 +316,7 @@ mod tests {
 
     #[test]
     fn health_methods_are_public() {
+        assert_eq!(classify_method("health"), MethodAccessLevel::Public);
         assert_eq!(classify_method("health.check"), MethodAccessLevel::Public);
         assert_eq!(
             classify_method("health.liveness"),

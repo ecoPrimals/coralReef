@@ -32,6 +32,9 @@ mod inner {
     /// Peek timeout for first-byte BTSP protocol detection.
     const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+    /// riboCipher signal prefix: `[0xEC, 0x01]` — ecosystem UDS health signal.
+    const RIBOCIPHER_PREFIX: &[u8] = &[0xEC, 0x01];
+
     use super::super::newline_jsonrpc::JsonRpcRequest;
 
     /// Maximum encrypted frame payload (8 MiB). Prevents unbounded allocations.
@@ -325,7 +328,18 @@ mod inner {
                                     continue;
                                 }
                                 if first_byte.is_some_and(|b| b != b'{') {
-                                    peeker.consume(1);
+                                    let prefix_len = if first_byte == Some(RIBOCIPHER_PREFIX[0]) {
+                                        peeker.fill_buf().await.map_or(1, |buf| {
+                                            if buf.len() >= 2 && buf[1] == RIBOCIPHER_PREFIX[1] {
+                                                2
+                                            } else {
+                                                1
+                                            }
+                                        })
+                                    } else {
+                                        1
+                                    };
+                                    peeker.consume(prefix_len);
                                 }
                                 let session_id = outcome.session_id().map(str::to_owned);
                                 tokio::spawn(async move {

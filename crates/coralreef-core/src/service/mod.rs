@@ -28,6 +28,7 @@ use crate::config;
 use coral_reef::{AmdArch, NvArch};
 
 static IDENTITY_ADVERTISED: OnceLock<IdentityGetResponse> = OnceLock::new();
+static STARTUP_INSTANT: OnceLock<std::time::Instant> = OnceLock::new();
 
 /// Store the primal identity for `identity.get` after IPC binds (full transports).
 ///
@@ -183,6 +184,27 @@ pub fn handle_health_version() -> VersionResponse {
         version: config::PRIMAL_VERSION.into(),
         name: config::PRIMAL_NAME.into(),
     }
+}
+
+/// Record the process startup instant for uptime reporting.
+pub fn mark_startup() {
+    let _ = STARTUP_INSTANT.get_or_init(std::time::Instant::now);
+}
+
+/// `health` — standard guideStone health response (bare method).
+///
+/// Returns `{status, primal, version, uptime_s}` per ecosystem HEALTH-01 schema.
+#[must_use]
+pub fn handle_health_standard() -> serde_json::Value {
+    let uptime_s = STARTUP_INSTANT
+        .get()
+        .map_or(0, |t| t.elapsed().as_secs());
+    serde_json::json!({
+        "status": "alive",
+        "primal": config::PRIMAL_NAME,
+        "version": config::PRIMAL_VERSION,
+        "uptime_s": uptime_s,
+    })
 }
 
 #[cfg(test)]

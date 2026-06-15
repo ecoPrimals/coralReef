@@ -715,6 +715,16 @@ fn test_compile_response_legacy_field_aliases() {
     assert_eq!(resp.info.unwrap().gpr_count, 16);
 }
 
+#[test]
+fn health_standard_returns_alive_with_uptime() {
+    mark_startup();
+    let resp = handle_health_standard();
+    assert_eq!(resp["status"], "alive");
+    assert_eq!(resp["primal"], "coralreef-core");
+    assert!(resp["version"].as_str().is_some());
+    assert!(resp["uptime_s"].as_u64().is_some());
+}
+
 #[path = "tests_serde.rs"]
 mod tests_serde;
 

@@ -127,6 +127,7 @@ impl From<UniBinExit> for ExitCode {
 #[tokio::main]
 async fn main() -> ExitCode {
     install_panic_hook();
+    service::mark_startup();
 
     let cli = match parse_cli() {
         Ok(c) => c,

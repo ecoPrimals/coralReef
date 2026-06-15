@@ -148,6 +148,7 @@ pub fn dispatch_jsonrpc(
                 Err(e) => Err(IpcServiceError::from(e)),
             }
         }
+        "health" => Ok(service::handle_health_standard()),
         "health.check" => {
             let resp = service::handle_health_check();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
@@ -285,6 +286,9 @@ const DEFAULT_COMPILE_TIMEOUT_SECS: u64 = 120;
 /// Timeout for first-byte protocol detection on new TCP connections.
 const TCP_PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// riboCipher signal prefix: `[0xEC, 0x01]` — ecosystem health signal.
+const RIBOCIPHER_PREFIX: &[u8] = &[0xEC, 0x01];
+
 pub(super) fn compile_timeout() -> std::time::Duration {
     let secs = std::env::var(env_keys::CORALREEF_COMPILE_TIMEOUT_SECS)
         .ok()
@@ -362,11 +366,15 @@ pub async fn start_newline_tcp_jsonrpc(
                                 continue;
                             }
                             let consume_marker = first_byte.is_some_and(|b| b != b'{');
+                            let is_ribocipher = first_byte == Some(RIBOCIPHER_PREFIX[0]);
                             tokio::spawn(async move {
                                 let (reader, writer) = stream.into_split();
                                 if consume_marker {
                                     let mut br = tokio::io::BufReader::new(reader);
                                     let _ = br.read_u8().await;
+                                    if is_ribocipher {
+                                        let _ = br.read_u8().await;
+                                    }
                                     process_newline_reader_writer(br, writer).await;
                                 } else {
                                     process_newline_reader_writer(reader, writer).await;
