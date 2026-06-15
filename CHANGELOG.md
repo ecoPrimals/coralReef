@@ -4,11 +4,24 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 107
+**Current status**: Phase 10 — Sprint 14 / Wave 113
 
 ---
 
 ## [Unreleased]
+
+### Wave 113: riboCipher Signal Compliance (2026-06-15)
+
+#### Added
+- Bare `health` JSON-RPC method (guideStone HEALTH-01 schema: `{status, primal, version, uptime_s}`)
+- `service::mark_startup()` uptime tracking via `OnceLock<Instant>`
+- `RIBOCIPHER_PREFIX` constant (`[0xEC, 0x01]`) for ecosystem signal protocol
+
+#### Fixed
+- riboCipher signal acceptance: consume full 2-byte prefix on UDS and TCP sockets (was consuming only 1 byte, leaving `0x01` in stream → parse error)
+- `health` added to `PUBLIC_METHODS` gate (probe passes without auth)
+
+### Wave 109: Standard Primal Startup Envelope (2026-06-11)
 
 ### Wave 107: PRIMAL-SOCKET-CLEANUP (2026-06-10)
 

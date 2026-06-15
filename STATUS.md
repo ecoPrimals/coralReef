@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: June 10, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 107 (Transport evolution: TRANSPORT_ENDPOINT injection. capabilities.list IPC compliance (12/12). Socket cleanup: zero /tmp in production. Deep debt: server_lifecycle extraction, named constants, naga hoisted. 3304 tests, zero clippy warnings. 4-gate mesh LIVE.)
+**Last updated**: June 15, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 113 (riboCipher signal compliance: accept [0xEC, 0x01] prefix on UDS+TCP. Bare `health` method: guideStone HEALTH-01 schema. Standard startup envelope: --port, --bind-mode. Transport evolution: TRANSPORT_ENDPOINT injection. capabilities.list IPC compliance (12/12). Socket cleanup: zero /tmp in production. 3312 tests, zero clippy warnings. 4-gate mesh LIVE.)
 
 ---
 
@@ -12,8 +12,8 @@
 | Category | Grade | Notes |
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
-| UniBin compliance | A+ | Single binary: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef server`: `--rpc-bind` (NDJSON primary), `--socket PATH` (UDS override for NUCLEUS launcher). Diesel binaries excised Sprint 9 |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 17 served methods (`shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 4 consumed (`capability.register`, `ipc.heartbeat`, `primal.announce`, `compute.dispatch`), Songbird `ecosystem` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (sourDough wire-compatible), **zero /tmp** socket paths |
+| UniBin compliance | A+ | Single binary: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef server`: `--port` + `--bind-mode` (standard envelope), `--socket PATH` (UDS override for NUCLEUS launcher). Diesel binaries excised Sprint 9 |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 18 served methods (`health` + `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 4 consumed (`capability.register`, `ipc.heartbeat`, `primal.announce`, `compute.dispatch`), Songbird `ecosystem` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (sourDough wire-compatible), **zero /tmp** socket paths, **riboCipher signal acceptance** (`[0xEC, 0x01]` prefix strip) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
