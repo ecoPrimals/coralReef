@@ -1,59 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#![allow(unsafe_code)]
 //! Integration tests for ecosystem discovery and registration.
 //!
-//! Environment mutation uses `unsafe` (Rust 1.85+); the `coralreef-core` library
-//! crate forbids `unsafe_code`, so these tests live in the integration test crate.
+//! Environment mutation uses the shared [`test_env::EnvGuard`] helper (Rust 1.85+
+//! marks `env::set_var`/`env::remove_var` as `unsafe`). The `coralreef-core`
+//! library crate forbids `unsafe_code`, so env tests live in the integration
+//! test crate behind a process-wide lock.
+
+#[path = "test_env.rs"]
+mod test_env;
 
 use std::io::Write;
 
 use coralreef_core::config;
 use coralreef_core::ecosystem::{discover_ecosystem_jsonrpc_bind, spawn_registration};
-
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-struct EnvRestore {
-    key: &'static str,
-    previous: Option<String>,
-}
-
-impl EnvRestore {
-    fn take(key: &'static str) -> Self {
-        let previous = std::env::var(key).ok();
-        Self { key, previous }
-    }
-
-    fn set(&mut self, value: &str) {
-        // SAFETY: `ENV_LOCK` is held for the whole test; no concurrent env access.
-        unsafe {
-            std::env::set_var(self.key, value);
-        }
-    }
-
-    fn remove(&mut self) {
-        // SAFETY: `ENV_LOCK` is held for the whole test; no concurrent env access.
-        unsafe {
-            std::env::remove_var(self.key);
-        }
-    }
-}
-
-impl Drop for EnvRestore {
-    fn drop(&mut self) {
-        // SAFETY: `ENV_LOCK` is still held by the test guard when `drop` runs.
-        unsafe {
-            match &self.previous {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
-}
+use test_env::{ENV_LOCK, EnvGuard};
 
 #[test]
 fn discover_ecosystem_jsonrpc_bind_prefers_biomeos_registry_trimmed() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
+    let mut bio = EnvGuard::capture("BIOMEOS_ECOSYSTEM_REGISTRY");
     bio.set("  unix:///tmp/registry-trimmed.sock  ");
     let got = discover_ecosystem_jsonrpc_bind();
     assert_eq!(got.as_deref(), Some("unix:///tmp/registry-trimmed.sock"));
@@ -62,8 +27,8 @@ fn discover_ecosystem_jsonrpc_bind_prefers_biomeos_registry_trimmed() {
 #[test]
 fn discover_ecosystem_jsonrpc_bind_biomeos_whitespace_only_falls_back_to_scan() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
-    let mut xdg = EnvRestore::take("XDG_RUNTIME_DIR");
+    let mut bio = EnvGuard::capture("BIOMEOS_ECOSYSTEM_REGISTRY");
+    let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
     let tmp = tempfile::tempdir().expect("tempdir");
     let biomeos = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
     std::fs::create_dir_all(&biomeos).expect("create_dir_all");
@@ -84,8 +49,8 @@ fn discover_ecosystem_jsonrpc_bind_biomeos_whitespace_only_falls_back_to_scan() 
 #[test]
 fn discover_ecosystem_jsonrpc_bind_empty_discovery_dir() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
-    let mut xdg = EnvRestore::take("XDG_RUNTIME_DIR");
+    let mut bio = EnvGuard::capture("BIOMEOS_ECOSYSTEM_REGISTRY");
+    let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
     let tmp = tempfile::tempdir().expect("tempdir");
     let biomeos = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
     std::fs::create_dir_all(&biomeos).expect("create_dir_all");
@@ -99,8 +64,8 @@ fn discover_ecosystem_jsonrpc_bind_empty_discovery_dir() {
 #[test]
 fn discover_ecosystem_jsonrpc_bind_skips_malformed_json_files() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
-    let mut xdg = EnvRestore::take("XDG_RUNTIME_DIR");
+    let mut bio = EnvGuard::capture("BIOMEOS_ECOSYSTEM_REGISTRY");
+    let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
     let tmp = tempfile::tempdir().expect("tempdir");
     let biomeos = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
     std::fs::create_dir_all(&biomeos).expect("create_dir_all");
@@ -118,8 +83,8 @@ async fn spawn_registration_no_registry_returns_without_panic() {
     let tmp = tempfile::tempdir().expect("tempdir");
     {
         let _guard = ENV_LOCK.lock().unwrap();
-        let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
-        let mut xdg = EnvRestore::take("XDG_RUNTIME_DIR");
+        let mut bio = EnvGuard::capture("BIOMEOS_ECOSYSTEM_REGISTRY");
+        let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
         let biomeos = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
         std::fs::create_dir_all(&biomeos).expect("create_dir_all");
 
@@ -135,7 +100,7 @@ async fn spawn_registration_no_registry_returns_without_panic() {
 async fn spawn_registration_non_unix_bind_skips_background_tasks() {
     {
         let _guard = ENV_LOCK.lock().unwrap();
-        let mut bio = EnvRestore::take("BIOMEOS_ECOSYSTEM_REGISTRY");
+        let mut bio = EnvGuard::capture("BIOMEOS_ECOSYSTEM_REGISTRY");
         bio.set("127.0.0.1:65530");
         spawn_registration(coralreef_core::capability::self_description());
     }
@@ -151,7 +116,7 @@ async fn spawn_registration_non_unix_bind_skips_background_tasks() {
 #[test]
 fn live_discovery_toadstool_gpu_target_to_compile() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let mut xdg = EnvRestore::take("XDG_RUNTIME_DIR");
+    let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
     let tmp = tempfile::tempdir().expect("tempdir");
     let discovery_dir = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
     std::fs::create_dir_all(&discovery_dir).expect("create discovery dir");
@@ -223,7 +188,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 #[test]
 fn live_discovery_mixed_primals_only_gpu_resolved() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let mut xdg = EnvRestore::take("XDG_RUNTIME_DIR");
+    let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
     let tmp = tempfile::tempdir().expect("tempdir");
     let discovery_dir = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
     std::fs::create_dir_all(&discovery_dir).expect("create discovery dir");

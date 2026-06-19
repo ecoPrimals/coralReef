@@ -81,7 +81,7 @@ pub struct CompileWgslRequest {
     /// Optional — defaults to `"auto"` (compiler decides).
     #[serde(default)]
     pub fma_policy: Option<String>,
-    /// Precision routing advice from `barraCuda`'s `PrecisionBrain`.
+    /// Precision routing advice from the caller's precision routing layer.
     /// Tells the compiler which precision tier was selected and whether
     /// hardware-specific lowering is needed.
     #[serde(default)]
@@ -102,7 +102,7 @@ pub struct CompileWgslRequest {
     pub spirv_version: Option<[u8; 2]>,
 }
 
-/// Precision routing advice carried in compile requests (from `barraCuda`).
+/// Precision routing advice carried in compile requests.
 ///
 /// Enables the compiler to make informed decisions about hardware unit
 /// targeting (tensor cores vs ALU) and transcendental lowering strategy.
@@ -169,7 +169,7 @@ pub struct CompileResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compile_time_ms: Option<f64>,
     /// Dispatch routing hints for the caller's submission layer.
-    /// Tells barraCuda/toadStool which hardware unit the binary targets.
+    /// Tells the `compute.dispatch` provider which hardware unit the binary targets.
     #[serde(default)]
     pub dispatch_hints: Option<DispatchHints>,
     /// Sovereign SPIR-V binary (GAP-HS-124), base64-encoded on the wire.
@@ -185,8 +185,8 @@ pub struct CompileResponse {
     ///
     /// Includes content hash, gate identity, and compiler version so
     /// downstream consumers can verify artifact integrity without
-    /// re-compiling. Signature field is populated when bearDog is
-    /// available for BTSP artifact signing.
+    /// re-compiling. Signature field is populated when a crypto-domain
+    /// provider is available for BTSP artifact signing.
     #[serde(default)]
     pub provenance: Option<ArtifactProvenance>,
 }
@@ -195,7 +195,7 @@ pub struct CompileResponse {
 ///
 /// Implements Dark Forest Invariant 3: no unsigned artifacts cross trust
 /// boundaries. The `content_hash` field is always populated; the `signature`
-/// field requires bearDog integration for BTSP artifact signing.
+/// field requires a crypto-domain provider for BTSP artifact signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactProvenance {
     /// SHA-256 hash of the compiled binary (hex-encoded).
@@ -207,7 +207,7 @@ pub struct ArtifactProvenance {
     pub gate_of_compilation: String,
     /// Compiler identity and version.
     pub compiler_version: String,
-    /// BTSP signature over the content hash, if bearDog signing is available.
+    /// BTSP signature over the content hash, if crypto-domain signing is available.
     /// Hex-encoded Ed25519 or HMAC signature.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
@@ -217,7 +217,7 @@ pub struct ArtifactProvenance {
 }
 
 fn default_hash_algorithm() -> String {
-    "sha256".to_owned()
+    "sha256".into()
 }
 
 impl CompileResponse {
@@ -254,13 +254,13 @@ impl CompileResponse {
 pub struct DispatchHints {
     /// Hardware unit the compiled binary targets.
     /// Values: `"compute"`, `"tensor_core"`, `"rt_core"`, `"npu"`, `"cpu"`.
-    pub hardware_hint: String,
+    pub hardware_hint: Cow<'static, str>,
     /// Binary format: `"ptx"`, `"sass"`, `"isa"`, `"cranelift"`, `"dataflow_graph"`.
     #[serde(default)]
-    pub binary_format: Option<String>,
+    pub binary_format: Option<Cow<'static, str>>,
     /// Execution model: `"simt"` (GPU), `"sequential"` (CPU), `"dataflow"` (NPU).
     #[serde(default)]
-    pub execution_model: Option<String>,
+    pub execution_model: Option<Cow<'static, str>>,
 }
 
 /// Compilation metadata needed by the dispatch layer (`compute.dispatch` provider).
@@ -527,7 +527,7 @@ pub struct HealthCheckResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LivenessResponse {
     /// Liveness status string. Always `"alive"` when the process is responsive.
-    pub status: String,
+    pub status: Cow<'static, str>,
 }
 
 /// `health.readiness` response — ready to accept work.
@@ -572,7 +572,7 @@ pub struct GemmCompileRequest {
 /// Default GEMM precision for serde deserialization.
 #[must_use]
 fn default_gemm_precision() -> String {
-    "f16f32".to_owned()
+    "f16f32".into()
 }
 
 /// Default GPU architecture string for serde deserialization.

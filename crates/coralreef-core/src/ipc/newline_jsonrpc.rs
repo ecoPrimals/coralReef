@@ -395,3 +395,263 @@ pub async fn start_newline_tcp_jsonrpc(
 
     Ok((bound, handle))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_health_liveness() {
+        let result = dispatch_jsonrpc("health.liveness", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert_eq!(val["status"], "alive");
+    }
+
+    #[test]
+    fn dispatch_health_check() {
+        let result = dispatch_jsonrpc("health.check", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val["healthy"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn dispatch_health_readiness() {
+        let result = dispatch_jsonrpc("health.readiness", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val["ready"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn dispatch_health_version() {
+        let result = dispatch_jsonrpc("health.version", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val["version"].as_str().is_some());
+        assert!(val["name"].as_str().is_some());
+    }
+
+    #[test]
+    fn dispatch_identity_get() {
+        let result = dispatch_jsonrpc("identity.get", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val["name"].as_str().is_some());
+    }
+
+    #[test]
+    fn dispatch_capability_list() {
+        let result = dispatch_jsonrpc("capability.list", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val["methods"].as_array().is_some());
+    }
+
+    #[test]
+    fn dispatch_capabilities_list_alias() {
+        let result = dispatch_jsonrpc("capabilities.list", serde_json::json!({}));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn dispatch_unknown_method() {
+        let result = dispatch_jsonrpc("nonexistent.method", serde_json::json!({}));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("method not found"));
+    }
+
+    #[test]
+    fn dispatch_auth_check() {
+        let result = dispatch_jsonrpc("auth.check", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val.get("authenticated").is_some());
+        assert!(val.get("origin").is_some());
+    }
+
+    #[test]
+    fn dispatch_auth_mode() {
+        let result = dispatch_jsonrpc("auth.mode", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val["mode"].as_str().is_some());
+    }
+
+    #[test]
+    fn dispatch_auth_peer_info() {
+        let result = dispatch_jsonrpc("auth.peer_info", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val.get("origin").is_some());
+        assert!(val.get("has_token").is_some());
+    }
+
+    #[test]
+    fn dispatch_health_bare() {
+        let result = dispatch_jsonrpc("health", serde_json::json!({}));
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert_eq!(val["status"], "alive");
+    }
+
+    #[test]
+    fn dispatch_shader_compile_status() {
+        let result = dispatch_jsonrpc("shader.compile.status", serde_json::json!({}));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn dispatch_shader_compile_capabilities() {
+        let result = dispatch_jsonrpc("shader.compile.capabilities", serde_json::json!({}));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn make_response_success() {
+        let resp = make_response(
+            serde_json::json!(1),
+            Ok(serde_json::json!({"status": "ok"})),
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&resp).expect("parse");
+        assert_eq!(parsed["jsonrpc"], "2.0");
+        assert_eq!(parsed["id"], 1);
+        assert!(parsed.get("result").is_some());
+        assert!(parsed.get("error").is_none());
+    }
+
+    #[test]
+    fn make_response_error() {
+        let err = IpcServiceError::dispatch("test error");
+        let resp = make_response(serde_json::json!(2), Err(err));
+        let parsed: serde_json::Value = serde_json::from_str(&resp).expect("parse");
+        assert_eq!(parsed["jsonrpc"], "2.0");
+        assert_eq!(parsed["id"], 2);
+        assert!(parsed.get("result").is_none());
+        assert!(parsed["error"]["message"].as_str().is_some());
+    }
+
+    #[test]
+    fn make_response_null_id() {
+        let resp = make_response(serde_json::Value::Null, Ok(serde_json::json!({"ok": true})));
+        let parsed: serde_json::Value = serde_json::from_str(&resp).expect("parse");
+        assert!(parsed["id"].is_null());
+    }
+
+    #[test]
+    fn extract_params_from_object() {
+        #[derive(serde::Deserialize)]
+        struct P {
+            x: i32,
+        }
+        let params = serde_json::json!({"x": 42});
+        let p: P = extract_params(params).expect("extract");
+        assert_eq!(p.x, 42);
+    }
+
+    #[test]
+    fn extract_params_from_array() {
+        #[derive(serde::Deserialize)]
+        struct P {
+            x: i32,
+        }
+        let params = serde_json::json!([{"x": 7}]);
+        let p: P = extract_params(params).expect("extract");
+        assert_eq!(p.x, 7);
+    }
+
+    #[test]
+    fn extract_params_empty_array_errors() {
+        #[derive(serde::Deserialize)]
+        struct P {
+            x: i32,
+        }
+        let params = serde_json::json!([]);
+        let result: Result<P, _> = extract_params(params);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_params_non_object_non_array_errors() {
+        #[derive(serde::Deserialize)]
+        struct P {
+            x: i32,
+        }
+        let params = serde_json::json!("string");
+        let result: Result<P, _> = extract_params(params);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn compile_timeout_returns_reasonable_duration() {
+        let t = compile_timeout();
+        assert!(t.as_secs() >= 10 && t.as_secs() <= 600);
+    }
+
+    #[tokio::test]
+    async fn process_newline_reader_writer_health_liveness() {
+        let req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "health.liveness",
+            "params": {},
+            "id": 1
+        });
+        let input = format!("{}\n", serde_json::to_string(&req).unwrap());
+        let mut output = Vec::new();
+        process_newline_reader_writer(input.as_bytes(), &mut output).await;
+        let out = String::from_utf8(output).expect("utf8");
+        assert!(out.contains("alive"), "should contain alive: {out}");
+    }
+
+    #[tokio::test]
+    async fn process_newline_reader_writer_skips_blank_lines() {
+        let req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "health.liveness",
+            "params": {},
+            "id": 1
+        });
+        let input = format!("\n\n{}\n", serde_json::to_string(&req).unwrap());
+        let mut output = Vec::new();
+        process_newline_reader_writer(input.as_bytes(), &mut output).await;
+        let out = String::from_utf8(output).expect("utf8");
+        let lines: Vec<&str> = out.trim().lines().collect();
+        assert_eq!(lines.len(), 1, "should produce exactly one response line");
+    }
+
+    #[tokio::test]
+    async fn process_newline_reader_writer_invalid_json() {
+        let input = b"not-json\n";
+        let mut output = Vec::new();
+        process_newline_reader_writer(&input[..], &mut output).await;
+        let out = String::from_utf8(output).expect("utf8");
+        assert!(out.contains("error"), "should return parse error: {out}");
+    }
+
+    #[tokio::test]
+    async fn process_newline_reader_writer_wrong_version() {
+        let req = serde_json::json!({
+            "jsonrpc": "1.0",
+            "method": "health.liveness",
+            "params": {},
+            "id": 1
+        });
+        let input = format!("{}\n", serde_json::to_string(&req).unwrap());
+        let mut output = Vec::new();
+        process_newline_reader_writer(input.as_bytes(), &mut output).await;
+        let out = String::from_utf8(output).expect("utf8");
+        assert!(
+            out.contains("invalid jsonrpc version"),
+            "should reject: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_maybe_blocking_non_compile_runs_inline() {
+        let result = dispatch_maybe_blocking("health.liveness", serde_json::json!({})).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap()["status"], "alive");
+    }
+}

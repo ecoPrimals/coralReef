@@ -160,7 +160,13 @@ async fn main() -> ExitCode {
             let tarpc_bind = tarpc_bind.unwrap_or_else(ipc::default_tarpc_bind);
             #[cfg(feature = "tarpc-transport")]
             {
-                cmd_server(&effective_bind, &tarpc_bind, socket.as_deref(), bind_mode.as_deref()).await
+                cmd_server(
+                    &effective_bind,
+                    &tarpc_bind,
+                    socket.as_deref(),
+                    bind_mode.as_deref(),
+                )
+                .await
             }
             #[cfg(not(feature = "tarpc-transport"))]
             {
@@ -439,7 +445,9 @@ async fn cmd_server(
     let mut tarpc_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     if skip_tarpc {
-        tracing::info!("PRIMAL_BIND_MODE=tcp_only — skipping tarpc server (JSON-RPC TCP serves all methods)");
+        tracing::info!(
+            "PRIMAL_BIND_MODE=tcp_only — skipping tarpc server (JSON-RPC TCP serves all methods)"
+        );
     } else {
         match ipc::start_tarpc_server(&tarpc_actual_bind, shutdown_rx.clone()).await {
             Ok((bound, handle)) => {
@@ -533,7 +541,11 @@ async fn cmd_server(
 }
 
 #[cfg(not(feature = "tarpc-transport"))]
-async fn cmd_server(rpc_bind: &str, socket_override: Option<&std::path::Path>, bind_mode: Option<&str>) -> UniBinExit {
+async fn cmd_server(
+    rpc_bind: &str,
+    socket_override: Option<&std::path::Path>,
+    bind_mode: Option<&str>,
+) -> UniBinExit {
     use ipc::transport::{ResolvedBind, resolve_bind_with_mode};
 
     if let Err(e) = config::validate_insecure_guard() {

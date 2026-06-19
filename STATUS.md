@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: June 15, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 113 (riboCipher signal compliance: accept [0xEC, 0x01] prefix on UDS+TCP. Bare `health` method: guideStone HEALTH-01 schema. Standard startup envelope: --port, --bind-mode. Transport evolution: TRANSPORT_ENDPOINT injection. capabilities.list IPC compliance (12/12). Socket cleanup: zero /tmp in production. 3312 tests, zero clippy warnings. 4-gate mesh LIVE.)
+**Last updated**: June 19, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 118 (Deep debt evolution: primal self-knowledge compliance (zero peer-primal names in production docs), ray-query honesty (NotImplemented vs silent stubs), capability-domain language throughout, named constants (NONCE_BYTES, NVIDIA_DEFAULT_WARP_SIZE), btsp.rs test extraction (779 LOC), dead code gating, magic number elimination. 3577 tests, 84% line coverage, zero clippy warnings, zero unsafe. 4-gate mesh LIVE.)
 
 ---
 

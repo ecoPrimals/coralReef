@@ -148,3 +148,245 @@ pub async fn wait_for_shutdown_signal() -> &'static str {
         "SIGINT"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capability::{self, SelfDescription, Transport};
+
+    fn test_desc() -> SelfDescription {
+        let mut desc = capability::self_description();
+        desc.transports = vec![
+            Transport {
+                protocol: "jsonrpc".into(),
+                address: "127.0.0.1:9200".into(),
+            },
+            Transport {
+                protocol: "tarpc-bincode".into(),
+                address: "127.0.0.1:9201".into(),
+            },
+        ];
+        desc
+    }
+
+    fn test_desc_no_transports() -> SelfDescription {
+        let mut desc = capability::self_description();
+        desc.transports.clear();
+        desc
+    }
+
+    #[tokio::test]
+    async fn write_and_read_discovery_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let desc = test_desc();
+        write_discovery_file_to(tmp.path(), &desc)
+            .await
+            .expect("write");
+
+        let path = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        assert!(path.exists(), "discovery file should exist");
+
+        let content = tokio::fs::read_to_string(&path).await.expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+
+        assert_eq!(parsed["primal"], env!("CARGO_PKG_NAME"));
+        assert_eq!(parsed["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(parsed["transports"]["jsonrpc"]["bind"], "127.0.0.1:9200");
+        assert_eq!(parsed["transports"]["tarpc"]["bind"], "127.0.0.1:9201");
+        assert!(
+            parsed["provides"].as_array().is_some_and(|a| !a.is_empty()),
+            "should advertise capabilities"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_discovery_file_creates_parent_dirs() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let nested = tmp.path().join("deep").join("nested").join("dir");
+        let desc = test_desc();
+        write_discovery_file_to(&nested, &desc)
+            .await
+            .expect("write to nested dir");
+        let path = nested.join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        assert!(path.exists());
+    }
+
+    #[tokio::test]
+    async fn write_discovery_file_no_transports_uses_empty_strings() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let desc = test_desc_no_transports();
+        write_discovery_file_to(tmp.path(), &desc)
+            .await
+            .expect("write");
+
+        let path = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        let content = tokio::fs::read_to_string(&path).await.expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+
+        assert_eq!(parsed["transports"]["jsonrpc"]["bind"], "");
+        assert_eq!(parsed["transports"]["tarpc"]["bind"], "");
+    }
+
+    #[tokio::test]
+    async fn remove_discovery_file_from_removes_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let desc = test_desc();
+        write_discovery_file_to(tmp.path(), &desc)
+            .await
+            .expect("write");
+        let path = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        assert!(path.exists());
+
+        remove_discovery_file_from(Some(tmp.path())).await;
+        assert!(!path.exists(), "file should be removed");
+    }
+
+    #[tokio::test]
+    async fn remove_discovery_file_from_none_is_noop() {
+        remove_discovery_file_from(None).await;
+    }
+
+    #[tokio::test]
+    async fn remove_discovery_file_from_nonexistent_is_noop() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        remove_discovery_file_from(Some(tmp.path())).await;
+    }
+
+    #[tokio::test]
+    async fn write_overwrites_existing_discovery_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let desc1 = test_desc();
+        write_discovery_file_to(tmp.path(), &desc1)
+            .await
+            .expect("first write");
+
+        let mut desc2 = test_desc_no_transports();
+        desc2.transports.push(Transport {
+            protocol: "jsonrpc".into(),
+            address: "127.0.0.1:7777".into(),
+        });
+        write_discovery_file_to(tmp.path(), &desc2)
+            .await
+            .expect("second write");
+
+        let path = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        let content = tokio::fs::read_to_string(&path).await.expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(
+            parsed["transports"]["jsonrpc"]["bind"], "127.0.0.1:7777",
+            "second write should overwrite"
+        );
+    }
+
+    #[tokio::test]
+    async fn discovery_file_contains_pid() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let desc = test_desc();
+        write_discovery_file_to(tmp.path(), &desc)
+            .await
+            .expect("write");
+
+        let path = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        let content = tokio::fs::read_to_string(&path).await.expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(
+            parsed["pid"].as_u64().expect("pid should be a number"),
+            u64::from(std::process::id())
+        );
+    }
+
+    #[tokio::test]
+    async fn discovery_file_serializes_requires() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let desc = test_desc();
+        write_discovery_file_to(tmp.path(), &desc)
+            .await
+            .expect("write");
+
+        let path = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        let content = tokio::fs::read_to_string(&path).await.expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert!(
+            parsed.get("requires").is_some(),
+            "discovery file must contain 'requires' field"
+        );
+    }
+
+    #[tokio::test]
+    async fn discovery_file_first_jsonrpc_transport_wins() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut desc = capability::self_description();
+        desc.transports = vec![
+            Transport {
+                protocol: "jsonrpc".into(),
+                address: "127.0.0.1:1111".into(),
+            },
+            Transport {
+                protocol: "jsonrpc".into(),
+                address: "127.0.0.1:2222".into(),
+            },
+        ];
+        write_discovery_file_to(tmp.path(), &desc)
+            .await
+            .expect("write");
+
+        let path = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        let content = tokio::fs::read_to_string(&path).await.expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        let bind = parsed["transports"]["jsonrpc"]["bind"]
+            .as_str()
+            .expect("bind");
+        assert_eq!(bind, "127.0.0.1:1111", "first jsonrpc should win");
+    }
+
+    #[tokio::test]
+    async fn discovery_file_non_tarpc_protocol_yields_empty_tarpc_bind() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut desc = capability::self_description();
+        desc.transports = vec![Transport {
+            protocol: "grpc".into(),
+            address: "127.0.0.1:5555".into(),
+        }];
+        write_discovery_file_to(tmp.path(), &desc)
+            .await
+            .expect("write");
+
+        let path = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        let content = tokio::fs::read_to_string(&path).await.expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        let tarpc_bind = parsed["transports"]["tarpc"]["bind"].as_str().unwrap_or("");
+        assert!(tarpc_bind.is_empty(), "non-tarpc should yield empty bind");
+    }
+
+    #[tokio::test]
+    async fn write_discovery_file_to_fails_when_target_is_directory() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blocking_dir = tmp.path().join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        std::fs::create_dir_all(&blocking_dir).expect("create blocking dir");
+
+        let desc = test_desc();
+        let result = write_discovery_file_to(tmp.path(), &desc).await;
+        assert!(result.is_err(), "writing to a directory path should fail");
+    }
+
+    #[test]
+    fn discovery_dir_returns_ok() {
+        let dir = discovery_dir();
+        assert!(dir.is_ok(), "discovery_dir should succeed in test env");
+        assert!(
+            !dir.unwrap().as_os_str().is_empty(),
+            "discovery dir should be non-empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_discovery_file_to_creates_parent_dirs_deep() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let nested = tmp.path().join("a").join("b").join("c");
+        let desc = test_desc();
+        let result = write_discovery_file_to(&nested, &desc).await;
+        assert!(result.is_ok(), "should create nested dirs: {result:?}");
+        let path = nested.join(format!("{}.json", env!("CARGO_PKG_NAME")));
+        assert!(path.exists());
+    }
+}

@@ -558,7 +558,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 #[test]
-fn ptx_ray_query_initialize_proceed() {
+fn ptx_ray_query_initialize_returns_not_implemented() {
     let wgsl = r"
 enable wgpu_ray_query;
 
@@ -582,60 +582,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
     let result = emit_compute_ptx(wgsl, 120);
     assert!(
-        result.is_ok(),
-        "RayQuery Initialize+Proceed should compile for SM120: {result:?}"
+        result.is_err(),
+        "RayQuery should return NotImplemented for SM120"
     );
-    let compiled = result.unwrap();
-    let ptx = String::from_utf8_lossy(&compiled.binary);
+    let err = format!("{:?}", result.unwrap_err());
     assert!(
-        ptx.contains("ray_query_initialize"),
-        "should emit RT initialize comment: {ptx:.800}"
-    );
-    assert!(
-        ptx.contains("rt.trace.proceed"),
-        "should emit RT proceed comment: {ptx:.800}"
-    );
-    assert!(
-        ptx.contains("setp.eq.u32"),
-        "should emit predicate for proceed result: {ptx:.800}"
+        err.contains("not implemented") || err.contains("NotImplemented"),
+        "error should be NotImplemented: {err}"
     );
 }
 
 #[test]
-fn ptx_ray_query_get_intersection() {
-    let wgsl = r"
-enable wgpu_ray_query;
-
-@group(0) @binding(0)
-var accel: acceleration_structure;
-@group(0) @binding(1)
-var<storage, read_write> out: array<f32>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    var rq: ray_query;
-    let desc = RayDesc(0u, 0xFFu, 0.001, 1000.0, vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, -1.0, 0.0));
-    rayQueryInitialize(&rq, accel, desc);
-    let hit = rayQueryProceed(&rq);
-    let intersection = rayQueryGetCommittedIntersection(&rq);
-    out[gid.x] = intersection.t;
-}
-";
-    let result = emit_compute_ptx(wgsl, 120);
-    assert!(
-        result.is_ok(),
-        "RayQuery GetIntersection should compile for SM120: {result:?}"
-    );
-    let compiled = result.unwrap();
-    let ptx = String::from_utf8_lossy(&compiled.binary);
-    assert!(
-        ptx.contains("_rt_query_get_intersection_t"),
-        "should emit RT core intersection query calls: {ptx:.800}"
-    );
-}
-
-#[test]
-fn ptx_ray_query_terminate() {
+fn ptx_ray_query_terminate_returns_not_implemented() {
     let wgsl = r"
 enable wgpu_ray_query;
 
@@ -656,14 +614,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
     let result = emit_compute_ptx(wgsl, 120);
     assert!(
-        result.is_ok(),
-        "RayQuery Terminate should compile for SM120: {result:?}"
-    );
-    let compiled = result.unwrap();
-    let ptx = String::from_utf8_lossy(&compiled.binary);
-    assert!(
-        ptx.contains("rt.trace.terminate"),
-        "should emit terminate comment: {ptx:.800}"
+        result.is_err(),
+        "RayQuery should return NotImplemented for SM120"
     );
 }
 

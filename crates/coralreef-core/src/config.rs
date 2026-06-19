@@ -279,10 +279,12 @@ pub fn btsp_provider_socket() -> Option<PathBuf> {
 #[deprecated(since = "0.2.0", note = "use btsp_provider_socket() instead")]
 #[must_use]
 pub fn security_provider_socket_legacy() -> Option<PathBuf> {
-    non_empty_env_path(env_keys::BEARDOG_SOCKET)
+    #[allow(deprecated)]
+    let key = env_keys::BEARDOG_SOCKET;
+    non_empty_env_path(key)
 }
 
-/// Resolve the Songbird discovery socket path.
+/// Resolve the ecosystem discovery relay socket path.
 ///
 /// The composition launcher sets `$DISCOVERY_SOCKET` so that primals can
 /// resolve capabilities without scanning the filesystem.
@@ -463,5 +465,131 @@ mod tests {
     #[test]
     fn non_empty_env_path_returns_none_for_missing() {
         assert!(non_empty_env_path("__CORALREEF_TEST_NONEXISTENT_VAR__").is_none());
+    }
+
+    #[test]
+    fn compiler_version_string_format() {
+        let s = compiler_version_string();
+        assert!(
+            s.contains('/'),
+            "should contain name/version separator: {s}"
+        );
+        assert!(
+            s.contains('+'),
+            "should contain version+build separator: {s}"
+        );
+        assert!(s.starts_with(PRIMAL_NAME));
+        assert!(s.contains(PRIMAL_VERSION));
+        assert!(s.contains(PRIMAL_BUILD_HASH));
+    }
+
+    #[test]
+    fn gate_id_returns_string() {
+        let gid = gate_id();
+        assert!(!gid.is_empty(), "gate_id should never be empty");
+        if std::env::var(env_keys::BIOMEOS_GATE_ID).is_err() {
+            assert_eq!(gid, "unknown");
+        }
+    }
+
+    #[test]
+    fn config_error_display() {
+        let err = ConfigError {
+            message: "test error message".into(),
+        };
+        assert_eq!(err.to_string(), "test error message");
+    }
+
+    #[test]
+    fn default_socket_path_contains_namespace_and_sock() {
+        let path = default_socket_path();
+        let path_str = path.to_string_lossy();
+        assert!(
+            path_str.contains(ecosystem_namespace()),
+            "should contain namespace: {path_str}"
+        );
+        assert!(
+            path.extension().is_some_and(|e| e == "sock"),
+            "should end in .sock: {path_str}"
+        );
+    }
+
+    #[test]
+    fn socket_base_dir_returns_absolute_path() {
+        let base = socket_base_dir();
+        assert!(
+            base.is_absolute(),
+            "socket base dir should be absolute: {}",
+            base.display()
+        );
+    }
+
+    #[test]
+    fn primal_build_hash_is_non_empty() {
+        assert!(!PRIMAL_BUILD_HASH.is_empty());
+    }
+
+    #[test]
+    fn primal_session_is_non_empty() {
+        assert!(!PRIMAL_SESSION.is_empty());
+    }
+
+    #[test]
+    fn served_methods_contains_required_methods() {
+        assert!(SERVED_METHODS.contains(&"health.check"));
+        assert!(SERVED_METHODS.contains(&"health.liveness"));
+        assert!(SERVED_METHODS.contains(&"health.readiness"));
+        assert!(SERVED_METHODS.contains(&"health.version"));
+        assert!(SERVED_METHODS.contains(&"identity.get"));
+        assert!(SERVED_METHODS.contains(&"capability.list"));
+        assert!(SERVED_METHODS.contains(&"btsp.negotiate"));
+        assert!(SERVED_METHODS.contains(&"shader.compile.wgsl"));
+        assert!(SERVED_METHODS.contains(&"shader.compile.spirv"));
+        assert!(SERVED_METHODS.contains(&"shader.compile.gemm"));
+    }
+
+    #[test]
+    fn registry_timeout_returns_reasonable_duration() {
+        let t = registry_timeout();
+        assert!(t.as_secs() >= 1 && t.as_secs() <= 60);
+    }
+
+    #[test]
+    fn capability_domain_socket_rejects_path_traversal() {
+        // Without env override, should return default
+        if std::env::var(CORALREEF_CAPABILITY_DOMAIN_ENV).is_err() {
+            let name = capability_domain_socket_filename();
+            assert_eq!(name, "shader.sock");
+        }
+    }
+
+    #[test]
+    fn validate_insecure_guard_passes_default_state() {
+        if std::env::var(env_keys::BIOMEOS_FAMILY_ID).is_err()
+            && std::env::var(env_keys::BIOMEOS_INSECURE).is_err()
+        {
+            assert!(
+                validate_insecure_guard().is_ok(),
+                "default env state should pass the insecure guard"
+            );
+        }
+    }
+
+    #[test]
+    fn family_id_defaults_correctly() {
+        if std::env::var(env_keys::CORALREEF_FAMILY_ID).is_err()
+            && std::env::var(env_keys::BIOMEOS_FAMILY_ID).is_err()
+        {
+            assert_eq!(family_id(), "default");
+        }
+    }
+
+    #[test]
+    fn parse_duration_env_returns_default_for_missing_var() {
+        let d = parse_duration_env(
+            "__CORALREEF_NONEXISTENT_DURATION__",
+            Duration::from_secs(42),
+        );
+        assert_eq!(d, Duration::from_secs(42));
     }
 }

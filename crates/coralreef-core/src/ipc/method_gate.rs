@@ -17,7 +17,7 @@
 //! `rustix`) or inferred from connection origin. Token verification is a
 //! trait interface that the security-domain provider fills in later (`auth.verify_ionic`).
 //!
-//! Per `primalSpring/wateringHole/METHOD_GATE_STANDARD.md` v1.0.
+//! Per `wateringHole/METHOD_GATE_STANDARD.md` v1.0.
 
 use std::sync::OnceLock;
 
@@ -202,14 +202,15 @@ fn resolve_auth_env() -> (String, &'static str) {
     if let Ok(v) = std::env::var(env_keys::ECOSYSTEM_AUTH_MODE) {
         return (v, env_keys::ECOSYSTEM_AUTH_MODE);
     }
-    if let Ok(v) = std::env::var(env_keys::PRIMALSPRING_AUTH_MODE) {
+    #[allow(deprecated)]
+    let legacy_key = env_keys::PRIMALSPRING_AUTH_MODE;
+    if let Ok(v) = std::env::var(legacy_key) {
         tracing::warn!(
-            "using deprecated ${} — migrate to ${} or ${}",
-            env_keys::PRIMALSPRING_AUTH_MODE,
+            "using deprecated ${legacy_key} — migrate to ${} or ${}",
             env_keys::ECOSYSTEM_AUTH_MODE,
             env_keys::CORALREEF_AUTH_MODE,
         );
-        return (v, env_keys::PRIMALSPRING_AUTH_MODE);
+        return (v, legacy_key);
     }
     (String::new(), "default")
 }

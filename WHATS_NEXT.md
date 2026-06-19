@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 107 (4-gate mesh LIVE, transport evolution complete, socket cleanup done).
+**Current position**: Phase 10 — Sprint 14 / Wave 118 (4-gate mesh LIVE, deep debt evolution complete, primal self-knowledge enforced).
 
-**Last completed**: Wave 107 — PRIMAL-SOCKET-CLEANUP (eliminate /tmp from production paths). Wave 101 — Deep debt (server_lifecycle extraction, named constants, naga hoisted to workspace deps). Wave 100 — TRANSPORT_ENDPOINT injection (sourDough wire-compatible). Wave 99 — capabilities.list IPC compliance (12/12 PASS). Wave 79 — Headless fix (default-members excludes amd-isa-gen).
+**Last completed**: Wave 118 — Deep debt evolution (primal self-knowledge compliance, ray-query honesty, capability-domain language, named constants, btsp.rs test extraction, dead code gating). Wave 113 — riboCipher signal compliance, HEALTH-01 schema, startup envelope standardization. Wave 107 — Socket cleanup, transport evolution.
 
-**Tests**: 3304 passing, 0 failed. Zero clippy warnings. Zero unsafe.
+**Tests**: 3577 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 10, 2026.
+**Last updated**: June 19, 2026.
 
-**Next focus**: Coverage push toward 90%. Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
+**Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser). Artifact provenance signing via crypto-domain provider discovery.
 
 ---
 
@@ -18,7 +18,7 @@
 
 ### Near-Term (Sprint 13+)
 
-1. ~~**RayQuery PTX emission**~~ — **DONE** (Sprint 12).
+1. ~~**RayQuery PTX emission**~~ — **REVERTED to NotImplemented** (Wave 118). SM75+ inline RT requires vendor-proprietary ISA documentation. Shaders using `rayQuery*` now fail at compile time with clear error. Use OptiX/Vulkan RT pipelines for RT workloads.
 2. ~~**Compiler evolution**~~ — **DONE** (Sprint 12). IR idempotency proven, `CompileTarget` generalization, tarpc feature-gated.
 3. ~~**Depth texture comparison**~~ — **DONE** (Sprint 13). `tex.level.compare.{dim}.f32.f32` with correct reference value in coord tuple.
 4. ~~**Array/cube texture sampling**~~ — **DONE** (Sprint 13). `ImageDim` extended (A1d/A2d/Cube/Acube), `array_index` wired through, `format_tex_coord` handles layers.
@@ -26,7 +26,7 @@
 6. ~~**Sampled texture load**~~ — **DONE** (Sprint 13). `tld.b.{dim}` for `textureLoad` on sampled textures. Surface collection fixed to exclude non-storage images.
 7. ~~**Vector math functions**~~ — **DONE** (Sprint 13). `normalize`, `length`, `cross`, `distance` via `rsqrt.approx`/`sqrt.rn`/`fma.rn`.
 8. ~~**ImageQuery NumLayers**~~ — **DONE** (Sprint 13). `suq.array_size.b32` for storage array surfaces.
-9. ~~**RT core intersection**~~ — **DONE** (Sprint 13). Evolved from zero-init stub to `_rt_query_get_intersection_*` driver builtins.
+9. ~~**RT core intersection**~~ — **REVERTED to NotImplemented** (Wave 118). Was emitting `_rt_query_get_intersection_*` calls but the full ray-query pipeline was silently producing wrong traversal results. All ray-query paths now return `NotImplemented` until vendor RT ISA docs are available.
 10. ~~**Inverse trig + geometry + bit ops**~~ — **DONE** (Wave 61). `tan`, `atan`, `atan2`, `asin`, `acos`, `reflect`, `faceForward`, `extractBits`→`bfe.u32`, `insertBits`→`bfi.b32`.
 11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
 12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.

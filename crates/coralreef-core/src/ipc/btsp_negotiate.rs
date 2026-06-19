@@ -24,6 +24,12 @@ use std::sync::{Mutex, OnceLock};
 
 use super::btsp::{BtspMode, btsp_mode};
 
+/// ChaCha20-Poly1305 nonce length in bytes (96-bit, per RFC 8439).
+const NONCE_BYTES: usize = 12;
+
+/// Minimum client nonce length in decoded bytes.
+const MIN_CLIENT_NONCE_BYTES: usize = 12;
+
 // ──── Session Registry ─────────────────────────────────────────────────────
 
 /// Per-session state stored after successful Phase 2 authentication.
@@ -89,7 +95,8 @@ pub struct NegotiateResponse {
 /// `"chacha20-poly1305"` and derives directional encrypt/decrypt keys. When
 /// absent (provider didn't return key material), falls back to `"null"` cipher.
 ///
-/// Derived keys are stored in [`NEGOTIATED_KEYS`] for the encrypted frame loop.
+/// Derived keys are stored in the negotiated-keys registry for the encrypted
+/// frame loop.
 ///
 /// # Errors
 ///
@@ -115,9 +122,9 @@ pub fn handle_negotiate(req: &NegotiateRequest) -> Result<NegotiateResponse, Neg
     )
     .map_err(|e| NegotiateError::InvalidParams(format!("client_nonce is not valid base64: {e}")))?;
 
-    if client_nonce_bytes.len() < 12 {
+    if client_nonce_bytes.len() < MIN_CLIENT_NONCE_BYTES {
         return Err(NegotiateError::InvalidParams(format!(
-            "client_nonce too short: {} bytes (need >= 12)",
+            "client_nonce too short: {} bytes (need >= {MIN_CLIENT_NONCE_BYTES})",
             client_nonce_bytes.len()
         )));
     }
@@ -288,7 +295,7 @@ impl SessionKeys {
 
         let cipher = ChaCha20Poly1305::new((&self.encrypt_key).into());
 
-        let mut nonce_bytes = [0u8; 12];
+        let mut nonce_bytes = [0u8; NONCE_BYTES];
         getrandom::fill(&mut nonce_bytes)
             .map_err(|e| NegotiateError::InvalidParams(format!("nonce generation failed: {e}")))?;
         let nonce = Nonce::from_slice(&nonce_bytes);
@@ -312,14 +319,16 @@ impl SessionKeys {
         use chacha20poly1305::aead::{Aead, KeyInit};
         use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 
-        if frame.len() < 12 + 16 {
+        const POLY1305_TAG_BYTES: usize = 16;
+        const MIN_FRAME_BYTES: usize = NONCE_BYTES + POLY1305_TAG_BYTES;
+        if frame.len() < MIN_FRAME_BYTES {
             return Err(NegotiateError::InvalidParams(format!(
-                "frame too short: {} bytes (need >= 28)",
+                "frame too short: {} bytes (need >= {MIN_FRAME_BYTES})",
                 frame.len()
             )));
         }
 
-        let (nonce_bytes, ciphertext) = frame.split_at(12);
+        let (nonce_bytes, ciphertext) = frame.split_at(NONCE_BYTES);
         let cipher = ChaCha20Poly1305::new((&self.decrypt_key).into());
         let nonce = Nonce::from_slice(nonce_bytes);
 

@@ -39,7 +39,7 @@ runtime — no hardcoded primal names, no shared code imports.
 
 ## Project status (Sprint 14)
 
-- **Tests**: 3304 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
+- **Tests**: 3577 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
 - **Sprint 14 (current)**: Wave 68 — SM120 `membar.sys` barrier fix (GAP-HS-115), sovereign SPIR-V emission via `naga::back::spv` (GAP-HS-124), math pack/unpack builtins (13 new PTX math ops), `naga::Module` multi-entry-point hardening, `wgsl_to_spirv()` public API. Wave 67: Adapter-aware arch routing, copy-prop multi-component fix, hyperbolic trig, float decomposition (modf/frexp/ldexp). Sprint 13: Inverse trig, geometry math, bit ops, texture queries, module refactor.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).

@@ -197,19 +197,3 @@ pub struct RayQueryState {
     pub(crate) query_handle: PtxVal,
     pub(crate) proceed_result: Option<PtxVal>,
 }
-
-/// Fields of the `RayIntersection` struct returned by
-/// `RayQueryGetIntersection`. Matches naga's generated
-/// `special_types.ray_intersection` layout.
-#[derive(Debug, Clone)]
-pub struct RayIntersectionRegs {
-    pub(crate) kind: PtxVal,
-    pub(crate) t: PtxVal,
-    pub(crate) instance_custom_data: PtxVal,
-    pub(crate) instance_index: PtxVal,
-    pub(crate) sbt_record_offset: PtxVal,
-    pub(crate) geometry_index: PtxVal,
-    pub(crate) primitive_index: PtxVal,
-    pub(crate) barycentrics: [PtxVal; 2],
-    pub(crate) front_face: PtxVal,
-}

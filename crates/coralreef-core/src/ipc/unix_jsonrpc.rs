@@ -364,6 +364,189 @@ mod inner {
 
         Ok((bound_path, handle))
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn path_in_ecosystem_namespace_detects_biomeos() {
+            let p = PathBuf::from("/run/user/1000/biomeos/coralreef.sock");
+            assert!(path_in_ecosystem_namespace(&p));
+        }
+
+        #[test]
+        fn path_in_ecosystem_namespace_rejects_other() {
+            let p = PathBuf::from("/tmp/test/coralreef.sock");
+            assert!(!path_in_ecosystem_namespace(&p));
+        }
+
+        #[test]
+        fn install_capability_domain_symlink_creates_link() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let ns = crate::config::ecosystem_namespace();
+            let ns_dir = dir.path().join(ns);
+            std::fs::create_dir_all(&ns_dir).expect("mkdir");
+            let socket = ns_dir.join("coralreef-default.sock");
+            std::fs::write(&socket, "").expect("create socket");
+
+            let link = install_capability_domain_symlink(&socket);
+            assert!(link.is_some(), "symlink should be created");
+            let link_path = link.unwrap();
+            assert!(link_path.is_symlink(), "should be a symlink");
+            let target = std::fs::read_link(&link_path).expect("read_link");
+            assert_eq!(target, Path::new("coralreef-default.sock"));
+        }
+
+        #[test]
+        fn install_capability_domain_symlink_skips_non_ecosystem_path() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let socket = dir.path().join("coralreef.sock");
+            std::fs::write(&socket, "").expect("create");
+            let link = install_capability_domain_symlink(&socket);
+            assert!(link.is_none(), "should skip non-ecosystem paths");
+        }
+
+        #[test]
+        fn install_capability_domain_symlink_skips_when_same_as_socket() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let ns = crate::config::ecosystem_namespace();
+            let ns_dir = dir.path().join(ns);
+            std::fs::create_dir_all(&ns_dir).expect("mkdir");
+            let domain_name = crate::config::capability_domain_socket_filename();
+            let socket = ns_dir.join(&domain_name);
+            std::fs::write(&socket, "").expect("create");
+            let link = install_capability_domain_symlink(&socket);
+            assert!(link.is_none(), "should skip when socket IS the domain link");
+        }
+
+        #[test]
+        fn install_capability_domain_symlink_replaces_existing() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let ns = crate::config::ecosystem_namespace();
+            let ns_dir = dir.path().join(ns);
+            std::fs::create_dir_all(&ns_dir).expect("mkdir");
+
+            let socket1 = ns_dir.join("first-instance.sock");
+            std::fs::write(&socket1, "").expect("create1");
+            let link1 = install_capability_domain_symlink(&socket1);
+            assert!(link1.is_some());
+
+            let socket2 = ns_dir.join("second-instance.sock");
+            std::fs::write(&socket2, "").expect("create2");
+            let link2 = install_capability_domain_symlink(&socket2);
+            assert!(link2.is_some());
+            let target = std::fs::read_link(link2.unwrap()).expect("read_link");
+            assert_eq!(target, Path::new("second-instance.sock"));
+        }
+
+        #[test]
+        fn unix_socket_path_for_base_with_explicit_dir() {
+            let base = PathBuf::from("/custom/runtime");
+            let path = unix_socket_path_for_base(Some(base));
+            let ns = crate::config::ecosystem_namespace();
+            assert!(path.starts_with(format!("/custom/runtime/{ns}")));
+            assert!(path.extension().is_some_and(|e| e == "sock"));
+        }
+
+        #[test]
+        fn unix_socket_path_for_base_without_dir_uses_default() {
+            let path = unix_socket_path_for_base(None);
+            let ns = crate::config::ecosystem_namespace();
+            let path_str = path.to_string_lossy();
+            assert!(
+                path_str.contains(ns),
+                "path should contain namespace: {path_str}"
+            );
+            assert!(path.extension().is_some_and(|e| e == "sock"));
+        }
+
+        #[test]
+        fn default_unix_socket_path_matches_config() {
+            let uds = default_unix_socket_path();
+            let config = crate::config::default_socket_path();
+            assert_eq!(uds, config);
+        }
+
+        #[tokio::test]
+        async fn start_unix_jsonrpc_server_binds_and_shuts_down() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let socket = dir.path().join("test-server.sock");
+            let (tx, rx) = tokio::sync::watch::channel(());
+
+            let (bound, handle) = start_unix_jsonrpc_server(&socket, rx)
+                .await
+                .expect("should bind");
+            assert_eq!(bound, socket);
+            assert!(socket.exists(), "socket file should exist after bind");
+
+            let _ = tx.send(());
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+            assert!(
+                !socket.exists(),
+                "socket should be cleaned up after shutdown"
+            );
+        }
+
+        #[tokio::test]
+        async fn handle_connection_empty_line_does_not_crash() {
+            let input = b"\n";
+            let reader = tokio::io::BufReader::new(&input[..]);
+            let mut output = Vec::new();
+            handle_connection(reader, &mut output, None).await;
+        }
+
+        #[tokio::test]
+        async fn handle_connection_valid_health_liveness() {
+            let req = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "health.liveness",
+                "params": {},
+                "id": 1
+            });
+            let input = format!("{}\n", serde_json::to_string(&req).unwrap());
+            let reader = tokio::io::BufReader::new(input.as_bytes());
+            let mut output = Vec::new();
+            handle_connection(reader, &mut output, None).await;
+            let output_str = String::from_utf8(output).expect("utf8");
+            assert!(
+                output_str.contains("alive"),
+                "should return alive: {output_str}"
+            );
+        }
+
+        #[tokio::test]
+        async fn handle_connection_invalid_json() {
+            let input = b"not json at all\n";
+            let reader = tokio::io::BufReader::new(&input[..]);
+            let mut output = Vec::new();
+            handle_connection(reader, &mut output, None).await;
+            let output_str = String::from_utf8(output).expect("utf8");
+            assert!(
+                output_str.contains("error"),
+                "should return error: {output_str}"
+            );
+        }
+
+        #[tokio::test]
+        async fn handle_connection_wrong_jsonrpc_version() {
+            let req = serde_json::json!({
+                "jsonrpc": "1.0",
+                "method": "health.liveness",
+                "params": {},
+                "id": 1
+            });
+            let input = format!("{}\n", serde_json::to_string(&req).unwrap());
+            let reader = tokio::io::BufReader::new(input.as_bytes());
+            let mut output = Vec::new();
+            handle_connection(reader, &mut output, None).await;
+            let output_str = String::from_utf8(output).expect("utf8");
+            assert!(
+                output_str.contains("invalid jsonrpc version"),
+                "should reject wrong version: {output_str}"
+            );
+        }
+    }
 }
 
 #[cfg(all(unix, test))]

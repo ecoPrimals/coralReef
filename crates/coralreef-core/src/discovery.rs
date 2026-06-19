@@ -70,7 +70,7 @@ struct DiscoveryEntry {
 /// Dual-format capability reference: accepts both `"gpu.dispatch"` (string)
 /// and `{"id": "gpu.dispatch", "version": "0.1.0"}` (object).
 ///
-/// Absorbed from neuralSpring S156 ecosystem standardization discussion.
+/// Absorbed from Phase 10 ecosystem capability standardization.
 #[derive(Debug, Clone, Serialize)]
 struct CapabilityRef {
     id: String,

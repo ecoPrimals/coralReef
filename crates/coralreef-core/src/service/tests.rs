@@ -311,320 +311,7 @@ fn test_compile_wgsl_with_fma_separate() {
     assert!(result.is_ok(), "FMA separate should compile: {result:?}");
 }
 
-#[test]
-fn test_compile_wgsl_emits_sovereign_spirv() {
-    let req = CompileWgslRequest {
-        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
-        arch: "sm_70".to_owned(),
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: None,
-        precision_advice: None,
-        adapter: None,
-        emit_spirv: true,
-        spirv_version: None,
-    };
-    let resp = handle_compile_wgsl(&req).expect("should compile");
-    let spirv = resp
-        .spirv_binary
-        .expect("WGSL compile must emit sovereign SPIR-V");
-    assert!(spirv.len() >= 20, "SPIR-V must be non-trivial");
-    assert_eq!(spirv.len() % 4, 0, "SPIR-V must be word-aligned");
-    let magic = u32::from_le_bytes([spirv[0], spirv[1], spirv[2], spirv[3]]);
-    assert_eq!(magic, 0x0723_0203, "SPIR-V must have correct magic number");
-}
-
-#[test]
-fn test_compile_wgsl_no_spirv_when_emit_false() {
-    let req = CompileWgslRequest {
-        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
-        arch: "sm_70".to_owned(),
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: None,
-        precision_advice: None,
-        adapter: None,
-        emit_spirv: false,
-        spirv_version: None,
-    };
-    let resp = handle_compile_wgsl(&req).expect("should compile");
-    assert!(
-        resp.spirv_binary.is_none(),
-        "spirv_binary should be None when emit_spirv=false"
-    );
-}
-
-#[test]
-fn test_compile_wgsl_spirv_version_targeting() {
-    let req = CompileWgslRequest {
-        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
-        arch: "sm_70".to_owned(),
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: None,
-        precision_advice: None,
-        adapter: None,
-        emit_spirv: true,
-        spirv_version: Some([1, 5]),
-    };
-    let resp = handle_compile_wgsl(&req).expect("should compile");
-    let spirv = resp.spirv_binary.expect("SPIR-V should be emitted");
-    let ver_word = u32::from_le_bytes([spirv[4], spirv[5], spirv[6], spirv[7]]);
-    let expected = (1u32 << 16) | (5u32 << 8);
-    assert_eq!(
-        ver_word, expected,
-        "should emit SPIR-V 1.5: {ver_word:#010x} vs {expected:#010x}"
-    );
-}
-
-#[test]
-fn test_spirv_end_to_end_compile_provenance_output() {
-    let wgsl = r"
-@group(0) @binding(0) var<storage, read_write> data: array<f32>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
-    data[idx] = data[idx] * 2.0 + 1.0;
-}
-";
-    let req = CompileWgslRequest {
-        wgsl_source: Arc::from(wgsl),
-        arch: "sm_80".to_owned(),
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: None,
-        precision_advice: None,
-        adapter: None,
-        emit_spirv: true,
-        spirv_version: Some([1, 5]),
-    };
-
-    let resp = handle_compile_wgsl(&req).expect("compile should succeed");
-
-    assert!(resp.binary.len() > 0, "native binary must be non-empty");
-    assert_eq!(
-        resp.status.as_deref(),
-        Some("success"),
-        "status must be success"
-    );
-
-    let spirv = resp
-        .spirv_binary
-        .clone()
-        .expect("SPIR-V output must be present");
-    assert!(spirv.len() >= 20, "SPIR-V must be non-trivial");
-    assert_eq!(spirv.len() % 4, 0, "SPIR-V must be word-aligned");
-    let magic = u32::from_le_bytes([spirv[0], spirv[1], spirv[2], spirv[3]]);
-    assert_eq!(magic, 0x0723_0203, "SPIR-V magic number");
-    let version = u32::from_le_bytes([spirv[4], spirv[5], spirv[6], spirv[7]]);
-    let expected_ver = (1u32 << 16) | (5u32 << 8);
-    assert_eq!(version, expected_ver, "SPIR-V version should be 1.5");
-
-    let resp_with_prov = resp.with_provenance();
-    let prov = resp_with_prov
-        .provenance
-        .as_ref()
-        .expect("provenance must be attached");
-    assert_eq!(prov.hash_algorithm, "sha256");
-    assert_eq!(prov.content_hash.len(), 64, "SHA-256 hex is 64 chars");
-    assert!(!prov.compiler_version.is_empty());
-    assert!(!prov.gate_of_compilation.is_empty());
-
-    let spirv_words: Vec<u32> = spirv
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
-        .collect();
-    let module = naga::front::spv::parse_u8_slice(&spirv, &naga::front::spv::Options::default())
-        .expect("emitted SPIR-V must be parseable");
-    let mut validator = naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::all(),
-    );
-    validator
-        .validate(&module)
-        .expect("emitted SPIR-V must pass naga validation");
-
-    assert!(
-        !module.entry_points.is_empty(),
-        "SPIR-V must have at least one entry point"
-    );
-    assert_eq!(
-        module.entry_points[0].stage,
-        naga::ShaderStage::Compute,
-        "entry point must be compute"
-    );
-    assert!(spirv_words.len() > 20, "non-trivial SPIR-V module");
-}
-
-#[test]
-fn test_compile_spirv_has_no_sovereign_spirv() {
-    let wgsl = "@compute @workgroup_size(1) fn main() {}";
-    let module = naga::front::wgsl::parse_str(wgsl).expect("WGSL should parse");
-    let info = naga::valid::Validator::new(
-        naga::valid::ValidationFlags::default(),
-        naga::valid::Capabilities::empty(),
-    )
-    .validate(&module)
-    .expect("should validate");
-    let spirv_words =
-        naga::back::spv::write_vec(&module, &info, &naga::back::spv::Options::default(), None)
-            .expect("should produce SPIR-V");
-    let spirv_bytes: Vec<u8> = spirv_words.iter().flat_map(|w| w.to_le_bytes()).collect();
-    let resp = handle_compile_spirv(&spirv_bytes, "sm_70", 2, true).expect("should compile");
-    assert!(
-        resp.spirv_binary.is_none(),
-        "SPIR-V input path should not re-emit SPIR-V"
-    );
-}
-
-#[test]
-fn test_multi_device_compile_basic() {
-    let req = MultiDeviceCompileRequest {
-        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
-        targets: vec![
-            DeviceTarget {
-                card_index: 0,
-                arch: "sm_70".to_owned(),
-                pcie_group: None,
-            },
-            DeviceTarget {
-                card_index: 1,
-                arch: "sm_89".to_owned(),
-                pcie_group: Some(0),
-            },
-        ],
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: None,
-    };
-    let resp = handle_compile_wgsl_multi(req).expect("multi-device should succeed");
-    assert_eq!(resp.total_count, 2);
-    assert_eq!(resp.success_count, 2);
-    assert_eq!(resp.results.len(), 2);
-    assert_eq!(resp.results[0].card_index, 0);
-    assert_eq!(resp.results[0].arch, "sm_70");
-    assert!(resp.results[0].binary.is_some());
-    assert!(resp.results[0].size > 0);
-    assert!(resp.results[0].error.is_none());
-    assert_eq!(resp.results[1].card_index, 1);
-    assert_eq!(resp.results[1].arch, "sm_89");
-    assert!(resp.results[1].binary.is_some());
-}
-
-#[test]
-fn test_multi_device_compile_mixed_success_failure() {
-    let req = MultiDeviceCompileRequest {
-        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
-        targets: vec![
-            DeviceTarget {
-                card_index: 0,
-                arch: "sm_70".to_owned(),
-                pcie_group: None,
-            },
-            DeviceTarget {
-                card_index: 1,
-                arch: "sm_99".to_owned(),
-                pcie_group: None,
-            },
-        ],
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: None,
-    };
-    let resp = handle_compile_wgsl_multi(req).expect("partial failure is not a top-level error");
-    assert_eq!(resp.total_count, 2);
-    assert_eq!(resp.success_count, 1);
-    assert!(resp.results[0].binary.is_some());
-    assert!(resp.results[1].binary.is_none());
-    assert!(resp.results[1].error.is_some());
-}
-
-#[test]
-fn test_multi_device_compile_empty_source() {
-    let req = MultiDeviceCompileRequest {
-        wgsl_source: Arc::from(""),
-        targets: vec![DeviceTarget {
-            card_index: 0,
-            arch: "sm_70".to_owned(),
-            pcie_group: None,
-        }],
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: None,
-    };
-    assert!(handle_compile_wgsl_multi(req).is_err());
-}
-
-#[test]
-fn test_multi_device_compile_no_targets() {
-    let req = MultiDeviceCompileRequest {
-        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
-        targets: vec![],
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: None,
-    };
-    assert!(handle_compile_wgsl_multi(req).is_err());
-}
-
-#[test]
-fn test_multi_device_compile_cross_vendor() {
-    let req = MultiDeviceCompileRequest {
-        wgsl_source: Arc::from("@compute @workgroup_size(1) fn main() {}"),
-        targets: vec![
-            DeviceTarget {
-                card_index: 0,
-                arch: "sm_80".to_owned(),
-                pcie_group: Some(0),
-            },
-            DeviceTarget {
-                card_index: 1,
-                arch: "rdna2".to_owned(),
-                pcie_group: Some(1),
-            },
-        ],
-        opt_level: 2,
-        fp64_software: false,
-        fp64_strategy: None,
-        fma_policy: Some("fused".to_owned()),
-    };
-    let resp = handle_compile_wgsl_multi(req).expect("cross-vendor should succeed");
-    assert_eq!(resp.success_count, 2);
-    assert_eq!(resp.results[0].arch, "sm_80");
-    assert_eq!(resp.results[1].arch, "rdna2");
-}
-
-#[test]
-fn test_multi_device_request_serde_roundtrip() {
-    let req = MultiDeviceCompileRequest {
-        wgsl_source: Arc::from("fn main() {}"),
-        targets: vec![DeviceTarget {
-            card_index: 0,
-            arch: "sm_70".to_owned(),
-            pcie_group: Some(1),
-        }],
-        opt_level: 3,
-        fp64_software: true,
-        fp64_strategy: Some("software".to_owned()),
-        fma_policy: Some("separate".to_owned()),
-    };
-    let json = serde_json::to_string(&req).unwrap();
-    let roundtrip: MultiDeviceCompileRequest = serde_json::from_str(&json).unwrap();
-    assert_eq!(roundtrip.wgsl_source.as_ref(), req.wgsl_source.as_ref());
-    assert_eq!(roundtrip.targets.len(), 1);
-    assert_eq!(roundtrip.targets[0].arch, "sm_70");
-    assert_eq!(roundtrip.targets[0].pcie_group, Some(1));
-    assert_eq!(roundtrip.fma_policy.as_deref(), Some("separate"));
-}
+// --- SPIR-V pipeline and multi-device tests live in dedicated submodules ---
 
 // --- types.rs serde and default value tests ---
 
@@ -725,8 +412,296 @@ fn health_standard_returns_alive_with_uptime() {
     assert!(resp["uptime_s"].as_u64().is_some());
 }
 
+#[test]
+fn resolve_arch_uses_explicit_arch_when_not_default() {
+    let arch = super::compile::parse_target("sm_86").expect("sm_86 should parse");
+    let _ = arch;
+    let desc = types::AdapterDescriptor {
+        vendor_id: 0x10DE,
+        device_name: "RTX 4090".into(),
+        device_type: "DiscreteGpu".into(),
+    };
+    let req = types::CompileWgslRequest {
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: "sm_86".into(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: Some(desc),
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let result = super::compile::handle_compile_wgsl(&req);
+    assert!(result.is_ok());
+    let resp = result.unwrap();
+    assert_eq!(resp.arch.as_deref(), Some("sm_86"));
+}
+
+#[test]
+fn resolve_arch_infers_from_adapter_when_default() {
+    let desc = types::AdapterDescriptor {
+        vendor_id: 0x10DE,
+        device_name: "NVIDIA GeForce RTX 4090".into(),
+        device_type: "DiscreteGpu".into(),
+    };
+    let req = types::CompileWgslRequest {
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: types::default_arch(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: Some(desc),
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let result = super::compile::handle_compile_wgsl(&req);
+    assert!(result.is_ok());
+    let resp = result.unwrap();
+    assert_eq!(
+        resp.arch.as_deref(),
+        Some("sm_89"),
+        "RTX 4090 should infer sm_89"
+    );
+}
+
+#[test]
+fn dispatch_hint_tensor_core_for_f16_tier() {
+    let req = types::CompileWgslRequest {
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: "sm_80".into(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: Some(types::PrecisionAdvice {
+            tier: "F16".into(),
+            needs_transcendental_lowering: false,
+            df64_naga_poisoned: false,
+            domain: None,
+        }),
+        adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let result = super::compile::handle_compile_wgsl(&req).unwrap();
+    let hints = result.dispatch_hints.expect("should have hints");
+    assert_eq!(hints.hardware_hint.as_ref(), "tensor_core");
+    assert_eq!(hints.execution_model.as_deref(), Some("simt"));
+}
+
+#[test]
+fn dispatch_hint_compute_for_f64_tier() {
+    let req = types::CompileWgslRequest {
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: "sm_80".into(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: Some(types::PrecisionAdvice {
+            tier: "F64".into(),
+            needs_transcendental_lowering: false,
+            df64_naga_poisoned: false,
+            domain: Some("physics.simulation".into()),
+        }),
+        adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let result = super::compile::handle_compile_wgsl(&req).unwrap();
+    let hints = result.dispatch_hints.expect("should have hints");
+    assert_eq!(hints.hardware_hint.as_ref(), "compute");
+}
+
+#[test]
+fn compile_wgsl_provenance_attached() {
+    let req = types::CompileWgslRequest {
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: "sm_70".into(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let resp = super::compile::handle_compile_wgsl(&req)
+        .unwrap()
+        .with_provenance();
+    let prov = resp.provenance.expect("provenance should be attached");
+    assert_eq!(prov.hash_algorithm, "sha256");
+    assert_eq!(
+        prov.content_hash.len(),
+        64,
+        "SHA-256 hex should be 64 chars"
+    );
+    assert!(!prov.gate_of_compilation.is_empty());
+    assert!(!prov.compiler_version.is_empty());
+    assert!(
+        prov.signature.is_none(),
+        "no bearDog available, signature should be None"
+    );
+}
+
+#[test]
+fn compile_gemm_sm80_succeeds() {
+    let req = types::GemmCompileRequest {
+        m: 128,
+        n: 128,
+        k: 32,
+        precision: "f16f32".into(),
+        arch: "sm_80".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_ok(), "GEMM compile should succeed: {result:?}");
+    let resp = result.unwrap();
+    assert!(resp.size > 0);
+    let hints = resp
+        .dispatch_hints
+        .expect("GEMM should have dispatch hints");
+    assert_eq!(hints.hardware_hint.as_ref(), "tensor_core");
+    assert_eq!(hints.binary_format.as_deref(), Some("ptx"));
+    assert!(resp.info.is_some());
+}
+
+#[test]
+fn compile_gemm_invalid_precision() {
+    let req = types::GemmCompileRequest {
+        m: 64,
+        n: 64,
+        k: 16,
+        precision: "int4".into(),
+        arch: "sm_80".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("unknown GEMM precision"));
+}
+
+#[test]
+fn compile_gemm_unsupported_arch() {
+    let req = types::GemmCompileRequest {
+        m: 64,
+        n: 64,
+        k: 16,
+        precision: "f16".into(),
+        arch: "sm_70".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_err(), "GEMM on sm_70 should fail (needs SM80+)");
+}
+
+#[test]
+fn binary_format_for_amd_is_isa() {
+    let req = types::CompileWgslRequest {
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: "rdna2".into(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let result = super::compile::handle_compile_wgsl(&req).unwrap();
+    let hints = result.dispatch_hints.expect("should have hints");
+    assert_eq!(hints.binary_format.as_deref(), Some("isa"));
+}
+
+#[test]
+fn adapter_descriptor_amd_inference() {
+    let desc = types::AdapterDescriptor {
+        vendor_id: 0x1002,
+        device_name: "AMD Radeon RX 7900 XTX".into(),
+        device_type: "DiscreteGpu".into(),
+    };
+    let req = types::CompileWgslRequest {
+        wgsl_source: std::sync::Arc::from("@compute @workgroup_size(1) fn main() {}"),
+        arch: types::default_arch(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: Some(desc),
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let result = super::compile::handle_compile_wgsl(&req);
+    assert!(result.is_ok());
+    let resp = result.unwrap();
+    assert_eq!(
+        resp.arch.as_deref(),
+        Some("rdna3"),
+        "RX 7900 XTX should infer rdna3"
+    );
+}
+
+#[test]
+fn handle_health_version_returns_build_info() {
+    let resp = handle_health_version();
+    assert_eq!(resp.name.as_ref(), env!("CARGO_PKG_NAME"));
+    assert_eq!(resp.version.as_ref(), env!("CARGO_PKG_VERSION"));
+    assert!(!resp.build_hash.is_empty());
+    assert!(!resp.session.is_empty());
+}
+
+#[test]
+fn handle_health_readiness_returns_ready() {
+    let resp = handle_health_readiness();
+    assert!(resp.ready);
+    assert!(!resp.name.is_empty());
+}
+
+#[test]
+fn set_identity_from_self_description_populates_response() {
+    let desc = crate::capability::self_description();
+    let transports = vec![crate::capability::Transport {
+        protocol: "jsonrpc".into(),
+        address: "127.0.0.1:0".into(),
+    }];
+    let desc = crate::capability::with_transports(desc, transports);
+    set_identity_from_self_description(&desc);
+    let identity = handle_identity_get();
+    assert_eq!(identity.name.as_ref(), config::PRIMAL_NAME);
+    assert!(!identity.provides.is_empty());
+    assert!(!identity.transports.is_empty());
+}
+
+#[test]
+fn handle_compile_capabilities_has_extended_fields() {
+    let caps = handle_compile_capabilities();
+    assert_eq!(caps.math_ops, Some(34));
+    assert_eq!(caps.sm_target.as_deref(), Some("sm_120"));
+    assert_eq!(caps.atomics, Some(true));
+    assert_eq!(caps.subgroup_ops, Some(true));
+}
+
+#[test]
+fn mark_startup_is_idempotent() {
+    mark_startup();
+    mark_startup();
+    let val = handle_health_standard();
+    assert!(val["uptime_s"].as_u64().is_some());
+}
+
 #[path = "tests_serde.rs"]
 mod tests_serde;
 
 #[path = "tests_ml_pipeline.rs"]
 mod tests_ml_pipeline;
+
+#[path = "tests_spirv.rs"]
+mod tests_spirv;
+
+#[path = "tests_multi_device.rs"]
+mod tests_multi_device;

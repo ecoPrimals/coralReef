@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Primal health reporting — standalone, modeled on sourDough patterns.
+//! Primal health reporting — standalone, following ecosystem health patterns.
 //!
 //! Each primal is self-describing: it knows its own health, reports its own
 //! status, and exposes readiness via IPC. No compile-time coupling to other

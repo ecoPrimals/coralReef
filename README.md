@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 107 (Transport evolution, capabilities.list IPC compliance, socket cleanup, deep debt; 3304 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 118 (Deep debt evolution, primal self-knowledge compliance, ray-query honesty, capability-domain doc scrub, named constants, coverage push; 3577 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -19,7 +19,7 @@ optimization passes, and `ShaderModel` trait — Rust's trait dispatch
 drives vendor-specific legalization, register allocation, and encoding.
 No manual vtables, no C-era dispatch macros.
 
-Hardware dispatch is delegated to toadStool via IPC — coralReef is a pure
+Hardware dispatch is delegated to the `compute.dispatch` provider via IPC — coralReef is a pure
 compiler primal. Zero FFI, zero `*-sys`, zero `extern "C"`, zero `unsafe`.
 
 Part of the ecoPrimals Sovereign Compute Evolution.
@@ -29,7 +29,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3284+ passing, 0 failed
+cargo test --workspace     # 3577 passing, 0 failed
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
@@ -65,7 +65,7 @@ WGSL / SPIR-V / GLSL input
    IPC (JSON-RPC)
          │
          ▼
-   toadStool dispatch
+   compute.dispatch provider
 ```
 
 ## Structure
@@ -141,7 +141,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3284 passing, 0 failed) |
+| `cargo test --workspace` | PASS (3577 passing, 0 failed) |
 | `cargo llvm-cov` | Target 90% line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -156,7 +156,7 @@ toadStool handles dispatch.
 
 ## Hardware Dispatch
 
-Hardware dispatch is owned by **toadStool** (sovereign GPU lifecycle primal).
+Hardware dispatch is owned by the `compute.dispatch` provider (discovered at runtime).
 coralReef compiles shaders and returns native binaries via IPC — it never
 touches hardware directly. See `infra/wateringHole/handoffs/` for the
 diesel engine migration handoff.
@@ -186,10 +186,10 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14: SM120 barrier fix, sovereign SPIR-V emission, math pack/unpack builtins, module hardening. 3284 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14: SM120 barrier fix, sovereign SPIR-V emission, math pack/unpack builtins, module hardening, deep debt evolution, primal self-knowledge compliance. 3577 tests, zero debt |
 
 ---
 
 **License**: AGPL-3.0-or-later (upstream-derived files retain original attribution)
 **Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals  
-**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `identity.get`, `capability.register`, `ipc.heartbeat`, `btsp.negotiate`, `auth.*` — JSON-RPC 2.0 + tarpc + Songbird ecosystem
+**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `identity.get`, `capability.register`, `ipc.heartbeat`, `btsp.negotiate`, `auth.*` — JSON-RPC 2.0 + tarpc + ecosystem mesh relay

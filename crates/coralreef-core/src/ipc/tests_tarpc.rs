@@ -680,3 +680,146 @@ async fn test_tarpc_unix_liveness_and_readiness_roundtrip() {
 
     let _ = std::fs::remove_file(&sock_path);
 }
+
+#[tokio::test]
+async fn test_tarpc_health_version() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let response = client
+        .health_version(tarpc::context::current())
+        .await
+        .unwrap();
+    assert_eq!(response.name.as_ref(), env!("CARGO_PKG_NAME"));
+    assert_eq!(response.version.as_ref(), env!("CARGO_PKG_VERSION"));
+    assert!(!response.build_hash.is_empty());
+    assert!(!response.session.is_empty());
+}
+
+// identity_get uses types (Vec<Capability>) that bincode cannot deserialize
+// (DeserializeAnyNotSupported). identity.get is tested via JSON-RPC in
+// tests_jsonrpc.rs and tests_unix_dispatch.rs instead.
+
+#[tokio::test]
+async fn test_tarpc_capability_list() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let response = client
+        .capability_list(tarpc::context::current())
+        .await
+        .unwrap();
+    assert_eq!(response.primal.as_ref(), env!("CARGO_PKG_NAME"));
+    assert!(!response.methods.is_empty());
+    assert!(response.methods.iter().any(|m| m == "shader.compile.wgsl"));
+    assert!(!response.capabilities.is_empty());
+}
+
+#[tokio::test]
+async fn test_tarpc_gemm_success() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let request = service::GemmCompileRequest {
+        m: 128,
+        n: 128,
+        k: 32,
+        precision: "f16f32".into(),
+        arch: "sm_80".into(),
+    };
+    let result = client
+        .gemm(tarpc::context::current(), request)
+        .await
+        .unwrap();
+    let resp = result.expect("GEMM compile should succeed");
+    assert!(resp.size > 0);
+    let hints = resp
+        .dispatch_hints
+        .expect("GEMM should have dispatch hints");
+    assert_eq!(hints.hardware_hint.as_ref(), "tensor_core");
+}
+
+#[tokio::test]
+async fn test_tarpc_gemm_invalid_precision() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let request = service::GemmCompileRequest {
+        m: 64,
+        n: 64,
+        k: 16,
+        precision: "int4".into(),
+        arch: "sm_80".into(),
+    };
+    let result = client
+        .gemm(tarpc::context::current(), request)
+        .await
+        .unwrap();
+    assert!(result.is_err(), "invalid GEMM precision should fail");
+    let err = result.unwrap_err();
+    assert!(err.message.contains("unknown GEMM precision"));
+}
+
+#[tokio::test]
+async fn test_tarpc_wgsl_compile_error() {
+    let (_tx, rx) = test_helpers::test_shutdown_channel();
+    let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
+    let BoundAddr::Tcp(tcp_addr) = addr else {
+        panic!("expected TCP address");
+    };
+
+    let transport = tarpc::serde_transport::tcp::connect(tcp_addr, Bincode::default)
+        .await
+        .unwrap();
+    let client = ShaderCompileTarpcClient::new(tarpc::client::Config::default(), transport).spawn();
+
+    let request = service::types::CompileWgslRequest {
+        wgsl_source: std::sync::Arc::from("not valid wgsl at all }{}{"),
+        arch: "sm_70".to_owned(),
+        opt_level: 2,
+        fp64_software: false,
+        fp64_strategy: None,
+        fma_policy: None,
+        precision_advice: None,
+        adapter: None,
+        emit_spirv: false,
+        spirv_version: None,
+    };
+    let result = client
+        .wgsl(tarpc::context::current(), request)
+        .await
+        .unwrap();
+    assert!(result.is_err(), "invalid WGSL should fail");
+}

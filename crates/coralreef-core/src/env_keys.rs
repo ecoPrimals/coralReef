@@ -54,6 +54,14 @@ pub const CORALREEF_AUTH_MODE: &str = "CORALREEF_AUTH_MODE";
 pub const ECOSYSTEM_AUTH_MODE: &str = "ECOSYSTEM_AUTH_MODE";
 
 /// Deprecated auth mode override from primalSpring naming.
+///
+/// **Removal target: v0.3.0.** Migrate to [`ECOSYSTEM_AUTH_MODE`] or
+/// [`CORALREEF_AUTH_MODE`]. Composition launchers should stop setting this
+/// after all gates reach v0.2.x parity.
+#[deprecated(
+    since = "0.2.0",
+    note = "use ECOSYSTEM_AUTH_MODE or CORALREEF_AUTH_MODE"
+)]
 pub const PRIMALSPRING_AUTH_MODE: &str = "PRIMALSPRING_AUTH_MODE";
 
 /// Tier-1 crypto derivation input set by the composition launcher.
@@ -63,6 +71,11 @@ pub const FAMILY_SEED: &str = "FAMILY_SEED";
 pub const BTSP_PROVIDER_SOCKET: &str = "BTSP_PROVIDER_SOCKET";
 
 /// Deprecated alias for [`BTSP_PROVIDER_SOCKET`].
+///
+/// **Removal target: v0.3.0.** Migrate to [`BTSP_PROVIDER_SOCKET`].
+/// The legacy name embeds a specific primal identity; the modern name is
+/// capability-based.
+#[deprecated(since = "0.2.0", note = "use BTSP_PROVIDER_SOCKET")]
 pub const BEARDOG_SOCKET: &str = "BEARDOG_SOCKET";
 
 /// Songbird discovery socket path from the composition launcher.

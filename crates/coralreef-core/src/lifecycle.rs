@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Primal lifecycle state machine — standalone, modeled on sourDough patterns.
+//! Primal lifecycle state machine — standalone, following ecosystem lifecycle patterns.
 //!
 //! Each primal manages its own state transitions. No compile-time coupling to
 //! other primals; discovery happens at runtime via capability-based IPC.

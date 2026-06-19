@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Compilation handlers — SPIR-V, WGSL, and multi-device.
 
+use std::borrow::Cow;
 use std::time::Instant;
 
 use super::types::{
@@ -20,13 +21,15 @@ const PCI_VENDOR_AMD: u32 = 0x1002;
 
 /// Default wave/warp size for Intel GPUs (EU SIMD width).
 const INTEL_DEFAULT_WAVE_SIZE: u32 = 16;
+/// Default warp size for NVIDIA GPUs (32 threads per warp since G80).
+const NVIDIA_DEFAULT_WARP_SIZE: u32 = 32;
 
 /// Derive the wave/warp size from a compilation target.
 fn wave_size_for(target: GpuTarget) -> u32 {
     match target {
         GpuTarget::Amd(amd) => u32::from(amd.default_wave_size()),
         GpuTarget::Intel(_) => INTEL_DEFAULT_WAVE_SIZE,
-        _ => 32,
+        _ => NVIDIA_DEFAULT_WARP_SIZE,
     }
 }
 
@@ -34,34 +37,37 @@ fn wave_size_for(target: GpuTarget) -> u32 {
 ///
 /// Tensor-core tiers (F16, BF16, TF32, FP8 variants) route to `"tensor_core"`;
 /// everything else routes to `"compute"` (standard ALU path).
-fn dispatch_hint_from_precision_advice(advice: Option<&super::types::PrecisionAdvice>) -> String {
+fn dispatch_hint_from_precision_advice(
+    advice: Option<&super::types::PrecisionAdvice>,
+) -> Cow<'static, str> {
     let Some(adv) = advice else {
-        return "compute".to_owned();
+        return "compute".into();
     };
     match adv.tier.to_ascii_lowercase().as_str() {
         "f16" | "bf16" | "tf32" | "fp8e4m3" | "fp8e5m2" | "fp8_e4m3" | "fp8_e5m2" => {
-            "tensor_core".to_owned()
+            "tensor_core".into()
         }
-        _ => "compute".to_owned(),
+        _ => "compute".into(),
     }
 }
 
 /// Determine binary format string from the target architecture.
-fn binary_format_for(target: GpuTarget) -> String {
+fn binary_format_for(target: GpuTarget) -> Cow<'static, str> {
     match target {
-        GpuTarget::Nvidia(_) => "ptx".to_owned(),
-        GpuTarget::Amd(_) => "isa".to_owned(),
-        GpuTarget::Intel(_) => "spirv".to_owned(),
-        _ => "binary".to_owned(),
+        GpuTarget::Nvidia(_) => "ptx".into(),
+        GpuTarget::Amd(_) => "isa".into(),
+        GpuTarget::Intel(_) => "spirv".into(),
+        _ => "binary".into(),
     }
 }
 
 /// Resolve the effective architecture from the request.
 ///
 /// When the caller specifies an explicit (non-default) arch string, that wins.
-/// When the arch is the serde default (`"sm70"`) and an [`AdapterDescriptor`] is
-/// present, the adapter's `vendor_id` / `device_name` is used to infer the best
-/// target. This enables callers (e.g. `barraCuda`, `hotSpring`) to pass hardware
+/// When the arch is the serde default (`"sm70"`) and an
+/// [`AdapterDescriptor`](super::types::AdapterDescriptor) is present, the
+/// adapter's `vendor_id` / `device_name` is used to infer the best target.
+/// This enables callers to pass hardware
 /// identity without knowing the exact SM version.
 fn resolve_arch(arch: &str, adapter: Option<&super::types::AdapterDescriptor>) -> String {
     let default = super::types::default_arch();
@@ -207,9 +213,9 @@ pub fn handle_compile_spirv(
         info: None,
         compile_time_ms: Some(elapsed.as_secs_f64() * 1000.0),
         dispatch_hints: Some(super::types::DispatchHints {
-            hardware_hint: "compute".to_owned(),
+            hardware_hint: "compute".into(),
             binary_format: Some(binary_format_for(options.target)),
-            execution_model: Some("simt".to_owned()),
+            execution_model: Some("simt".into()),
         }),
         spirv_binary: None,
         provenance: None,
@@ -271,6 +277,11 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
     let hardware_hint = dispatch_hint_from_precision_advice(req.precision_advice.as_ref());
     let t0 = Instant::now();
     let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
+    // PERF: when emit_spirv is true, WGSL is parsed twice (once for native,
+    // once for SPIR-V). A shared `naga::Module` between both paths would
+    // eliminate the redundant parse. Requires `coral-reef` API evolution to
+    // accept pre-parsed modules. Not a correctness issue; WGSL parsing is
+    // fast relative to native codegen.
     let spirv = if req.emit_spirv {
         coral_reef::wgsl_to_spirv(req.wgsl_source.as_ref(), &options)
             .map(Bytes::from)
@@ -298,7 +309,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
         dispatch_hints: Some(super::types::DispatchHints {
             hardware_hint,
             binary_format: Some(binary_format_for(options.target)),
-            execution_model: Some("simt".to_owned()),
+            execution_model: Some("simt".into()),
         }),
         spirv_binary: spirv,
         provenance: None,
@@ -439,9 +450,9 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
             local_memory: compiled.info.local_mem_bytes,
         }),
         dispatch_hints: Some(super::types::DispatchHints {
-            hardware_hint: "tensor_core".to_owned(),
-            binary_format: Some("ptx".to_owned()),
-            execution_model: Some("simt".to_owned()),
+            hardware_hint: "tensor_core".into(),
+            binary_format: Some("ptx".into()),
+            execution_model: Some("simt".into()),
         }),
         spirv_binary: None,
         provenance: None,

@@ -208,14 +208,13 @@ impl PtxEmitter<'_> {
     }
 
     /// The `RayQueryProceedResult` expression reads the boolean result
-    /// produced by the most recent `Proceed` statement. Since `emit_ray_query_proceed`
-    /// already inserts the predicate into `self.values` via the `result` handle,
-    /// this expression should have been resolved from cache. If we reach here,
-    /// allocate a default-false predicate as a fallback.
-    fn eval_ray_query_proceed_result(&mut self) -> Result<PtxVal, CompileError> {
-        let p = self.alloc_pred();
-        writeln!(self.body, "    setp.eq.u32 {}, 0, 1;", p.fmt_operand()).expect("write to String");
-        Ok(p)
+    /// produced by the most recent `Proceed` statement. Since ray query
+    /// emission now returns `NotImplemented`, reaching this path indicates
+    /// the expression was not gated by the statement-level error.
+    fn eval_ray_query_proceed_result(&self) -> Result<PtxVal, CompileError> {
+        Err(CompileError::NotImplemented(
+            "RayQueryProceedResult — inline ray tracing is not yet implemented".into(),
+        ))
     }
 
     /// Read intersection data from a ray query. Returns a struct-like
@@ -226,115 +225,19 @@ impl PtxEmitter<'_> {
     ///
     /// The `committed` flag selects between the committed (closest) hit
     /// or the current candidate intersection.
+    ///
+    /// Gated behind `NotImplemented` until inline RT emission is available —
+    /// the statement-level `emit_ray_query` returns the same error, so this
+    /// path is unreachable for well-formed shaders. The explicit error here
+    /// guards against partial IR transformations that might expose this
+    /// expression without the statement gate.
     fn eval_ray_query_get_intersection(
-        &mut self,
-        query: naga::Handle<naga::Expression>,
-        committed: bool,
+        &self,
+        _query: naga::Handle<naga::Expression>,
+        _committed: bool,
     ) -> Result<PtxVal, CompileError> {
-        let qh = self
-            .ray_queries
-            .get(&query)
-            .map_or(PtxVal::Rd64(0), |s| s.query_handle.clone());
-
-        let kind = self.alloc_r32();
-        let t = self.alloc_r32();
-        let instance_custom_data = self.alloc_r32();
-        let instance_index = self.alloc_r32();
-        let sbt_record_offset = self.alloc_r32();
-        let geometry_index = self.alloc_r32();
-        let primitive_index = self.alloc_r32();
-        let bary_x = self.alloc_r32();
-        let bary_y = self.alloc_r32();
-        let front_face = self.alloc_r32();
-
-        // RT core intersection query: emit calls to driver-resolved builtins.
-        // These symbols (_rt_*) are provided by the NVIDIA driver at JIT time
-        // when the shader runs on hardware with RT cores (SM75+).
-        let committed_flag = u32::from(committed);
-        writeln!(
-            self.body,
-            "    call ({kind}), _rt_query_get_intersection_kind, ({qh}, {cf});",
-            kind = kind.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-        writeln!(
-            self.body,
-            "    call ({t}), _rt_query_get_intersection_t, ({qh}, {cf});",
-            t = t.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-        writeln!(
-            self.body,
-            "    call ({v}), _rt_query_get_intersection_instance_custom_index, ({qh}, {cf});",
-            v = instance_custom_data.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-        writeln!(
-            self.body,
-            "    call ({v}), _rt_query_get_intersection_instance_id, ({qh}, {cf});",
-            v = instance_index.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-        writeln!(
-            self.body,
-            "    call ({v}), _rt_query_get_intersection_sbt_offset, ({qh}, {cf});",
-            v = sbt_record_offset.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-        writeln!(
-            self.body,
-            "    call ({v}), _rt_query_get_intersection_geometry_index, ({qh}, {cf});",
-            v = geometry_index.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-        writeln!(
-            self.body,
-            "    call ({v}), _rt_query_get_intersection_primitive_index, ({qh}, {cf});",
-            v = primitive_index.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-        writeln!(
-            self.body,
-            "    call ({bx}, {by}), _rt_query_get_intersection_barycentrics, ({qh}, {cf});",
-            bx = bary_x.fmt_operand(),
-            by = bary_y.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-        writeln!(
-            self.body,
-            "    call ({v}), _rt_query_get_intersection_front_face, ({qh}, {cf});",
-            v = front_face.fmt_operand(),
-            qh = qh.fmt_operand(),
-            cf = committed_flag,
-        )
-        .expect("write to String");
-
-        Ok(PtxVal::Vec(vec![
-            kind,
-            t,
-            instance_custom_data,
-            instance_index,
-            sbt_record_offset,
-            geometry_index,
-            primitive_index,
-            PtxVal::Vec(vec![bary_x, bary_y]),
-            front_face,
-        ]))
+        Err(CompileError::NotImplemented(
+            "RayQueryGetIntersection — inline ray tracing is not yet implemented".into(),
+        ))
     }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Zero-panic validation for binary entry points.
 //!
-//! Absorbed from wetSpring/rhizoCrypt ecosystem pattern. Instead of
+//! Absorbed from ecosystem validation patterns. Instead of
 //! `unwrap()` or `expect()` which trigger panic hooks and stack traces,
 //! `OrExit` provides a clean `process::exit` with structured logging.
 //!

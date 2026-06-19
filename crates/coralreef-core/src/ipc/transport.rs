@@ -39,7 +39,7 @@ pub enum TransportEndpoint {
         port: u16,
     },
 
-    /// Mesh relay — primal reachable via Songbird's mesh network.
+    /// Mesh relay — primal reachable via the ecosystem's mesh discovery relay.
     #[serde(rename = "mesh_relay")]
     MeshRelay {
         /// Mesh peer identifier.
@@ -144,7 +144,10 @@ pub enum ResolvedBind {
 ///
 /// Returns an error if `$TRANSPORT_ENDPOINT` is set but contains invalid JSON
 /// or specifies an unsupported transport for server binding.
-#[allow(dead_code, reason = "pub API for ecosystem consumers without bind-mode override")]
+#[allow(
+    dead_code,
+    reason = "pub API for ecosystem consumers without bind-mode override"
+)]
 pub fn resolve_bind(
     cli_tcp_bind: &str,
     cli_socket: Option<&std::path::Path>,
@@ -456,6 +459,135 @@ mod tests {
     fn resolve_bind_empty_env_treated_as_unset() {
         let resolved = resolve_bind_from_value(Some(""), "127.0.0.1:0", None).expect("resolve");
         assert!(matches!(resolved, ResolvedBind::Both { .. }));
+    }
+
+    #[test]
+    fn transport_name_variants() {
+        assert_eq!(
+            TransportEndpoint::Uds { path: "/x".into() }.transport_name(),
+            "uds"
+        );
+        assert_eq!(
+            TransportEndpoint::Tcp {
+                host: "h".into(),
+                port: 1
+            }
+            .transport_name(),
+            "tcp"
+        );
+        assert_eq!(
+            TransportEndpoint::MeshRelay {
+                peer_id: "p".into(),
+                capability: "c".into()
+            }
+            .transport_name(),
+            "mesh_relay"
+        );
+    }
+
+    #[test]
+    fn transport_endpoint_display_impl() {
+        let uds = TransportEndpoint::Uds {
+            path: "/run/test.sock".into(),
+        };
+        assert_eq!(format!("{uds}"), "unix:///run/test.sock");
+
+        let tcp = TransportEndpoint::Tcp {
+            host: "10.0.0.1".into(),
+            port: 7700,
+        };
+        assert_eq!(format!("{tcp}"), "tcp://10.0.0.1:7700");
+
+        let mesh = TransportEndpoint::MeshRelay {
+            peer_id: "east".into(),
+            capability: "shader.compile".into(),
+        };
+        assert_eq!(format!("{mesh}"), "mesh://east/shader.compile");
+    }
+
+    #[test]
+    fn is_local_localhost_string() {
+        assert!(
+            TransportEndpoint::Tcp {
+                host: "localhost".into(),
+                port: 8080
+            }
+            .is_local()
+        );
+    }
+
+    #[test]
+    fn parse_bind_mode_variants() {
+        assert_eq!(parse_bind_mode("tcp_only"), BindModeOverride::TcpOnly);
+        assert_eq!(parse_bind_mode("tcp"), BindModeOverride::TcpOnly);
+        assert_eq!(parse_bind_mode("TCP_ONLY"), BindModeOverride::TcpOnly);
+        assert_eq!(parse_bind_mode("fallback"), BindModeOverride::Fallback);
+        assert_eq!(parse_bind_mode("auto"), BindModeOverride::Fallback);
+        assert_eq!(parse_bind_mode("AUTO"), BindModeOverride::Fallback);
+        assert_eq!(parse_bind_mode(""), BindModeOverride::Normal);
+        assert_eq!(parse_bind_mode("something"), BindModeOverride::Normal);
+    }
+
+    #[test]
+    fn resolve_bind_with_mode_tcp_only_skips_env() {
+        let resolved =
+            resolve_bind_with_mode("127.0.0.1:0", None, Some("tcp_only")).expect("resolve");
+        match resolved {
+            ResolvedBind::TcpOnly { addr } => assert_eq!(addr, "127.0.0.1:0"),
+            other => panic!("expected TcpOnly, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_bind_with_mode_normal_no_env_returns_both() {
+        if std::env::var("TRANSPORT_ENDPOINT").is_err() {
+            let resolved =
+                resolve_bind_with_mode("127.0.0.1:0", None, Some("normal")).expect("resolve");
+            assert!(matches!(resolved, ResolvedBind::Both { .. }));
+        }
+    }
+
+    #[test]
+    fn resolve_bind_with_mode_socket_override() {
+        if std::env::var("TRANSPORT_ENDPOINT").is_err() {
+            let sock = std::path::Path::new("/tmp/test-override.sock");
+            let resolved =
+                resolve_bind_with_mode("127.0.0.1:0", Some(sock), None).expect("resolve");
+            match resolved {
+                ResolvedBind::Both {
+                    socket_override, ..
+                } => {
+                    assert_eq!(
+                        socket_override.as_deref(),
+                        Some(std::path::Path::new("/tmp/test-override.sock"))
+                    );
+                }
+                other => panic!("expected Both, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_bind_no_mode_returns_both() {
+        if std::env::var("TRANSPORT_ENDPOINT").is_err() {
+            let resolved = resolve_bind("127.0.0.1:0", None).expect("resolve");
+            assert!(matches!(resolved, ResolvedBind::Both { .. }));
+        }
+    }
+
+    #[test]
+    fn transport_resolve_error_display() {
+        let err = TransportResolveError::UnsupportedForBind("mesh_relay".into());
+        assert!(err.to_string().contains("mesh_relay"));
+    }
+
+    #[test]
+    fn display_uri_mesh_relay_format() {
+        let mesh = TransportEndpoint::MeshRelay {
+            peer_id: "strand-gate".into(),
+            capability: "security.verify".into(),
+        };
+        assert_eq!(mesh.display_uri(), "mesh://strand-gate/security.verify");
     }
 
     #[test]
