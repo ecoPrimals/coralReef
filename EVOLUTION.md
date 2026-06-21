@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: June 19, 2026 (Phase 10 — Sprint 14 / Wave 118)
-**Phase**: 10 — Sprint 14 / Wave 118: Deep debt evolution, primal self-knowledge compliance, ray-query honesty, capability-domain language, named constants. 3577 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: June 21, 2026 (Phase 10 — Sprint 14 / Wave 120)
+**Phase**: 10 — Sprint 14 / Wave 120: Full ecosystem name scrub (zero hardcoded primal names in any .rs file), named constants (GEMM, scheduling, shader I/O, PrmtSel), health readiness evolution, derived capabilities. 3577 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 

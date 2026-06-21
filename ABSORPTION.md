@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: June 19, 2026 (Sprint 14 / Wave 118: 3577 tests, 84% line coverage. Deep debt evolution: primal self-knowledge compliance, ray-query honesty, capability-domain language, named constants, btsp.rs extraction. 4-gate mesh LIVE. Zero debt)
+**Last updated**: June 21, 2026 (Sprint 14 / Wave 120: 3577 tests, 84% line coverage. Full ecosystem name scrub, named constants, health readiness evolution, derived capabilities. 4-gate mesh LIVE. Zero debt)
 
 ---
 

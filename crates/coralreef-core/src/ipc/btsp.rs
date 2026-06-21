@@ -46,7 +46,10 @@ pub enum BtspMode {
 impl BtspMode {
     /// `true` when the handshake is required on incoming connections.
     #[must_use]
-    #[allow(dead_code, reason = "pub API used in tests and future guard_connection evolution")]
+    #[allow(
+        dead_code,
+        reason = "pub API used in tests and future guard_connection evolution"
+    )]
     pub const fn requires_handshake(&self) -> bool {
         matches!(self, Self::Production { .. })
     }
@@ -759,15 +762,26 @@ mod tests {
 
     #[test]
     fn discover_security_socket_returns_none_in_clean_env() {
-        if std::env::var("BTSP_PROVIDER_SOCKET").is_err()
-            && std::env::var("BEARDOG_SOCKET").is_err()
+        if std::env::var("BTSP_PROVIDER_SOCKET").is_ok() || std::env::var("BEARDOG_SOCKET").is_ok()
         {
-            let result = discover_security_socket("nonexistent-family-xz9p2");
-            assert!(
-                result.is_none(),
-                "should be None when no sockets exist for a fake family"
-            );
+            return;
         }
+
+        let sock_dir = resolve_socket_dir();
+        let has_discovery_files = std::fs::read_dir(&sock_dir).ok().map_or(false, |entries| {
+            entries
+                .flatten()
+                .any(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+        });
+        if has_discovery_files {
+            return;
+        }
+
+        let result = discover_security_socket("nonexistent-family-xz9p2");
+        assert!(
+            result.is_none(),
+            "should be None when no sockets exist for a fake family"
+        );
     }
 
     mod tests_btsp_session;

@@ -1,17 +1,17 @@
 +++
 title = "coralReef Validation Summary"
-description = "Sovereign Rust GPU shader compiler — 3577 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), primal self-knowledge compliance, capability-domain language, configurable SPIR-V output, mesh capability propagation, tensor-core GEMM, artifact provenance, zero unsafe, zero C deps"
-date = 2026-06-19
+description = "Sovereign Rust GPU shader compiler — 3577 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), full ecosystem name scrub, named constants, health readiness evolution, configurable SPIR-V output, mesh capability propagation, tensor-core GEMM, artifact provenance, zero unsafe, zero C deps"
+date = 2026-06-21
 
 [taxonomies]
 primals = ["coralreef"]
-springs = ["hotspring", "wetspring", "neuralspring"]
+springs = []
 +++
 
 ## Status
 
 - **3577 tests** passing, 0 failed, 0 ignored
-- **Version**: 0.2.0 — Sprint 14 / Wave 118
+- **Version**: 0.2.0 — Sprint 14 / Wave 120
 - **Grade**: A++ (Multi-Vendor Sovereign GPU Compiler — Stadial Ready)
 - **License**: AGPL-3.0-or-later
 - **Binary**: `coralreef` (single UniBin, clap subcommands)
@@ -62,7 +62,7 @@ WGSL/SPIR-V/GLSL → naga → IR → f64 lower → optimize → legalize → RA 
 
 - **f64 transcendentals**: sqrt, rcp, exp2, log2, sin, cos, exp, log, pow (Newton-Raphson / native)
 - **Tensor-core GEMM**: HMMA via mma.sync (F16, F16F32, TF32) — SM80+ only
-- **RayQuery PTX**: Phase B RT core activation (SM75+ optix intrinsics)
+- **RayQuery PTX**: Returns `CompileError::NotImplemented` (vendor ISA undocumented)
 - **FMA control**: `FmaPolicy` enum (AllowFusion / NoContraction)
 - **Precision routing**: `dispatch_hints` with `hardware_hint` (compute/tensor_core/rt_core)
 
@@ -75,10 +75,8 @@ WGSL/SPIR-V/GLSL → naga → IR → f64 lower → optimize → legalize → RA 
 
 ## Downstream Consumers
 
-- **barraCuda**: sovereign HMMA execution path (compile → dispatch)
-- **hotSpring**: physics shader compilation (lattice QCD, nuclear EOS)
-- **wetSpring**: Tenaillon 2016 batch GPU dispatch
-- **neuralSpring**: ML kernel compilation
+Consumers discover coralReef at runtime via `compute.dispatch` capability registration.
+Compiler is consumer-agnostic — any primal requesting `shader.compile.*` is served.
 
 ## Test Categories
 
@@ -105,4 +103,4 @@ WGSL/SPIR-V/GLSL → naga → IR → f64 lower → optimize → legalize → RA 
 
 - [Shader Compile Wire Contract](../docs/SHADER_COMPILE_WIRE_CONTRACT.md)
 - [coralReef Specification](../specs/CORALREEF_SPECIFICATION.md)
-- [Stadial Readiness](../STADIAL_READINESS.md)
+- [Stadial Readiness (archived)](../docs/archive/STADIAL_READINESS_WAVE22_MAY17_2026.md)
