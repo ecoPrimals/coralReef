@@ -31,6 +31,7 @@ provided = [
     "health.version",
     "identity.get",
     "capability.list",
+    "capabilities.list",
     "btsp.negotiate",
     "auth.check",
     "auth.mode",
@@ -43,7 +44,7 @@ consumed = [
 ]
 
 [capabilities.gpu_targets]
-nvidia = ["sm35", "sm70", "sm75", "sm80", "sm86", "sm89", "sm90", "sm120"]
+nvidia = ["sm35", "sm70", "sm75", "sm80", "sm86", "sm89", "sm120"]
 amd = ["gcn5", "rdna2", "rdna3", "rdna4"]
 
 [dependencies]

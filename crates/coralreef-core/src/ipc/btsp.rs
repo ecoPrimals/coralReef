@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! BTSP (biomeOS Transport Security Protocol) Phase 2: security-domain delegation.
+//! BTSP (biomeOS Transport Security Protocol) Phase 3: AEAD-secured sessions.
 //!
 //! Per wateringHole `BTSP_PROTOCOL_STANDARD` v1.0 and `PRIMAL_SELF_KNOWLEDGE_STANDARD`
 //! v1.1: when `FAMILY_ID` is set (production mode), every incoming socket connection
@@ -17,7 +17,7 @@
 //! When `FAMILY_ID` is set but the security provider is unreachable or its
 //! session layer is incomplete, the guard logs a warning and **accepts** the
 //! connection. This prevents a hard dependency on security provider availability
-//! during the Phase 2 rollout window.
+//! during the Phase 3 rollout window.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

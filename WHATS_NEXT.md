@@ -8,15 +8,15 @@
 
 **Tests**: 3577 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 19, 2026.
+**Last updated**: June 21, 2026.
 
 **Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser). Artifact provenance signing via crypto-domain provider discovery.
 
 ---
 
-## Current Priorities (Sprint 13+)
+## Current Priorities (Sprint 14)
 
-### Near-Term (Sprint 13+)
+### Near-Term (Sprint 14)
 
 1. ~~**RayQuery PTX emission**~~ — **REVERTED to NotImplemented** (Wave 118). SM75+ inline RT requires vendor-proprietary ISA documentation. Shaders using `rayQuery*` now fail at compile time with clear error. Use OptiX/Vulkan RT pipelines for RT workloads.
 2. ~~**Compiler evolution**~~ — **DONE** (Sprint 12). IR idempotency proven, `CompileTarget` generalization, tarpc feature-gated.
@@ -31,12 +31,12 @@
 11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
 12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
 13. ~~**Module refactor**~~ — **DONE** (Wave 61). `math.rs` split, test module extraction, all files < 1000 LOC.
-14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (Wave 68: 79.82% line, 85.36% function on coral-reef)
+14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 118; compiler backends are main gap)
 15. ~~`naga::Module` ingest path hardening~~ — **DONE** (Wave 68). Multi-entry-point selection, compute-stage enforcement, improved error messages.
 
-### Gate Deployment Readiness (Wave 67 — strandGate)
+### Gate Deployment Readiness (Wave 119 — ironGate)
 
-coralReef is assigned to strandGate (provenance trio + compute trio gate). Deployment after Phase 1 mesh validation.
+coralReef is assigned to ironGate (Node Atomic: compute trio). Deployment after NUCLEUS enrollment.
 
 **Readiness status**: READY
 - `CORALREEF_TCP_BIND` env override for LAN-accessible bind ✓

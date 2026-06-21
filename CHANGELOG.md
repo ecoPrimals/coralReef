@@ -4,11 +4,29 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 113
+**Current status**: Phase 10 — Sprint 14 / Wave 118
 
 ---
 
 ## [Unreleased]
+
+### Wave 118: Deep Debt Evolution — Primal Self-Knowledge (2026-06-19)
+
+#### Changed
+- Primal self-knowledge compliance: scrubbed all peer-primal names from production docs and comments (capability-domain language throughout)
+- Ray-query honesty: all `RayQueryFunction` variants now return `CompileError::NotImplemented` instead of emitting incorrect PTX stubs
+- `btsp.rs` test extraction: inline tests (~310 lines) moved to `btsp/tests/tests_btsp_session.rs` (file 1178 → 779 LOC)
+- `save_graphviz` diagnostic function gated under `#[cfg(test)]` (was `#[expect(dead_code)]`)
+- Named constants: `NONCE_BYTES`, `MIN_CLIENT_NONCE_BYTES`, `POLY1305_TAG_BYTES`, `MIN_FRAME_BYTES` (btsp_negotiate), `NVIDIA_DEFAULT_WARP_SIZE` (compile)
+
+#### Removed
+- `RayIntersectionRegs` struct (unused after ray-query NotImplemented evolution)
+- Hardcoded primal names from doc comments: `barraCuda`, `toadStool`, `bearDog`, `Songbird`, `sourDough`, `neuralSpring`, `wetSpring/rhizoCrypt`
+
+#### Fixed
+- Ray-query test assertions updated to expect `CompileError::NotImplemented`
+- Clippy: `&mut self` → `&self` on ray-query functions (no longer mutating)
+- Clippy: removed `feature = "diagnostics"` cfg condition (undeclared feature)
 
 ### Wave 113: riboCipher Signal Compliance (2026-06-15)
 
