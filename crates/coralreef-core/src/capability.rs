@@ -361,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn mesh_registration_payload_is_songbird_compatible() {
+    fn mesh_registration_payload_is_discovery_compatible() {
         let desc = self_description();
         let transports = vec![
             Transport {

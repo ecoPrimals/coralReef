@@ -2,9 +2,9 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 118 (4-gate mesh LIVE, deep debt evolution complete, primal self-knowledge enforced).
+**Current position**: Phase 10 — Sprint 14 / Wave 120 (4-gate mesh LIVE, full ecosystem name scrub complete, health readiness evolution, derived capabilities).
 
-**Last completed**: Wave 118 — Deep debt evolution (primal self-knowledge compliance, ray-query honesty, capability-domain language, named constants, btsp.rs test extraction, dead code gating). Wave 113 — riboCipher signal compliance, HEALTH-01 schema, startup envelope standardization. Wave 107 — Socket cleanup, transport evolution.
+**Last completed**: Wave 120 — Full ecosystem name scrub (zero hardcoded primal names in any .rs file), manifest consumed capabilities. Wave 119 — Health readiness startup-state tracking, derived sm_target, ecosystem.rs directory refactor. Wave 118 — Ray-query honesty, btsp.rs test extraction, dead code gating, named constants.
 
 **Tests**: 3577 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
@@ -22,7 +22,7 @@
 2. ~~**Compiler evolution**~~ — **DONE** (Sprint 12). IR idempotency proven, `CompileTarget` generalization, tarpc feature-gated.
 3. ~~**Depth texture comparison**~~ — **DONE** (Sprint 13). `tex.level.compare.{dim}.f32.f32` with correct reference value in coord tuple.
 4. ~~**Array/cube texture sampling**~~ — **DONE** (Sprint 13). `ImageDim` extended (A1d/A2d/Cube/Acube), `array_index` wired through, `format_tex_coord` handles layers.
-5. ~~**Live toadStool discovery integration tests**~~ — **DONE** (Sprint 13). Full node-atomic pipeline: discovery → target resolution → compile.
+5. ~~**Live compute-dispatch discovery integration tests**~~ — **DONE** (Sprint 13). Full node-atomic pipeline: discovery → target resolution → compile.
 6. ~~**Sampled texture load**~~ — **DONE** (Sprint 13). `tld.b.{dim}` for `textureLoad` on sampled textures. Surface collection fixed to exclude non-storage images.
 7. ~~**Vector math functions**~~ — **DONE** (Sprint 13). `normalize`, `length`, `cross`, `distance` via `rsqrt.approx`/`sqrt.rn`/`fma.rn`.
 8. ~~**ImageQuery NumLayers**~~ — **DONE** (Sprint 13). `suq.array_size.b32` for storage array surfaces.
@@ -31,10 +31,10 @@
 11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
 12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
 13. ~~**Module refactor**~~ — **DONE** (Wave 61). `math.rs` split, test module extraction, all files < 1000 LOC.
-14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 118; compiler backends are main gap)
+14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 120; compiler backends are main gap)
 15. ~~`naga::Module` ingest path hardening~~ — **DONE** (Wave 68). Multi-entry-point selection, compute-stage enforcement, improved error messages.
 
-### Gate Deployment Readiness (Wave 119 — ironGate)
+### Gate Deployment Readiness (Wave 120 — ironGate)
 
 coralReef is assigned to ironGate (Node Atomic: compute trio). Deployment after NUCLEUS enrollment.
 
@@ -42,12 +42,13 @@ coralReef is assigned to ironGate (Node Atomic: compute trio). Deployment after 
 - `CORALREEF_TCP_BIND` env override for LAN-accessible bind ✓
 - `primal.announce` with capabilities, methods, cost_hints, latency_estimates ✓
 - `capability.register` sends transport addresses after bind ✓
-- Cross-gate dispatch transparent (biomeOS + Songbird `capability.call` routing) ✓
+- Cross-gate dispatch transparent (biomeOS + ecosystem `capability.call` routing) ✓
 - Zero hardcoded network addresses, zero hardcoded primal names ✓
 - BTSP Phase 3 authenticated IPC ✓
+- `health.readiness` tracks actual startup state ✓
 
 **First tasks post-deployment**:
-1. Cross-gate compute dispatch from biomeGate (hotSpring heavy compute → coralReef compilation)
+1. Cross-gate compute dispatch (heavy compute pipeline → coralReef compilation)
 2. Validate multi-gate `capability.call` routing for `shader.compile.*` methods
 3. Performance profiling under Dual EPYC 7452 (64-core, 256GB ECC)
 
@@ -66,7 +67,7 @@ coralReef is assigned to ironGate (Node Atomic: compute trio). Deployment after 
 
 `compile_gemm()` API is live — generates PTX `mma.sync.aligned` kernels for SM80+ with
 f16, f16→f32 mixed-precision, and TF32 operand modes. This is the HMMA path available to
-the compute trio (barraCuda's GEMM router + toadStool's sovereign dispatch).
+the compute trio (tensor-dispatch GEMM router + fleet-management sovereign dispatch).
 
 **WGSL→HMMA automatic lowering** (detecting matmul patterns in arbitrary WGSL shaders and
 replacing with tensor-core instructions) is not currently feasible: WGSL has no cooperative

@@ -437,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn discover_from_ecosystem_toadstool_compute_dispatch() {
+    fn discover_from_ecosystem_compute_dispatch_provider() {
         let dir = tempfile::tempdir().unwrap();
         let entry = serde_json::json!({
             "provides": [
@@ -454,7 +454,7 @@ mod tests {
                 }
             ]
         });
-        let path = dir.path().join("toadstool.json");
+        let path = dir.path().join("compute-dispatch.json");
         let mut f = std::fs::File::create(&path).unwrap();
         write!(f, "{entry}").unwrap();
 

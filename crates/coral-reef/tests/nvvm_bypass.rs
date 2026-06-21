@@ -11,7 +11,7 @@
 //! bypasses NVVM entirely. These tests validate that the exact shader
 //! patterns that poison NVVM compile successfully through coralReef.
 //!
-//! Source: hotSpring v0.6.25 Precision Brain + NVVM Device Poisoning
+//! Source: ecosystem compute-pipeline Precision Brain + NVVM Device Poisoning
 //! Handoff (March 10, 2026)
 
 use coral_reef::{AmdArch, CompileOptions, FmaPolicy, GpuArch, GpuTarget, compile_wgsl_full};

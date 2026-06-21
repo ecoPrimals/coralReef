@@ -53,7 +53,7 @@ pub const CORALREEF_AUTH_MODE: &str = "CORALREEF_AUTH_MODE";
 /// Ecosystem-wide auth mode override.
 pub const ECOSYSTEM_AUTH_MODE: &str = "ECOSYSTEM_AUTH_MODE";
 
-/// Deprecated auth mode override from primalSpring naming.
+/// Deprecated auth mode override (legacy ecosystem naming).
 ///
 /// **Removal target: v0.3.0.** Migrate to [`ECOSYSTEM_AUTH_MODE`] or
 /// [`CORALREEF_AUTH_MODE`]. Composition launchers should stop setting this

@@ -5,7 +5,7 @@
 //! When `$TRANSPORT_ENDPOINT` is set, the primal binds on the injected endpoint
 //! instead of self-selecting via `--rpc-bind` / `--socket`.
 //!
-//! Wire format (JSON, serde-tagged — compatible with `sourdough_core::TransportEndpoint`):
+//! Wire format (JSON, serde-tagged — ecosystem canonical `TransportEndpoint`):
 //! ```json
 //! {"transport":"uds","path":"/run/user/1000/biomeos/coralreef.sock"}
 //! {"transport":"tcp","host":"127.0.0.1","port":9200}
@@ -591,9 +591,9 @@ mod tests {
     }
 
     #[test]
-    fn wire_compat_with_sourdough_format() {
+    fn wire_compat_with_ecosystem_format() {
         let cases = [
-            r#"{"transport":"uds","path":"/run/membrane/beardog.sock"}"#,
+            r#"{"transport":"uds","path":"/run/membrane/security-provider.sock"}"#,
             r#"{"transport":"tcp","host":"192.168.1.144","port":7700}"#,
             r#"{"transport":"mesh_relay","peer_id":"strand-gate","capability":"security"}"#,
         ];

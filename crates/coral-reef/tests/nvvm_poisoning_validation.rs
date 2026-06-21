@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVVM Poisoning Validation — DF64 Yukawa Force (`exp_df64` + `sqrt_df64`)
 //!
-//! hotSpring Exp 053: NVIDIA proprietary NVVM chokes on DF64 transcendentals
+//! Ecosystem Exp 053: NVIDIA proprietary NVVM chokes on DF64 transcendentals
 //! (`exp_df64`, `sqrt_df64`) causing permanent device poisoning. This forces a
 //! fallback to native f64 at 1:32 throughput on Ampere, producing a 12.4x
 //! Kokkos parity gap (212 steps/s vs 2,630 steps/s).
@@ -59,8 +59,8 @@ fn amd_df64_opts() -> CompileOptions {
     }
 }
 
-// Adapted from hotSpring/barracuda/src/md/shaders/yukawa_force_df64.wgsl
-// Uses round() (WGSL builtin) instead of barraCuda's round_f64 polyfill.
+// Adapted from ecosystem MD pipeline shaders/yukawa_force_df64.wgsl
+// Uses round() (WGSL builtin) instead of tensor-dispatch round_f64 polyfill.
 // The df64 preamble (exp_df64, sqrt_df64, df64_add/sub/mul/div etc) is
 // auto-prepended by coralReef's prepare_wgsl when it sees Df64/df64_ usage.
 const YUKAWA_FORCE_DF64_WGSL: &str = r"
@@ -227,7 +227,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     assert!(!r.unwrap().is_empty());
 }
 
-// Verlet integrator with DF64 force — the second shader hotSpring uses
+// Verlet integrator with DF64 force — the second shader the ecosystem uses
 // in the MD pipeline. Tests that velocity Verlet + DF64 force accumulation
 // compiles through the sovereign path.
 #[test]
@@ -273,7 +273,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 // ===========================================================================
 // SM89 (Ada Lovelace) — RTX 40xx series
-// neuralSpring found `enable f64;` regressions on Ada; sovereign path must
+// Neural-compute pipeline found `enable f64;` regressions on Ada; sovereign path must
 // bypass these. SM89 has 1:64 native f64 throughput, making DF64 essential.
 // ===========================================================================
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Spring absorption wave 3 — hotSpring v0.6.25 + healthSpring v14.
+//! Spring absorption wave 3 — ecosystem compute-pipeline shaders.
 //!
 //! New domains: fluid dynamics, pharmacology, ecology.
-//! Provenance: hotSpring lattice/physics/md, healthSpring health shaders.
+//! Provenance: ecosystem lattice/physics/MD and health-domain shaders.
 //! Date: March 10, 2026.
 
 use coral_reef::{AmdArch, CompileOptions, GpuArch, GpuTarget, compile_wgsl, compile_wgsl_full};
@@ -28,8 +28,8 @@ fn rdna2_opts() -> CompileOptions {
 }
 
 // ---------------------------------------------------------------------------
-// hotSpring — Euler HLL f64 (1D compressible Euler equations, HLL Riemann solver)
-// Source: hotSpring/barracuda/src/physics/shaders/euler_hll_f64.wgsl
+// Ecosystem tensor-dispatch — Euler HLL f64 (1D compressible Euler equations, HLL Riemann solver)
+// Source: ecosystem physics pipeline shaders/euler_hll_f64.wgsl
 // Domain: Fluid dynamics (new domain for coralReef)
 // Exercises: f64 arithmetic, sqrt, abs, min/max, conditional branches
 // ---------------------------------------------------------------------------
@@ -51,8 +51,8 @@ fn corpus_euler_hll_f64_rdna2() {
 }
 
 // ---------------------------------------------------------------------------
-// hotSpring — Deformed Potentials f64 (Skyrme mean-field + Coulomb)
-// Source: hotSpring/barracuda/src/physics/shaders/deformed_potentials_f64.wgsl
+// Ecosystem tensor-dispatch — Deformed Potentials f64 (Skyrme mean-field + Coulomb)
+// Source: ecosystem physics pipeline shaders/deformed_potentials_f64.wgsl
 // Domain: Nuclear physics (priority shader from spring review)
 // Exercises: f64, pow, sqrt, complex array indexing, 3D grid computation
 // ---------------------------------------------------------------------------
@@ -74,8 +74,8 @@ fn corpus_deformed_potentials_f64_rdna2() {
 }
 
 // ---------------------------------------------------------------------------
-// hotSpring — Verlet neighbor list build (cell list construction)
-// Source: hotSpring/barracuda/src/md/shaders/verlet_build.wgsl
+// Ecosystem tensor-dispatch — Verlet neighbor list build (cell list construction)
+// Source: ecosystem MD pipeline shaders/verlet_build.wgsl
 // Domain: Molecular dynamics
 // Exercises: f64, PBC, nested loops, cell list iteration
 // ---------------------------------------------------------------------------
@@ -97,8 +97,8 @@ fn corpus_verlet_build_rdna2() {
 }
 
 // ---------------------------------------------------------------------------
-// hotSpring — Verlet displacement check (skin distance tracking)
-// Source: hotSpring/barracuda/src/md/shaders/verlet_check_displacement.wgsl
+// Ecosystem tensor-dispatch — Verlet displacement check (skin distance tracking)
+// Source: ecosystem MD pipeline shaders/verlet_check_displacement.wgsl
 // Domain: Molecular dynamics
 // Exercises: f64, atomics (atomicMax u32), sqrt, workgroup barrier
 // ---------------------------------------------------------------------------
@@ -120,8 +120,8 @@ fn corpus_verlet_check_displacement_rdna2() {
 }
 
 // ---------------------------------------------------------------------------
-// healthSpring — Population PK Monte Carlo (pharmacokinetics)
-// Source: healthSpring/barracuda/shaders/health/population_pk_f64.wgsl
+// Health-domain compute — Population PK Monte Carlo (pharmacokinetics)
+// Source: ecosystem health-domain pipeline shaders/population_pk_f64.wgsl
 // Domain: Pharmacology (new spring for coralReef!)
 // Exercises: f64, PRNG (Wang hash + xorshift32), exp via f32 cast
 // ---------------------------------------------------------------------------
@@ -143,8 +143,8 @@ fn corpus_population_pk_f64_rdna2() {
 }
 
 // ---------------------------------------------------------------------------
-// healthSpring — Hill dose-response (sigmoid pharmacology model)
-// Source: healthSpring/barracuda/shaders/health/hill_dose_response_f64.wgsl
+// Health-domain compute — Hill dose-response (sigmoid pharmacology model)
+// Source: ecosystem health-domain pipeline shaders/hill_dose_response_f64.wgsl
 // Domain: Pharmacology
 // Exercises: f64, exp/log via f32 cast, pow pattern
 // ---------------------------------------------------------------------------
@@ -166,8 +166,8 @@ fn corpus_hill_dose_response_f64_rdna2() {
 }
 
 // ---------------------------------------------------------------------------
-// healthSpring — Shannon/Simpson diversity (ecology/epidemiology)
-// Source: healthSpring/barracuda/shaders/health/diversity_f64.wgsl
+// Health-domain compute — Shannon/Simpson diversity (ecology/epidemiology)
+// Source: ecosystem health-domain pipeline shaders/diversity_f64.wgsl
 // Domain: Ecology / Health
 // Exercises: f64, log via f32 cast, reduction pattern
 // ---------------------------------------------------------------------------

@@ -30,8 +30,8 @@ fn amd_opts() -> CompileOptions {
 }
 
 // ---------------------------------------------------------------------------
-// groundSpring — Anderson localization (f64 + uniform + PRNG + loop)
-// Source: groundSpring/metalForge/shaders/anderson_lyapunov.wgsl
+// Materials-compute domain — Anderson localization (f64 + uniform + PRNG + loop)
+// Source: ecosystem materials-compute pipeline shaders/anderson_lyapunov.wgsl
 // Exercises: f64 arithmetic, var<uniform> struct, loop-carried values, PRNG
 // ---------------------------------------------------------------------------
 
@@ -116,8 +116,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
 
 // ---------------------------------------------------------------------------
-// hotSpring/barraCuda — Yukawa force (f64, all-pairs, PBC)
-// Source: hotSpring/barracuda/src/md/shaders/yukawa_force_f64.wgsl
+// Ecosystem tensor-dispatch — Yukawa force (f64, all-pairs, PBC)
+// Source: ecosystem MD pipeline shaders/yukawa_force_f64.wgsl
 // Exercises: f64 arithmetic, sqrt/exp/round transcendentals, nested loops
 // ---------------------------------------------------------------------------
 
@@ -189,8 +189,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
 
 // ---------------------------------------------------------------------------
-// hotSpring/barraCuda — Dirac staggered operator (f64, SU(3), lattice QCD)
-// Source: hotSpring/barracuda/src/lattice/shaders/dirac_staggered_f64.wgsl
+// Ecosystem tensor-dispatch — Dirac staggered operator (f64, SU(3), lattice QCD)
+// Source: ecosystem lattice-QCD pipeline shaders/dirac_staggered_f64.wgsl
 // Exercises: f64, uniform struct, complex SU(3) matrix multiply, neighbor table
 // ---------------------------------------------------------------------------
 
@@ -291,8 +291,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 ";
 
 // ---------------------------------------------------------------------------
-// hotSpring/barraCuda — sum_reduce_f64 (workgroup shared memory, tree reduce)
-// Source: hotSpring/barracuda/src/lattice/shaders/sum_reduce_f64.wgsl
+// Ecosystem tensor-dispatch — sum_reduce_f64 (workgroup shared memory, tree reduce)
+// Source: ecosystem lattice-QCD pipeline shaders/sum_reduce_f64.wgsl
 // Exercises: f64, var<workgroup>, workgroupBarrier, var<uniform>, loop
 // This shader exposed the original f64 emission + BAR.SYNC bugs.
 // ---------------------------------------------------------------------------
@@ -343,7 +343,7 @@ fn main(
 ";
 
 // ---------------------------------------------------------------------------
-// hotSpring priority — su3_gauge_force_f64 pattern
+// Compute-pipeline priority — su3_gauge_force_f64 pattern
 // Representative: f64 matrix ops, complex arithmetic, SU(3) group operations
 // Exercises: add, mul, div, sqrt, exp, log, min, max, abs, clamp
 // ---------------------------------------------------------------------------
@@ -373,7 +373,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
 
 // ---------------------------------------------------------------------------
-// hotSpring priority — yukawa_force_verlet_f64 pattern
+// Compute-pipeline priority — yukawa_force_verlet_f64 pattern
 // Representative: f64 force calc, distance, Verlet integration
 // Exercises: add, mul, div, sqrt, exp, round, min, max, storage buffers
 // ---------------------------------------------------------------------------
@@ -430,7 +430,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 ";
 
 // ---------------------------------------------------------------------------
-// hotSpring priority — dielectric_mermin_f64 pattern
+// Compute-pipeline priority — dielectric_mermin_f64 pattern
 // Representative: f64 complex dielectric function, Mermin formula
 // Exercises: add, mul, div, sqrt, exp, log, sin, cos, min, max, abs, clamp
 // ---------------------------------------------------------------------------
@@ -603,7 +603,7 @@ fn spring_dielectric_mermin_f64_pattern_amd() {
 }
 
 // ---------------------------------------------------------------------------
-// hotSpring — SU(3) link update with heavy FMA usage
+// Compute-pipeline — SU(3) link update with heavy FMA usage
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -705,7 +705,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------
-// hotSpring — Wilson plaquette with FMA accumulation
+// Compute-pipeline — Wilson plaquette with FMA accumulation
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -765,7 +765,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------
-// neuralSpring — LogSumExp (neural network activation normalization)
+// Neural-compute domain — LogSumExp (neural network activation normalization)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -821,7 +821,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------
-// neuralSpring — RK45 (Runge-Kutta ODE solver step)
+// Neural-compute domain — RK45 (Runge-Kutta ODE solver step)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -875,7 +875,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------
-// neuralSpring — Wright-Fisher population genetics
+// Neural-compute domain — Wright-Fisher population genetics
 // ---------------------------------------------------------------------------
 
 #[test]

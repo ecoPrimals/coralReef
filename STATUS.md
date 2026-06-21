@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: June 19, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 118 (Deep debt evolution: primal self-knowledge compliance (zero peer-primal names in production docs), ray-query honesty (NotImplemented vs silent stubs), capability-domain language throughout, named constants (NONCE_BYTES, NVIDIA_DEFAULT_WARP_SIZE), btsp.rs test extraction (779 LOC), dead code gating, magic number elimination. 3577 tests, 84% line coverage, zero clippy warnings, zero unsafe. 4-gate mesh LIVE.)
+**Last updated**: June 21, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 120 (Full ecosystem name scrub: zero hardcoded primal/component names in any .rs file — capability-domain language throughout test fixtures and provenance comments. Health readiness evolution (startup-state tracking via OnceLock). Derived sm_target from NvArch::ALL. ecosystem.rs refactored to directory module. primal.announce in manifest consumed capabilities. 3577 tests, 84% line coverage, zero clippy warnings, zero unsafe. 4-gate mesh LIVE.)
 
 ---
 
@@ -13,14 +13,14 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A+ | Single binary: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef server`: `--port` + `--bind-mode` (standard envelope), `--socket PATH` (UDS override for NUCLEUS launcher). Diesel binaries excised Sprint 9 |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 18 served methods (`health` + `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 4 consumed (`capability.register`, `ipc.heartbeat`, `primal.announce`, `compute.dispatch`), Songbird `ecosystem` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (sourDough wire-compatible), **zero /tmp** socket paths, **riboCipher signal acceptance** (`[0xEC, 0x01]` prefix strip) |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 18 served methods (`health` + `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 4 consumed (`capability.register`, `ipc.heartbeat`, `primal.announce`, `compute.dispatch`), ecosystem `discovery` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (ecosystem wire-compatible), **zero /tmp** socket paths, **riboCipher signal acceptance** (`[0xEC, 0x01]` prefix strip) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
 | f64 transcendentals | A+ | sqrt, rcp, exp2, log2, sin, cos, exp, log, pow — NVIDIA (Newton-Raphson) + AMD (native) |
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
-| coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to toadStool |
-| coralGpu | — | *Excised Sprint 9* — dispatch delegated to toadStool |
+| coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to compute-dispatch provider |
+| coralGpu | — | *Excised Sprint 9* — dispatch delegated to compute-dispatch provider |
 | Code structure | A+ | Smart refactoring: error.rs 928→mod(412)+vfio(523) (Iter 101), nv/mod.rs 857→747+fecs_init(124) (Iter 101), pfifo.rs 882→695+bar2_init(199) (Iter 101), ioctl 929→655 (Iter 97), channel 896→594 (Iter 97), sysmem_impl 973→66+5, sec2_hal 935→9, identity 926→7, ember lib 924→54+4, cfg 937→22+5, service 828→146 (Iter 76); observer 934→6, swap 1102→708, vfio_compute 1018→855 (Iter 70); ACR→directories (Iter 69); vfio/channel 2894→5 (Iter 46) |
 | Tests | A+ | 3577 passing, 0 failed, IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening, SPIR-V version targeting, provenance hash determinism, mesh registration payload validation, SPIR-V e2e compile→provenance→validation, **TransportEndpoint injection tests (19)**, **capabilities.list dispatch**, **socket cleanup paths** |
 | Error handling | A+ | Typed errors via `thiserror` (`SysfsError`, `SwapError`, `TraceError`, `PciDiscoveryError`, `ChannelError`, `DevinitError`, `TarpcCompileError`, `SovereignStagesError`, `TrainingRecipeError`, `GoldenStateLoadError`, `HeldBar0Error`); `String` → `thiserror` evolution across 4 waves (PCI discovery, channel oracle, devinit pipeline, sovereign/ember/glowplug — Iter 88); zero production `.unwrap()`, zero `Result<_, String>` in library code |
@@ -30,7 +30,7 @@
 | Result propagation | A+ | Pipeline fully fallible: naga_translate → lower → legalize → encode, zero production `unwrap()`/`todo!()`, all `unreachable!()` → `ice!()` with descriptive messages (encoder + PTX emitter + register allocator + legalization) |
 | Dependencies | A+ | Pure Rust — zero C deps, zero `*-sys` crates, ISA gen in Rust, `rustix` `linux_raw` backend (zero libc in our code), `ring` eliminated, FxHashMap internalized. Transitive `libc` via tokio/mio tracked (mio#1735) |
 | Tooling | A+ | `rustfmt.toml`, `clippy.toml`, `deny.toml` (ecoBin v3 C/FFI bans), pure Rust ISA generator |
-| Tolerance model | A | 13-tier `tol::` module (groundSpring alignment), `within()`, `compare_all()` |
+| Tolerance model | A | 13-tier `tol::` module (ecosystem precision alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
 | Uniform buffers | A | `var<uniform>` → CBuf reads (scalar/vector/matrix), struct field access |
 | GlowPlug security | A+ | BDF validation, connection limits, idle timeout, circuit breaker, chaos/fault/pen testing (143 tests), `device.lend`/`device.reclaim` VFIO broker |

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Absorption tests for hotSpring's deformed HFB (Hartree-Fock-Bogoliubov)
+//! Absorption tests for ecosystem deformed HFB (Hartree-Fock-Bogoliubov)
 //! nuclear structure shaders.
 //!
 //! These shaders compute on cylindrical (ρ,z) grids using f64 arithmetic
@@ -7,8 +7,7 @@
 //! and workgroup shared memory reductions. They represent the production
 //! workloads for the L3 HFB solver targeting Kokkos parity.
 //!
-//! Source provenance:
-//!   `hotSpring/barracuda/src/physics/shaders/deformed_*.wgsl`
+//! Source provenance: ecosystem physics pipeline shaders/deformed_*.wgsl
 
 use coral_reef::{AmdArch, CompileOptions, GpuArch, GpuTarget, compile_wgsl};
 

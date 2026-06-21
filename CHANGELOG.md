@@ -4,11 +4,30 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 118
+**Current status**: Phase 10 — Sprint 14 / Wave 120
 
 ---
 
 ## [Unreleased]
+
+### Wave 120: Deep Primal Self-Knowledge — Full Ecosystem Name Scrub (2026-06-21)
+
+#### Changed
+- Complete primal-name scrub: evolved all remaining ecosystem component references across test files and comments to capability-domain language (tensor-dispatch, neural-compute, materials-compute, health-domain, bio-statistical pipeline)
+- Deprecated env alias doc: `PRIMALSPRING_AUTH_MODE` comment now uses "legacy ecosystem naming" instead of referencing source primal
+- Transport wire-compat doc: `sourdough_core::TransportEndpoint` → "ecosystem canonical `TransportEndpoint`"
+- Test fixtures evolved: discovery test data uses capability-domain identifiers (`compute-dispatch`, `security-provider`, `storage-provider`) instead of primal names
+- Test function names evolved: `mesh_registration_payload_is_songbird_compatible` → `mesh_registration_payload_is_discovery_compatible`, `discover_from_ecosystem_toadstool_compute_dispatch` → `discover_from_ecosystem_compute_dispatch_provider`
+
+#### Added
+- `primal.announce` added to `genomebin/manifest.toml` consumed capabilities (matches actual startup behavior)
+
+### Wave 119: Deep Debt Evolution — Health Readiness & Derived Capabilities (2026-06-19)
+
+#### Changed
+- `health.readiness` evolved from stub to track actual startup state via `STARTUP_INSTANT` `OnceLock`
+- `sm_target` in compile capabilities dynamically derived from `NvArch::ALL.last()` instead of hardcoded `"sm_120"`
+- `ecosystem.rs` refactored to directory module: production code in `mod.rs` (343 LOC), tests extracted to `tests/tests_ecosystem.rs`
 
 ### Wave 118: Deep Debt Evolution — Primal Self-Knowledge (2026-06-19)
 
@@ -63,7 +82,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 #### Added
 - `ipc::transport` module: `TransportEndpoint` enum (Uds/Tcp/MeshRelay), `ResolvedBind` enum, `resolve_bind()` function
-- sourDough wire-compatible `#[serde(tag = "transport")]` format — zero new deps
+- Ecosystem wire-compatible `#[serde(tag = "transport")]` format — zero new deps
 - `TRANSPORT_ENDPOINT` env var accepted at startup (launcher/Tower Atomic injection)
 - 19 new transport tests (wire format, resolution, error paths)
 

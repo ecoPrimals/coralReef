@@ -107,22 +107,22 @@ async fn spawn_registration_non_unix_bind_skips_background_tasks() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 }
 
-/// Simulate the full toadStool → coralReef discovery pipeline:
-/// 1. toadStool publishes a discovery JSON advertising GPU capabilities
+/// Simulate the full compute-dispatch → coralReef discovery pipeline:
+/// 1. Compute-dispatch provider publishes a discovery JSON advertising GPU capabilities
 /// 2. coralReef discovers the GPU target from the shared directory
 /// 3. coralReef compiles a shader for the discovered architecture
 ///
 /// This validates the "node atomic" pattern: discover by capability, not name.
 #[test]
-fn live_discovery_toadstool_gpu_target_to_compile() {
+fn live_discovery_compute_dispatch_gpu_target_to_compile() {
     let _guard = ENV_LOCK.lock().unwrap();
     let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
     let tmp = tempfile::tempdir().expect("tempdir");
     let discovery_dir = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
     std::fs::create_dir_all(&discovery_dir).expect("create discovery dir");
 
-    let toadstool_entry = serde_json::json!({
-        "primal": "toadstool",
+    let dispatch_entry = serde_json::json!({
+        "primal": "compute-dispatch",
         "version": "0.2.0",
         "pid": 99999,
         "provides": [
@@ -131,7 +131,7 @@ fn live_discovery_toadstool_gpu_target_to_compile() {
             {"id": "gpu.dispatch", "version": "0.1.0"}
         ],
         "transports": {
-            "jsonrpc": {"bind": "unix:///run/user/1000/biomeos/toadstool.sock"}
+            "jsonrpc": {"bind": "unix:///run/user/1000/biomeos/compute-dispatch.sock"}
         },
         "devices": [
             {
@@ -150,8 +150,8 @@ fn live_discovery_toadstool_gpu_target_to_compile() {
             }
         ]
     });
-    let path = discovery_dir.join("toadstool.json");
-    std::fs::write(&path, toadstool_entry.to_string()).expect("write discovery");
+    let path = discovery_dir.join("compute-dispatch.json");
+    std::fs::write(&path, dispatch_entry.to_string()).expect("write discovery");
 
     xdg.set(tmp.path().to_str().expect("utf8"));
 
@@ -159,7 +159,7 @@ fn live_discovery_toadstool_gpu_target_to_compile() {
     assert_eq!(
         devices.len(),
         2,
-        "should discover 2 GPU devices from toadStool"
+        "should discover 2 GPU devices from compute-dispatch provider"
     );
     assert_eq!(devices[0].vendor, "nvidia");
     assert_eq!(devices[0].arch.as_deref(), Some("sm86"));
@@ -193,32 +193,44 @@ fn live_discovery_mixed_primals_only_gpu_resolved() {
     let discovery_dir = tmp.path().join(config::ECOSYSTEM_NAMESPACE);
     std::fs::create_dir_all(&discovery_dir).expect("create discovery dir");
 
-    let toadstool = serde_json::json!({
-        "primal": "toadstool",
+    let compute_dispatch = serde_json::json!({
+        "primal": "compute-dispatch",
         "version": "0.2.0",
         "pid": 10001,
         "provides": ["compute.dispatch.submit", "gpu.dispatch"],
         "devices": [{"vendor": "nvidia", "arch": "sm70"}]
     });
-    std::fs::write(discovery_dir.join("toadstool.json"), toadstool.to_string()).expect("write");
+    std::fs::write(
+        discovery_dir.join("compute-dispatch.json"),
+        compute_dispatch.to_string(),
+    )
+    .expect("write");
 
-    let beardog = serde_json::json!({
-        "primal": "beardog",
+    let security_provider = serde_json::json!({
+        "primal": "security-provider",
         "version": "0.9.0",
         "pid": 10002,
         "provides": ["auth.check", "btsp.negotiate", "crypto.sign"],
         "devices": []
     });
-    std::fs::write(discovery_dir.join("beardog.json"), beardog.to_string()).expect("write");
+    std::fs::write(
+        discovery_dir.join("security-provider.json"),
+        security_provider.to_string(),
+    )
+    .expect("write");
 
-    let nestgate = serde_json::json!({
-        "primal": "nestgate",
+    let storage_provider = serde_json::json!({
+        "primal": "storage-provider",
         "version": "0.1.0",
         "pid": 10003,
         "provides": ["storage.read", "storage.write", "storage.delete"],
         "devices": []
     });
-    std::fs::write(discovery_dir.join("nestgate.json"), nestgate.to_string()).expect("write");
+    std::fs::write(
+        discovery_dir.join("storage-provider.json"),
+        storage_provider.to_string(),
+    )
+    .expect("write");
 
     xdg.set(tmp.path().to_str().expect("utf8"));
 
@@ -226,7 +238,7 @@ fn live_discovery_mixed_primals_only_gpu_resolved() {
     assert_eq!(
         devices.len(),
         1,
-        "only toadStool's GPU device should appear"
+        "only the compute-dispatch provider's GPU device should appear"
     );
     assert_eq!(devices[0].vendor, "nvidia");
     assert_eq!(devices[0].arch.as_deref(), Some("sm70"));

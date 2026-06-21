@@ -41,6 +41,7 @@ consumed = [
     "compute.dispatch",
     "capability.register",
     "ipc.heartbeat",
+    "primal.announce",
 ]
 
 [capabilities.gpu_targets]
