@@ -345,7 +345,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
 
 #[test]
 fn test_sum_reduce_subgroup_f64_sm70() {
-    // Pattern from hotSpring's sum_reduce_subgroup_f64.wgsl:
+    // Pattern from ecosystem sum_reduce_subgroup_f64.wgsl benchmark:
     // Uses SubgroupSize/NumSubgroups builtins with f64 data storage.
     // The reduction itself uses f32 partial sums; f64 is for accumulation.
     let wgsl = r"

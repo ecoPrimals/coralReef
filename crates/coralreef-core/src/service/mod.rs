@@ -127,7 +127,7 @@ pub fn handle_compile_capabilities() -> CompileCapabilitiesResponse {
             composite_lowering: true,
         },
         math_ops: Some(34),
-        sm_target: Some("sm_120".to_owned()),
+        sm_target: NvArch::ALL.last().map(ToString::to_string),
         atomics: Some(true),
         subgroup_ops: Some(true),
     }
@@ -166,8 +166,9 @@ pub fn handle_health_liveness() -> LivenessResponse {
 /// compilation requests. May return false during startup.
 #[must_use]
 pub fn handle_health_readiness() -> ReadinessResponse {
+    let ready = STARTUP_INSTANT.get().is_some();
     ReadinessResponse {
-        ready: true,
+        ready,
         name: config::PRIMAL_NAME.into(),
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Structured IPC errors absorbed from rhizoCrypt/loamSpine ecosystem pattern.
+//! Structured IPC errors absorbed from ecosystem security/provenance patterns.
 //!
 //! `IpcErrorPhase` replaces raw `String` errors throughout the IPC layer,
 //! giving callers structured information for retry logic and observability.

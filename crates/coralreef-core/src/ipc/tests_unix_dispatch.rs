@@ -392,6 +392,7 @@ async fn test_unix_jsonrpc_invalid_jsonrpc_version_string() {
 #[cfg(unix)]
 #[test]
 fn dispatch_health_check_liveness_readiness() {
+    crate::service::mark_startup();
     let check = super::newline_jsonrpc::dispatch("health.check", serde_json::json!({}));
     assert!(check.is_ok());
     let v = check.expect("health.check");

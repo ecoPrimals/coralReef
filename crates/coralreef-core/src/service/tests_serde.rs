@@ -434,7 +434,7 @@ fn test_provenance_attached_on_with_provenance() {
     assert_eq!(prov.content_hash.len(), 64, "SHA-256 hex is 64 chars");
     assert!(!prov.compiler_version.is_empty());
     assert!(!prov.gate_of_compilation.is_empty());
-    assert!(prov.signature.is_none(), "no bearDog signing yet");
+    assert!(prov.signature.is_none(), "no crypto-domain signing yet");
 }
 
 #[test]

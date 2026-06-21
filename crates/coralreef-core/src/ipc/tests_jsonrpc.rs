@@ -316,6 +316,7 @@ async fn test_jsonrpc_health_liveness() {
 
 #[tokio::test]
 async fn test_jsonrpc_health_readiness() {
+    crate::service::mark_startup();
     let (_tx, fut) = start_server();
     let (addr, _handle) = fut.await;
     let client = RpcClient::tcp_line(addr);

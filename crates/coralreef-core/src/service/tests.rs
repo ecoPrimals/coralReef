@@ -125,6 +125,7 @@ fn test_handle_health_liveness() {
 
 #[test]
 fn test_handle_health_readiness() {
+    mark_startup();
     let resp = handle_health_readiness();
     assert!(resp.ready);
     assert_eq!(resp.name, env!("CARGO_PKG_NAME"));
@@ -545,7 +546,7 @@ fn compile_wgsl_provenance_attached() {
     assert!(!prov.compiler_version.is_empty());
     assert!(
         prov.signature.is_none(),
-        "no bearDog available, signature should be None"
+        "no crypto-domain provider available, signature should be None"
     );
 }
 
@@ -657,6 +658,7 @@ fn handle_health_version_returns_build_info() {
 
 #[test]
 fn handle_health_readiness_returns_ready() {
+    mark_startup();
     let resp = handle_health_readiness();
     assert!(resp.ready);
     assert!(!resp.name.is_empty());

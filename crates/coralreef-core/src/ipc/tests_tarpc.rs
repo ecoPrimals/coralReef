@@ -165,6 +165,7 @@ async fn test_tarpc_health_liveness() {
 
 #[tokio::test]
 async fn test_tarpc_health_readiness() {
+    crate::service::mark_startup();
     let (_tx, rx) = test_helpers::test_shutdown_channel();
     let (addr, _handle) = start_tarpc_tcp_server(FALLBACK_TCP_BIND, rx).await.unwrap();
     let BoundAddr::Tcp(tcp_addr) = addr else {

@@ -189,7 +189,7 @@ pub enum MemSpaceKind {
 ///
 /// Each `RayQuery`-typed local gets an opaque state slot (64-bit handle)
 /// and a result struct slot for intersection data. The actual hardware
-/// acceleration structure traversal is dispatched by toadStool at runtime;
+/// acceleration structure traversal is dispatched by the compute provider at runtime;
 /// coralReef emits the PTX instruction sequence that interfaces with the
 /// RT core pipeline.
 #[derive(Debug)]

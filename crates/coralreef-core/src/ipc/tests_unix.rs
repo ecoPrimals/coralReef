@@ -67,6 +67,7 @@ fn test_dispatch_health_liveness() {
 #[cfg(unix)]
 #[test]
 fn test_dispatch_health_readiness() {
+    crate::service::mark_startup();
     let result = dispatch("health.readiness", serde_json::json!({}));
     let val = result.expect("health.readiness should succeed");
     assert_eq!(
@@ -679,6 +680,7 @@ async fn test_unix_jsonrpc_health_liveness() {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_unix_jsonrpc_health_readiness() {
+    crate::service::mark_startup();
     let dir = std::env::temp_dir().join("coralreef-test");
     let _ = std::fs::create_dir_all(&dir);
     let sock_path = dir.join(format!("health-readiness-{}.sock", std::process::id()));

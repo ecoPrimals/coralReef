@@ -2,8 +2,8 @@
 //! Tensor-core GEMM kernel generation.
 //!
 //! Generates PTX kernels using `mma.sync.aligned` (HMMA) instructions for
-//! NVIDIA SM80+ (Ampere, Ada, Blackwell). Consumed by hotSpring's
-//! `bench_sovereign_parity` for DF64 NVK parity benchmarks.
+//! NVIDIA SM80+ (Ampere, Ada, Blackwell). Consumed by ecosystem benchmark
+//! harnesses for DF64 NVK parity validation.
 
 use crate::backend;
 use crate::codegen;

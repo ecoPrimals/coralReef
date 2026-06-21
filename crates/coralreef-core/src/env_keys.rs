@@ -78,7 +78,7 @@ pub const BTSP_PROVIDER_SOCKET: &str = "BTSP_PROVIDER_SOCKET";
 #[deprecated(since = "0.2.0", note = "use BTSP_PROVIDER_SOCKET")]
 pub const BEARDOG_SOCKET: &str = "BEARDOG_SOCKET";
 
-/// Songbird discovery socket path from the composition launcher.
+/// Ecosystem discovery relay socket path from the composition launcher.
 pub const DISCOVERY_SOCKET: &str = "DISCOVERY_SOCKET";
 
 /// Gate identity for provenance tagging (e.g. `"strandGate"`, `"biomeGate"`).

@@ -60,6 +60,7 @@ fn assert_jsonrpc_2_0_format(body: &str) {
 
 #[tokio::test]
 async fn e2e_ipc_full_integration() {
+    service::mark_startup();
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
     // 1. Start JSON-RPC server (newline-delimited TCP) on random port

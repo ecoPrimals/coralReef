@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Transport endpoint injection — sourDough wire-compatible.
+//! Transport endpoint injection — ecosystem wire-compatible.
 //!
 //! Primals do not choose their transport — the launcher or Tower Atomic decides.
 //! When `$TRANSPORT_ENDPOINT` is set, the primal binds on the injected endpoint
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::env_keys;
 
-/// Structured transport endpoint — wire-compatible with sourDough canonical standard.
+/// Structured transport endpoint — wire-compatible with ecosystem canonical standard.
 ///
 /// The launcher sets `$TRANSPORT_ENDPOINT` to a JSON string of this type.
 /// Primals parse it and bind/connect accordingly.

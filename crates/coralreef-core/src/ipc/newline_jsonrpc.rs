@@ -418,6 +418,7 @@ mod tests {
 
     #[test]
     fn dispatch_health_readiness() {
+        crate::service::mark_startup();
         let result = dispatch_jsonrpc("health.readiness", serde_json::json!({}));
         assert!(result.is_ok());
         let val = result.unwrap();
