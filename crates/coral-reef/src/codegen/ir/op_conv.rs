@@ -402,6 +402,12 @@ impl PrmtSelByte {
 pub struct PrmtSel(pub u16);
 
 impl PrmtSel {
+    /// Identity pass-through of src_a (bytes 3,2,1,0 → 3,2,1,0).
+    pub const PASSTHROUGH_A: Self = Self(0x3210);
+
+    /// Identity pass-through of src_b (bytes 7,6,5,4 → 3,2,1,0).
+    pub const PASSTHROUGH_B: Self = Self(0x7654);
+
     pub fn new(bytes: [PrmtSelByte; 4]) -> Self {
         let mut sel = 0;
         for i in 0..4 {

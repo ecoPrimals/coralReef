@@ -11,6 +11,14 @@ use bitview::{BitMutViewable, BitViewable};
 use super::PixelImap;
 use crate::CompileError;
 
+/// NVIDIA shader I/O address map boundaries (hardware-defined).
+const IO_SYSVALS_AB_END: u16 = 0x080;
+const IO_GENERIC_ATTR_END: u16 = 0x280;
+const IO_FF_COLOR_END: u16 = 0x2c0;
+const IO_SYSVALS_C_END: u16 = 0x300;
+const IO_SYSVALS_D_START: u16 = 0x3a0;
+const IO_SYSVALS_D_END: u16 = 0x3c0;
+
 #[derive(Debug, Default)]
 pub struct SysValInfo {
     pub ab: u32,
@@ -55,19 +63,19 @@ impl VtgIoInfo {
         let mut addrs = addrs;
         addrs.start &= !3;
         for addr in addrs.step_by(4) {
-            if addr < 0x080 {
+            if addr < IO_SYSVALS_AB_END {
                 sysvals.ab |= 1 << (addr / 4);
-            } else if addr < 0x280 {
-                let attr_idx = (addr - 0x080) as usize / 4;
+            } else if addr < IO_GENERIC_ATTR_END {
+                let attr_idx = (addr - IO_SYSVALS_AB_END) as usize / 4;
                 attr.set_bit(attr_idx, true);
-            } else if addr < 0x2c0 {
+            } else if addr < IO_FF_COLOR_END {
                 return Err(CompileError::NotImplemented(
                     "FF color I/O not supported".into(),
                 ));
-            } else if addr < 0x300 {
-                sysvals.c |= 1 << ((addr - 0x2c0) / 4);
-            } else if (0x3a0..0x3c0).contains(&addr) {
-                *sysvals_d |= 1 << ((addr - 0x3a0) / 4);
+            } else if addr < IO_SYSVALS_C_END {
+                sysvals.c |= 1 << ((addr - IO_FF_COLOR_END) / 4);
+            } else if (IO_SYSVALS_D_START..IO_SYSVALS_D_END).contains(&addr) {
+                *sysvals_d |= 1 << ((addr - IO_SYSVALS_D_START) / 4);
             }
         }
         Ok(())
@@ -82,19 +90,19 @@ impl VtgIoInfo {
     }
 
     pub fn attr_written(&self, addr: u16) -> Result<bool, CompileError> {
-        Ok(if addr < 0x080 {
+        Ok(if addr < IO_SYSVALS_AB_END {
             self.sysvals_out.ab & (1 << (addr / 4)) != 0
-        } else if addr < 0x280 {
-            let attr_idx = (addr - 0x080) as usize / 4;
+        } else if addr < IO_GENERIC_ATTR_END {
+            let attr_idx = (addr - IO_SYSVALS_AB_END) as usize / 4;
             self.attr_out.get_bit(attr_idx)
-        } else if addr < 0x2c0 {
+        } else if addr < IO_FF_COLOR_END {
             return Err(CompileError::NotImplemented(
                 "FF color I/O not supported".into(),
             ));
-        } else if addr < 0x300 {
-            self.sysvals_out.c & (1 << ((addr - 0x2c0) / 4)) != 0
-        } else if (0x3a0..0x3c0).contains(&addr) {
-            self.sysvals_out_d & (1 << ((addr - 0x3a0) / 4)) != 0
+        } else if addr < IO_SYSVALS_C_END {
+            self.sysvals_out.c & (1 << ((addr - IO_FF_COLOR_END) / 4)) != 0
+        } else if (IO_SYSVALS_D_START..IO_SYSVALS_D_END).contains(&addr) {
+            self.sysvals_out_d & (1 << ((addr - IO_SYSVALS_D_START) / 4)) != 0
         } else {
             return Err(CompileError::InvalidInput(
                 format!("unknown I/O address 0x{addr:03x}").into(),
@@ -130,31 +138,31 @@ pub struct FragmentIoInfo {
 
 impl FragmentIoInfo {
     pub fn mark_attr_read(&mut self, addr: u16, interp: PixelImap) -> Result<(), CompileError> {
-        if addr < 0x080 {
+        if addr < IO_SYSVALS_AB_END {
             self.sysvals_in.ab |= 1 << (addr / 4);
-        } else if addr < 0x280 {
-            let attr_idx = (addr - 0x080) as usize / 4;
+        } else if addr < IO_GENERIC_ATTR_END {
+            let attr_idx = (addr - IO_SYSVALS_AB_END) as usize / 4;
             self.attr_in[attr_idx] = interp;
-        } else if addr < 0x2c0 {
+        } else if addr < IO_FF_COLOR_END {
             return Err(CompileError::NotImplemented(
                 "FF color I/O not supported".into(),
             ));
-        } else if addr < 0x300 {
-            self.sysvals_in.c |= 1 << ((addr - 0x2c0) / 4);
-        } else if (0x3a0..0x3c0).contains(&addr) {
-            let attr_idx = (addr - 0x3a0) as usize / 4;
+        } else if addr < IO_SYSVALS_C_END {
+            self.sysvals_in.c |= 1 << ((addr - IO_FF_COLOR_END) / 4);
+        } else if (IO_SYSVALS_D_START..IO_SYSVALS_D_END).contains(&addr) {
+            let attr_idx = (addr - IO_SYSVALS_D_START) as usize / 4;
             self.sysvals_in_d[attr_idx] = interp;
         }
         Ok(())
     }
 
     pub fn mark_barycentric_attr_in(&mut self, addr: u16) -> Result<(), CompileError> {
-        if !(0x80..0x280).contains(&addr) {
+        if !(IO_SYSVALS_AB_END..IO_GENERIC_ATTR_END).contains(&addr) {
             return Err(CompileError::InvalidInput(
                 format!("barycentric attr addr 0x{addr:03x} out of range 0x080..0x280").into(),
             ));
         }
-        let attr_idx = (addr - 0x080) as usize / 4;
+        let attr_idx = (addr - IO_SYSVALS_AB_END) as usize / 4;
         self.barycentric_attr_in.set_bit(attr_idx, true);
         Ok(())
     }

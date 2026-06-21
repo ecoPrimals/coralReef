@@ -46,12 +46,7 @@ pub enum BtspMode {
 impl BtspMode {
     /// `true` when the handshake is required on incoming connections.
     #[must_use]
-    // `dead_code` is not always emitted for this `pub` API; `#[expect(dead_code)]` would be
-    // unfulfilled on normal lib builds.
-    #[allow(
-        dead_code,
-        reason = "public API used in tests and future guard_connection evolution"
-    )]
+    #[allow(dead_code, reason = "pub API used in tests and future guard_connection evolution")]
     pub const fn requires_handshake(&self) -> bool {
         matches!(self, Self::Production { .. })
     }

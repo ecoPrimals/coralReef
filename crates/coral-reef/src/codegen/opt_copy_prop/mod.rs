@@ -597,9 +597,9 @@ impl<'a> CopyPropPass<'a> {
                 if let Some(sel) = prmt.get_sel() {
                     if let Some(imm) = prmt.as_u32() {
                         self.add_copy(bi, dst[0], SrcType::GPR, imm.into());
-                    } else if sel == PrmtSel(0x3210) {
+                    } else if sel == PrmtSel::PASSTHROUGH_A {
                         self.add_copy(bi, dst[0], SrcType::GPR, prmt.src_a().clone());
-                    } else if sel == PrmtSel(0x7654) {
+                    } else if sel == PrmtSel::PASSTHROUGH_B {
                         self.add_copy(bi, dst[0], SrcType::GPR, prmt.src_b().clone());
                     } else {
                         self.add_prmt(

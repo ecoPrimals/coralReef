@@ -239,58 +239,74 @@ pub fn estimate_block_weight(cfg: &CFG<BasicBlock>, block_idx: usize) -> u64 {
     10_f32.powf((loop_depth + 1.0).log2()) as u64
 }
 
-/// Try to guess how many cycles a variable latency instruction will take
+/// Estimated cycle latencies for variable-latency instructions.
 ///
-/// These values are based on the cycle estimates from ["Dissecting the NVidia
-/// Turing T4 GPU via Microbenchmarking"](https://arxiv.org/pdf/1903.07486).
-/// Memory instructions were copied from L1 data cache latencies.
-/// For instructions not mentioned in the paper, I made up numbers.
-/// This could probably be improved.
+/// Source: ["Dissecting the NVidia Turing T4 GPU via
+/// Microbenchmarking"](https://arxiv.org/pdf/1903.07486).
+/// Memory latencies from L1 data cache measurements.
+mod sched_latency {
+    /// Constant buffer load (LDC) — uniform/CBuf path.
+    pub const CBUF_LOAD: u32 = 4;
+    /// Multi-function unit (MUFU, transcendentals).
+    pub const MUFU: u32 = 15;
+    /// Warp shuffle, conversions, integer bit ops.
+    pub const ALU_EXTENDED: u32 = 15;
+    /// Control-flow, barrier, system regs, pixel load.
+    pub const CONTROL: u32 = 16;
+    /// Tensor-core MMA (HMMA/IMMA).
+    pub const TENSOR_CORE: u32 = 22;
+    /// Texture, surface, global memory, membar.
+    pub const MEMORY: u32 = 32;
+    /// Double-precision add/mul/minmax.
+    pub const F64_ALU: u32 = 48;
+    /// Double-precision FMA / comparison.
+    pub const F64_FMA: u32 = 54;
+    /// Pre-SM70 integer multiply (multi-cycle).
+    pub const LEGACY_IMUL: u32 = 86;
+    /// f64 transcendental pseudo-ops (MUFU + chain of DFMA/DMul).
+    pub const F64_TRANSCENDENTAL: u32 = 200;
+}
+
+/// Try to guess how many cycles a variable latency instruction will take.
+///
+/// See [`sched_latency`] for source documentation.
 pub fn estimate_variable_latency(sm: &dyn ShaderModel, op: &Op) -> u32 {
+    use sched_latency::*;
+
     if !sm.op_needs_scoreboard(op) {
         return 0;
     }
 
     match op {
-        // Multi-function unit
-        Op::Rro(_) | Op::Transcendental(_) => 15,
+        Op::Rro(_) | Op::Transcendental(_) => MUFU,
 
-        // Double-precision float ALU
-        Op::DFma(_) | Op::DSetP(_) => 54,
-        Op::DAdd(_) | Op::DMnMx(_) | Op::DMul(_) => 48,
+        Op::DFma(_) | Op::DSetP(_) => F64_FMA,
+        Op::DAdd(_) | Op::DMnMx(_) | Op::DMul(_) => F64_ALU,
 
-        // f64 transcendental pseudo-ops (expand to MUFU + several DFMA/DMul)
         Op::F64Exp2(_)
         | Op::F64Log2(_)
         | Op::F64Rcp(_)
         | Op::F64Sin(_)
         | Op::F64Cos(_)
-        | Op::F64Sqrt(_) => 200,
+        | Op::F64Sqrt(_) => F64_TRANSCENDENTAL,
 
-        // Integer ALU
-        Op::BRev(_) | Op::Flo(_) | Op::PopC(_) => 15,
+        Op::BRev(_) | Op::Flo(_) | Op::PopC(_) => MUFU,
         Op::IMad(_) | Op::IMul(_) => {
             assert!(sm.sm() < 70);
-            86
+            LEGACY_IMUL
         }
 
-        // Conversions
-        Op::F2F(_) | Op::F2I(_) | Op::I2F(_) | Op::I2I(_) | Op::FRnd(_) => 15,
+        Op::F2F(_) | Op::F2I(_) | Op::I2F(_) | Op::I2I(_) | Op::FRnd(_) => ALU_EXTENDED,
 
-        // Move ops
-        Op::Shfl(_) => 15,
+        Op::Shfl(_) => ALU_EXTENDED,
 
-        // Uniform ops
-        Op::Redux(_) | Op::R2UR(_) => 15,
+        Op::Redux(_) | Op::R2UR(_) => ALU_EXTENDED,
 
-        // Texture ops
-        Op::Tex(_) | Op::Tld(_) | Op::Tld4(_) | Op::Tmml(_) | Op::Txd(_) | Op::Txq(_) => 32,
+        Op::Tex(_) | Op::Tld(_) | Op::Tld4(_) | Op::Tmml(_) | Op::Txd(_) | Op::Txq(_) => MEMORY,
 
-        // Surface ops
-        Op::SuLd(_) | Op::SuSt(_) | Op::SuAtom(_) | Op::SuLdGa(_) | Op::SuStGa(_) => 32,
+        Op::SuLd(_) | Op::SuSt(_) | Op::SuAtom(_) | Op::SuLdGa(_) | Op::SuStGa(_) => MEMORY,
 
-        // Memory ops
-        Op::Ldc(_) => 4,
+        Op::Ldc(_) => CBUF_LOAD,
 
         Op::Ld(_)
         | Op::Ldsm(_)
@@ -305,18 +321,14 @@ pub fn estimate_variable_latency(sm: &dyn ShaderModel, op: &Op) -> u32 {
         | Op::Ipa(_)
         | Op::CCtl(_)
         | Op::LdTram(_)
-        | Op::MemBar(_) => 32,
+        | Op::MemBar(_) => MEMORY,
 
-        // Control-flow ops
-        Op::WarpSync(_) => 16,
+        Op::WarpSync(_) => CONTROL,
 
-        // Barrier
-        Op::BMov(_) => 16,
+        Op::BMov(_) => CONTROL,
 
-        // Geometry ops
         Op::Out(_) | Op::OutFinal(_) => 2,
 
-        // Miscellaneous ops
         Op::Bar(_)
         | Op::TexDepBar(_)
         | Op::CS2R(_)
@@ -325,9 +337,9 @@ pub fn estimate_variable_latency(sm: &dyn ShaderModel, op: &Op) -> u32 {
         | Op::Kill(_)
         | Op::PixLd(_)
         | Op::S2R(_)
-        | Op::Match(_) => 16,
+        | Op::Match(_) => CONTROL,
 
-        Op::Hmma(_) | Op::Imma(_) => 22,
+        Op::Hmma(_) | Op::Imma(_) => TENSOR_CORE,
 
         _ => crate::codegen::ice!("Unknown variable latency op {op}"),
     }

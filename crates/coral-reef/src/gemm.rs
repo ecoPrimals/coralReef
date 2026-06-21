@@ -10,6 +10,30 @@ use crate::codegen;
 use crate::error::CompileError;
 use crate::gpu_arch::GpuTarget;
 
+/// Minimum SM version for HMMA tensor-core GEMM (Ampere).
+const MIN_HMMA_SM: u32 = 80;
+
+/// MMA tile-K depth for f16/f16→f32 precision (16×8×16 MMA shape).
+const TILE_K_F16: u32 = 16;
+
+/// MMA tile-K depth for TF32 precision (16×8×8 MMA shape).
+const TILE_K_TF32: u32 = 8;
+
+/// MMA tile rows (M dimension per warp).
+const MMA_TILE_ROWS: u32 = 16;
+
+/// MMA tile columns (N dimension per warp).
+const MMA_TILE_COLS: u32 = 8;
+
+/// Threads per warp (NVIDIA architecture constant).
+const THREADS_PER_WARP: u32 = 32;
+
+/// Maximum workgroup size for GEMM kernels.
+const MAX_WORKGROUP_SIZE: u32 = 256;
+
+/// Default GPR estimate for GEMM metadata (conservative).
+const GEMM_DEFAULT_GPR_COUNT: u32 = 32;
+
 /// GEMM shape parameters for tensor-core kernel generation.
 #[derive(Debug, Clone, Copy)]
 pub struct GemmShape {
@@ -56,9 +80,13 @@ pub fn compile_gemm(
     let nv = target.as_nvidia().ok_or_else(|| {
         CompileError::UnsupportedArch("HMMA/tensor-core GEMM requires NVIDIA target".into())
     })?;
-    if nv.sm() < 80 {
+    if nv.sm() < MIN_HMMA_SM {
         return Err(CompileError::UnsupportedArch(
-            format!("tensor-core GEMM requires SM80+, got SM{}", nv.sm()).into(),
+            format!(
+                "tensor-core GEMM requires SM{MIN_HMMA_SM}+, got SM{}",
+                nv.sm()
+            )
+            .into(),
         ));
     }
     if shape.m == 0 || shape.n == 0 || shape.k == 0 {
@@ -68,8 +96,8 @@ pub fn compile_gemm(
     }
 
     let tile_k: u32 = match precision {
-        GemmPrecision::F16 | GemmPrecision::F16F32 => 16,
-        GemmPrecision::Tf32 => 8,
+        GemmPrecision::F16 | GemmPrecision::F16F32 => TILE_K_F16,
+        GemmPrecision::Tf32 => TILE_K_TF32,
     };
     if shape.k % tile_k != 0 {
         return Err(CompileError::InvalidInput(
@@ -91,20 +119,18 @@ pub fn compile_gemm(
     );
 
     let ptx = codegen::nv::ptx_emit::gemm::emit_gemm_ptx(shape, precision, nv.sm_version())?;
-    let tile_rows = 16u32;
-    let tile_cols = 8u32;
-    let warps_along_m = shape.m.div_ceil(tile_rows);
-    let warps_along_n = shape.n.div_ceil(tile_cols);
-    let threads = warps_along_m * warps_along_n * 32;
+    let warps_along_m = shape.m.div_ceil(MMA_TILE_ROWS);
+    let warps_along_n = shape.n.div_ceil(MMA_TILE_COLS);
+    let threads = warps_along_m * warps_along_n * THREADS_PER_WARP;
 
     Ok(backend::CompiledBinary {
         binary: ptx.into_bytes(),
         info: backend::CompilationInfo {
-            gpr_count: 32,
+            gpr_count: GEMM_DEFAULT_GPR_COUNT,
             instr_count: 0,
             shared_mem_bytes: 0,
             barrier_count: 0,
-            local_size: [threads.min(256), 1, 1],
+            local_size: [threads.min(MAX_WORKGROUP_SIZE), 1, 1],
             local_mem_bytes: 0,
         },
         format: backend::BinaryFormat::Ptx,
