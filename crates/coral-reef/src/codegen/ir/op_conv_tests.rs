@@ -26,7 +26,10 @@ fn test_prmt_sel_byte_new_and_fold_u32() {
     assert_eq!(b_msb.fold_u32(0x8000_0000), 0xff);
     assert_eq!(b_msb.fold_u32(0x7f00_0000), 0x00);
 
-    assert_ne!(PrmtSelByte::INVALID.0, 0xf);
+    assert!(
+        !PrmtSelByte::INVALID.is_valid(),
+        "INVALID must not alias a valid nibble"
+    );
 }
 
 #[test]

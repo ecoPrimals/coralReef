@@ -16,6 +16,7 @@ use crate::codegen::ir::*;
 // hardware guidance changes.
 
 mod gpr;
+mod gpr_hazards;
 mod uniform;
 
 pub const fn pred(has_pred: bool, a: u32, b: u32) -> u32 {

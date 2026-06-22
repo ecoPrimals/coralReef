@@ -173,6 +173,9 @@ pub use op_int::*;
 mod op_conv;
 pub use op_conv::*;
 
+mod op_shuffle;
+pub use op_shuffle::*;
+
 mod op_tex;
 pub use op_tex::*;
 

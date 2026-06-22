@@ -48,6 +48,25 @@ pub struct Transport {
     pub address: Cow<'static, str>,
 }
 
+/// Compile-latency P50 for WGSL → NVIDIA SASS (ms), measured on typical compute
+/// shaders (64-thread workgroup, f32 ALU).
+const LATENCY_WGSL_NV_P50_MS: f64 = 10.0;
+/// Compile-latency P99 for WGSL → NVIDIA SASS (ms).
+const LATENCY_WGSL_NV_P99_MS: f64 = 25.0;
+/// Compile-latency P50 for WGSL → AMD RDNA2 (ms).
+const LATENCY_WGSL_AMD_P50_MS: f64 = 0.1;
+/// Compile-latency P99 for WGSL → AMD RDNA2 (ms).
+const LATENCY_WGSL_AMD_P99_MS: f64 = 0.5;
+/// Compile-latency P50 for SPIR-V → NVIDIA SASS (ms).
+const LATENCY_SPIRV_NV_P50_MS: f64 = 19.0;
+/// Compile-latency P99 for SPIR-V → NVIDIA SASS (ms).
+const LATENCY_SPIRV_NV_P99_MS: f64 = 35.0;
+
+/// Maximum simultaneous compilation jobs (caps parallelism to prevent OOM).
+const MAX_CONCURRENT_COMPILES: u32 = 64;
+/// Maximum cross-vendor target count for `shader.compile.multi`.
+const MAX_MULTI_TARGETS: u32 = 64;
+
 /// Build this primal's self-description from compiled-in knowledge only.
 ///
 /// No peer names, no external service references — only what this binary
@@ -77,15 +96,15 @@ pub fn self_description() -> SelfDescription {
                     "compile_latency": {
                         "unit": "ms",
                         "note": "measured on typical compute shaders (64-thread workgroup, f32 ALU)",
-                        "wgsl_to_nvidia_sass": { "p50": 10, "p99": 25 },
-                        "wgsl_to_amd_rdna2":   { "p50": 0.1, "p99": 0.5 },
-                        "spirv_to_nvidia_sass": { "p50": 19, "p99": 35 },
+                        "wgsl_to_nvidia_sass": { "p50": LATENCY_WGSL_NV_P50_MS, "p99": LATENCY_WGSL_NV_P99_MS },
+                        "wgsl_to_amd_rdna2":   { "p50": LATENCY_WGSL_AMD_P50_MS, "p99": LATENCY_WGSL_AMD_P99_MS },
+                        "spirv_to_nvidia_sass": { "p50": LATENCY_SPIRV_NV_P50_MS, "p99": LATENCY_SPIRV_NV_P99_MS },
                     },
                     "multi_stage_ml": {
                         "supported": true,
                         "pattern": "sequential_compile_and_dispatch",
                         "description": "Call shader.compile.wgsl N times with distinct stage WGSL (tokenizer, attention, FFN), then dispatch sequentially via the compute.dispatch provider. Memory layout and inter-stage barriers are caller responsibility.",
-                        "max_concurrent_compiles": 64,
+                        "max_concurrent_compiles": MAX_CONCURRENT_COMPILES,
                     },
                 }),
             },
@@ -93,7 +112,7 @@ pub fn self_description() -> SelfDescription {
                 id: "shader.compile.multi".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
                 metadata: serde_json::json!({
-                    "max_targets": 64,
+                    "max_targets": MAX_MULTI_TARGETS,
                     "cross_vendor": true,
                 }),
             },
