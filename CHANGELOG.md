@@ -4,11 +4,21 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 123
+**Current status**: Phase 10 — Sprint 14 / Wave 124
 
 ---
 
 ## [Unreleased]
+
+### Wave 124: Code Size Compliance — File Splits + Named Constants (2026-06-22)
+
+#### Changed
+- `op_conv.rs` (801 LOC) split into `op_conv.rs` (365 LOC, conversion/move ops) + `op_shuffle.rs` (448 LOC, permute/select/shuffle/predicate/reduction ops) — semantic cohesion preserved, both re-exported via `mod.rs`
+- `sm75_instr_latencies/gpr.rs` (814 LOC) split into `gpr.rs` (376 LOC, enum + op_category + RAW) + `gpr_hazards.rs` (467 LOC, WAW/WAR/pred hazard tables) — restricted visibility `pub(in ...)` maintains encapsulation
+- Capability advertisement metadata extracted to 8 named constants: `LATENCY_WGSL_NV_P50_MS`, `LATENCY_WGSL_NV_P99_MS`, `LATENCY_WGSL_AMD_P50_MS`, `LATENCY_WGSL_AMD_P99_MS`, `LATENCY_SPIRV_NV_P50_MS`, `LATENCY_SPIRV_NV_P99_MS`, `MAX_CONCURRENT_COMPILES`, `MAX_MULTI_TARGETS` — zero magic numbers in `self_description()`
+
+#### Added
+- `PrmtSelByte::is_valid()` public API for hardware nibble validity checking — replaces private field access pattern
 
 ### Wave 123: Artifact Provenance Evolution — Signing + sporePrint Hash (2026-06-22)
 

@@ -2,11 +2,11 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 123 (5-gate mesh LIVE, artifact provenance signing + BLAKE3 sporePrint hash).
+**Current position**: Phase 10 — Sprint 14 / Wave 124 (code size compliance, named constants, zero >800 LOC hand-written production files).
 
-**Last completed**: Wave 123 — Artifact provenance evolution (crypto.sign discovery + signing, BLAKE3 sporePrint hash, provenance module extraction). Wave 120 — Full ecosystem name scrub, named constants. Wave 119 — Health readiness, derived capabilities.
+**Last completed**: Wave 124 — Code size compliance (op_shuffle + gpr_hazards extraction, named constants for capability metadata). Wave 123 — Artifact provenance evolution (crypto.sign, BLAKE3 sporePrint hash). Wave 120 — Full ecosystem name scrub.
 
-**Tests**: 3597 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
+**Tests**: 3601 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: June 22, 2026.
 
