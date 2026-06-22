@@ -4,11 +4,28 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 120
+**Current status**: Phase 10 — Sprint 14 / Wave 123
 
 ---
 
 ## [Unreleased]
+
+### Wave 123: Artifact Provenance Evolution — Signing + sporePrint Hash (2026-06-22)
+
+#### Added
+- `provenance` module: extracted artifact provenance logic from `CompileResponse::with_provenance()` into dedicated `service::provenance` module
+- `crypto.sign` discovery: runtime discovery of crypto-domain provider via ecosystem discovery files; best-effort signing of artifact content hashes (Ed25519 over NDJSON Unix socket)
+- `sporeprint_hash` field on `ArtifactProvenance`: BLAKE3 content hash for Nest provenance integration (content-addressed storage indexing without re-hash)
+- `blake3` dependency (v1.8, `pure` feature — zero C, zero ASM)
+- `crypto.sign` added to `genomebin/manifest.toml` consumed capabilities
+- BTSP discovery helpers promoted to `pub(crate)` for cross-module capability scanning
+
+#### Changed
+- `CompileResponse::with_provenance()` now delegates to `provenance::build_provenance()` — same SHA-256 hash + gate + compiler version, now also populates BLAKE3 sporePrint hash and attempts crypto.sign signing
+- BTSP discovery flake fix: `discover_security_socket_returns_none_in_clean_env` test now guards against live discovery files on host
+
+#### Fixed
+- Environmental test flake in `discover_security_socket_returns_none_in_clean_env` (was hitting a real `btsp.session.create` provider on the build host)
 
 ### Wave 120: Deep Primal Self-Knowledge — Full Ecosystem Name Scrub (2026-06-21)
 

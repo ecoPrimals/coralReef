@@ -69,6 +69,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bitview = { path = "crates/coral-reef-bitview" }
 nak_ir_proc = { path = "crates/nak-ir-proc" }
 
+# Nest provenance — BLAKE3 content-addressed hashing for sporePrint integration
+blake3 = { version = "1.8", default-features = false, features = ["pure"] }
+
 # BTSP Phase 3 (crypto + nonce generation + base64 encoding)
 rand = "0.9"
 base64 = "0.22"

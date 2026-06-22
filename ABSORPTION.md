@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: June 21, 2026 (Sprint 14 / Wave 120: 3577 tests, 84% line coverage. Full ecosystem name scrub, named constants, health readiness evolution, derived capabilities. 4-gate mesh LIVE. Zero debt)
+**Last updated**: June 22, 2026 (Sprint 14 / Wave 123: 3597 tests, 84% line coverage. Artifact provenance signing + BLAKE3 sporePrint hash. 5-gate mesh LIVE. Zero debt)
 
 ---
 

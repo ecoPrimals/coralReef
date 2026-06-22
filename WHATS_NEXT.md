@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 120 (4-gate mesh LIVE, full ecosystem name scrub complete, health readiness evolution, derived capabilities).
+**Current position**: Phase 10 — Sprint 14 / Wave 123 (5-gate mesh LIVE, artifact provenance signing + BLAKE3 sporePrint hash).
 
-**Last completed**: Wave 120 — Full ecosystem name scrub (zero hardcoded primal names in any .rs file), manifest consumed capabilities. Wave 119 — Health readiness startup-state tracking, derived sm_target, ecosystem.rs directory refactor. Wave 118 — Ray-query honesty, btsp.rs test extraction, dead code gating, named constants.
+**Last completed**: Wave 123 — Artifact provenance evolution (crypto.sign discovery + signing, BLAKE3 sporePrint hash, provenance module extraction). Wave 120 — Full ecosystem name scrub, named constants. Wave 119 — Health readiness, derived capabilities.
 
-**Tests**: 3577 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
+**Tests**: 3597 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 21, 2026.
+**Last updated**: June 22, 2026.
 
-**Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser). Artifact provenance signing via crypto-domain provider discovery.
+**Next focus**: Coverage push toward 90% (compiler backends are main gap). ironGate deployment validation (gnu binary, RTX 5070 sm_120 compile E2E). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
 ---
 

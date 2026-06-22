@@ -4,6 +4,7 @@
 //! Follows wateringHole semantic method naming: `shader.compile.{operation}`.
 
 mod compile;
+pub mod provenance;
 pub mod types;
 
 pub use compile::{

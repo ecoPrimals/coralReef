@@ -432,9 +432,13 @@ fn test_provenance_attached_on_with_provenance() {
     let prov = resp.provenance.as_ref().expect("provenance should be set");
     assert_eq!(prov.hash_algorithm, "sha256");
     assert_eq!(prov.content_hash.len(), 64, "SHA-256 hex is 64 chars");
+    let sporeprint = prov
+        .sporeprint_hash
+        .as_ref()
+        .expect("sporeprint_hash should be populated");
+    assert_eq!(sporeprint.len(), 64, "BLAKE3 hex is 64 chars");
     assert!(!prov.compiler_version.is_empty());
     assert!(!prov.gate_of_compilation.is_empty());
-    assert!(prov.signature.is_none(), "no crypto-domain signing yet");
 }
 
 #[test]

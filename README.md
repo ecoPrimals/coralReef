@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 120 (Full ecosystem name scrub, named constants (GEMM tiling, scheduling latencies, shader I/O, PrmtSel), health readiness evolution, derived capabilities; 3577 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 123 (Artifact provenance signing via crypto.sign discovery, BLAKE3 sporePrint hash, provenance module extraction; 3597 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

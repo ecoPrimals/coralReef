@@ -196,6 +196,10 @@ pub struct CompileResponse {
 /// Implements Dark Forest Invariant 3: no unsigned artifacts cross trust
 /// boundaries. The `content_hash` field is always populated; the `signature`
 /// field requires a crypto-domain provider for BTSP artifact signing.
+///
+/// The `sporeprint_hash` field carries a BLAKE3 content hash for Nest
+/// provenance integration — content-addressed storage can index artifacts
+/// by this hash without re-hashing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactProvenance {
     /// SHA-256 hash of the compiled binary (hex-encoded).
@@ -203,6 +207,13 @@ pub struct ArtifactProvenance {
     /// Algorithm used for the content hash.
     #[serde(default = "default_hash_algorithm")]
     pub hash_algorithm: String,
+    /// BLAKE3 hash of the compiled binary (hex-encoded) for Nest provenance.
+    ///
+    /// Content-addressed storage (sporePrint / nestGate) uses BLAKE3 as the
+    /// canonical hash for artifact identity. Dual-hashing avoids re-computation
+    /// at the storage layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sporeprint_hash: Option<String>,
     /// Gate that performed the compilation.
     pub gate_of_compilation: String,
     /// Compiler identity and version.
@@ -224,24 +235,13 @@ impl CompileResponse {
     /// Attach provenance metadata for cross-gate trust validation.
     ///
     /// Called by the JSON-RPC dispatch layer before sending responses over
-    /// trust boundaries. Not used in the tarpc path (intra-gate, already trusted).
+    /// trust boundaries. Attempts to sign via a discovered `crypto.sign`
+    /// provider; degrades to unsigned provenance if unavailable.
+    ///
+    /// Not used in the tarpc path (intra-gate, already trusted).
     #[must_use]
     pub fn with_provenance(mut self) -> Self {
-        use sha2::{Digest, Sha256};
-        let hash = Sha256::digest(&self.binary);
-        let mut hex_str = String::with_capacity(64);
-        for byte in &hash {
-            use std::fmt::Write;
-            let _ = write!(hex_str, "{byte:02x}");
-        }
-        self.provenance = Some(ArtifactProvenance {
-            content_hash: hex_str,
-            hash_algorithm: "sha256".to_owned(),
-            gate_of_compilation: crate::config::gate_id(),
-            compiler_version: crate::config::compiler_version_string(),
-            signature: None,
-            key_id: None,
-        });
+        self.provenance = Some(super::provenance::build_provenance(&self.binary));
         self
     }
 }

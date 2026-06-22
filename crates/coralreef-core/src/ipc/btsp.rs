@@ -274,7 +274,11 @@ fn discover_security_socket_in_dir(sock_dir: &std::path::Path, family_id: &str) 
 }
 
 /// Scan discovery files for a primal advertising a specific method.
-fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {
+///
+/// Searches `sock_dir` for `.json` files whose `methods` array includes
+/// `method`, then returns the Unix socket path from `transports.unix`.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {
     let entries = std::fs::read_dir(sock_dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -288,7 +292,11 @@ fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<Pa
 }
 
 /// Check a single discovery file for a primal advertising a given method.
-fn check_discovery_file_for_method(path: &std::path::Path, method: &str) -> Option<PathBuf> {
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn check_discovery_file_for_method(
+    path: &std::path::Path,
+    method: &str,
+) -> Option<PathBuf> {
     let content = std::fs::read_to_string(path).ok()?;
     let info: serde_json::Value = serde_json::from_str(&content).ok()?;
     let methods = info.get("methods")?.as_array()?;

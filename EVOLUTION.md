@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: June 21, 2026 (Phase 10 — Sprint 14 / Wave 120)
-**Phase**: 10 — Sprint 14 / Wave 120: Full ecosystem name scrub (zero hardcoded primal names in any .rs file), named constants (GEMM, scheduling, shader I/O, PrmtSel), health readiness evolution, derived capabilities. 3577 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: June 22, 2026 (Phase 10 — Sprint 14 / Wave 123)
+**Phase**: 10 — Sprint 14 / Wave 123: Artifact provenance evolution (crypto.sign discovery + BLAKE3 sporePrint hash), provenance module extraction, BTSP discovery flake fix. 3597 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
