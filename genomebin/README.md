@@ -22,4 +22,4 @@ Planned:
 **Active** — compiler pipeline fully operational (`cargo run -- compile`).
 Pure compiler primal — hardware dispatch delegated to toadStool (Sprint 9 excision).
 Sovereign SPIR-V emission (Wave 68), SM120 barrier fix, full math builtin coverage.
-3601 tests, zero clippy warnings, zero FFI, zero unsafe.
+3631 tests, zero clippy warnings, zero FFI, zero unsafe.

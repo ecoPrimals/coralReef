@@ -707,3 +707,6 @@ mod tests_spirv;
 
 #[path = "tests_multi_device.rs"]
 mod tests_multi_device;
+
+#[path = "tests_batch_compile.rs"]
+mod tests_batch_compile;

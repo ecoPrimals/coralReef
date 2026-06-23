@@ -8,14 +8,14 @@ pub mod provenance;
 pub mod types;
 
 pub use compile::{
-    handle_compile, handle_compile_gemm, handle_compile_spirv, handle_compile_wgsl,
-    handle_compile_wgsl_multi,
+    handle_compile, handle_compile_gemm, handle_compile_multi, handle_compile_spirv,
+    handle_compile_wgsl, handle_compile_wgsl_multi,
 };
 pub use types::{
-    CapabilityListResponse, CompileCapabilitiesResponse, CompileRequest, CompileResponse,
-    CompileWgslRequest, F64TranscendentalCapabilities, GemmCompileRequest, HealthCheckResponse,
-    HealthResponse, IdentityGetResponse, LivenessResponse, MultiDeviceCompileRequest,
-    MultiDeviceCompileResponse, ReadinessResponse, VersionResponse,
+    BatchCompileRequest, BatchCompileResponse, CapabilityListResponse, CompileCapabilitiesResponse,
+    CompileRequest, CompileResponse, CompileWgslRequest, F64TranscendentalCapabilities,
+    GemmCompileRequest, HealthCheckResponse, HealthResponse, IdentityGetResponse, LivenessResponse,
+    MultiDeviceCompileRequest, MultiDeviceCompileResponse, ReadinessResponse, VersionResponse,
 };
 #[cfg(feature = "tarpc-transport")]
 pub use types::{CompileSpirvRequestTarpc, TarpcCompileError};

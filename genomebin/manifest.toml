@@ -14,7 +14,7 @@ binary = "coralreef"
 pie_verified = true
 ecobin_grade = "A++"
 sprint = 14
-tests = 3601
+tests = 3631
 description = "Sovereign Rust GPU shader compiler. Compiles WGSL/SPIR-V/GLSL compute shaders to native GPU binaries (NVIDIA SM35-SM120, AMD GCN5/RDNA2-4). Configurable SPIR-V portable output. Tensor-core GEMM codegen (HMMA via mma.sync). Artifact provenance with BLAKE3 sporePrint hash + crypto.sign integration. Pure compiler — zero unsafe, zero C dependencies."
 
 [capabilities]
@@ -22,6 +22,7 @@ provided = [
     "shader.compile.wgsl",
     "shader.compile.spirv",
     "shader.compile.wgsl.multi",
+    "shader.compile.multi",
     "shader.compile.gemm",
     "shader.compile.status",
     "shader.compile.capabilities",

@@ -92,6 +92,7 @@ pub const SERVED_METHODS: &[&str] = &[
     "shader.compile.status",
     "shader.compile.capabilities",
     "shader.compile.wgsl.multi",
+    "shader.compile.multi",
     "shader.compile.gemm",
     "health.check",
     "health.liveness",
@@ -545,6 +546,7 @@ mod tests {
         assert!(SERVED_METHODS.contains(&"btsp.negotiate"));
         assert!(SERVED_METHODS.contains(&"shader.compile.wgsl"));
         assert!(SERVED_METHODS.contains(&"shader.compile.spirv"));
+        assert!(SERVED_METHODS.contains(&"shader.compile.multi"));
         assert!(SERVED_METHODS.contains(&"shader.compile.gemm"));
     }
 

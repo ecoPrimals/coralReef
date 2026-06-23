@@ -140,6 +140,15 @@ pub fn dispatch_jsonrpc(
                 Err(e) => Err(IpcServiceError::from(e)),
             }
         }
+        "shader.compile.multi" => {
+            let req: service::BatchCompileRequest = extract_params(params)?;
+            match service::handle_compile_multi(req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::from(e)),
+            }
+        }
         "shader.compile.gemm" => {
             let req: service::GemmCompileRequest = extract_params(params)?;
             match service::handle_compile_gemm(&req) {

@@ -154,6 +154,78 @@ fn dispatch_wgsl_multi_with_empty_array() {
 
 #[cfg(unix)]
 #[test]
+fn dispatch_compile_multi_wgsl_job() {
+    let params = serde_json::json!({
+        "jobs": [{
+            "input_type": "wgsl",
+            "source": "@compute @workgroup_size(64) fn main() {}",
+            "arch": "sm_70"
+        }]
+    });
+    let result = super::newline_jsonrpc::dispatch("shader.compile.multi", params);
+    assert!(result.is_ok());
+    let val = result.unwrap();
+    assert_eq!(val["success_count"], 1);
+    assert_eq!(val["total_count"], 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn dispatch_compile_multi_glsl_job() {
+    let params = serde_json::json!({
+        "jobs": [{
+            "input_type": "glsl",
+            "source": "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}",
+            "arch": "sm_70"
+        }]
+    });
+    let result = super::newline_jsonrpc::dispatch("shader.compile.multi", params);
+    assert!(result.is_ok());
+    let val = result.unwrap();
+    assert_eq!(val["success_count"], 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn dispatch_compile_multi_mixed_jobs() {
+    let params = serde_json::json!({
+        "jobs": [
+            {
+                "input_type": "wgsl",
+                "source": "@compute @workgroup_size(1) fn main() {}",
+                "arch": "sm_70"
+            },
+            {
+                "input_type": "glsl",
+                "source": "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}",
+                "arch": "rdna2"
+            }
+        ]
+    });
+    let result = super::newline_jsonrpc::dispatch("shader.compile.multi", params);
+    assert!(result.is_ok());
+    let val = result.unwrap();
+    assert_eq!(val["success_count"], 2);
+    assert_eq!(val["total_count"], 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn dispatch_compile_multi_empty_jobs_rejected() {
+    let params = serde_json::json!({ "jobs": [] });
+    let result = super::newline_jsonrpc::dispatch("shader.compile.multi", params);
+    assert!(result.is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn dispatch_compile_multi_invalid_params_type() {
+    let result = super::newline_jsonrpc::dispatch("shader.compile.multi", serde_json::json!(true));
+    assert!(result.is_err());
+}
+
+#[cfg(unix)]
+#[test]
 fn make_response_success_format() {
     let resp =
         super::unix_jsonrpc::make_response(serde_json::json!(1), Ok(serde_json::json!("ok")));

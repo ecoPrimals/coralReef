@@ -504,6 +504,89 @@ pub struct MultiDeviceCompileResponse {
     pub total_count: usize,
 }
 
+/// A single compilation job in a batch request.
+///
+/// Each job carries its own input source (WGSL, SPIR-V, or GLSL) and target
+/// architecture, enabling mixed-input batch compilation in a single RPC call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchCompileJob {
+    /// Input language: `"wgsl"`, `"spirv"`, or `"glsl"`.
+    pub input_type: String,
+    /// Source code (for WGSL / GLSL) or base64-encoded bytes (for SPIR-V).
+    #[serde(deserialize_with = "deserialize_arc_str")]
+    pub source: Arc<str>,
+    /// Target GPU architecture (e.g. `"sm_70"`, `"sm_120"`, `"rdna2"`).
+    #[serde(default = "default_arch")]
+    pub arch: String,
+    /// Optimization level (0-3).
+    #[serde(default = "default_opt_level")]
+    pub opt_level: u32,
+    /// Enable f64 software transcendentals.
+    #[serde(default)]
+    pub fp64_software: bool,
+    /// FMA fusion policy hint (e.g. `"fused"`, `"separate"`, `"auto"`).
+    #[serde(default)]
+    pub fma_policy: Option<String>,
+    /// Caller-provided label for correlation (returned in the response).
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+/// Request for batch compilation of mixed-input shaders.
+///
+/// Implements `shader.compile.multi` — the generic batch compilation method.
+/// Unlike `shader.compile.wgsl.multi` (same WGSL to multiple targets), this
+/// accepts an array of independent jobs, each with its own input type, source,
+/// and target architecture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchCompileRequest {
+    /// Array of compilation jobs.
+    pub jobs: Vec<BatchCompileJob>,
+}
+
+/// Result of a single job in a batch compilation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchCompileJobResult {
+    /// Zero-based index of this job in the request.
+    pub index: usize,
+    /// Caller-provided label, echoed back for correlation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Compiled binary (base64-encoded on the wire), or absent on failure.
+    #[serde(rename = "binary_b64", skip_serializing_if = "Option::is_none")]
+    pub binary: Option<Bytes>,
+    /// Binary size in bytes (0 on failure).
+    pub size: usize,
+    /// Target architecture compiled for.
+    pub arch: String,
+    /// Input type that was compiled.
+    pub input_type: String,
+    /// Error message if this job failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Compilation metadata for dispatch descriptor construction.
+    #[serde(
+        rename = "shader_info",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub info: Option<CompilationInfoResponse>,
+    /// Wall-clock compilation time in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compile_time_ms: Option<f64>,
+}
+
+/// Response from batch compilation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchCompileResponse {
+    /// Per-job compilation results (same order as request `jobs`).
+    pub results: Vec<BatchCompileJobResult>,
+    /// Number of jobs that compiled successfully.
+    pub success_count: usize,
+    /// Total number of jobs in the request.
+    pub total_count: usize,
+}
+
 /// `health.check` response per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthCheckResponse {

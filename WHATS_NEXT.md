@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 124 (code size compliance, named constants, zero >800 LOC hand-written production files).
+**Current position**: Phase 10 — Sprint 14 / Wave 125 (shader.compile.multi batch compilation, SM120 codegen verified).
 
-**Last completed**: Wave 124 — Code size compliance (op_shuffle + gpr_hazards extraction, named constants for capability metadata). Wave 123 — Artifact provenance evolution (crypto.sign, BLAKE3 sporePrint hash). Wave 120 — Full ecosystem name scrub.
+**Last completed**: Wave 125 — shader.compile.multi (mixed-input batch compilation: WGSL/SPIR-V/GLSL in single RPC). Wave 124 — Code size compliance. Wave 123 — Artifact provenance evolution (crypto.sign, BLAKE3 sporePrint hash).
 
-**Tests**: 3601 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
+**Tests**: 3631 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 22, 2026.
+**Last updated**: June 23, 2026.
 
 **Next focus**: Coverage push toward 90% (compiler backends are main gap). ironGate deployment validation (gnu binary, RTX 5070 sm_120 compile E2E). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 

@@ -61,6 +61,11 @@ pub trait ShaderCompileTarpc {
     /// Self-description for ecosystem discovery (`identity.get`).
     async fn identity_get() -> service::IdentityGetResponse;
 
+    /// Batch compile mixed-input shaders (`shader.compile.multi`).
+    async fn compile_multi(
+        request: service::BatchCompileRequest,
+    ) -> Result<service::BatchCompileResponse, TarpcCompileError>;
+
     /// Compile HMMA GEMM kernel for tensor-core dispatch (`shader.compile.gemm`).
     async fn gemm(
         request: service::GemmCompileRequest,
@@ -168,6 +173,26 @@ impl ShaderCompileTarpc for TarpcServer {
 
     async fn identity_get(self, _ctx: tarpc::context::Context) -> service::IdentityGetResponse {
         service::handle_identity_get()
+    }
+
+    async fn compile_multi(
+        self,
+        _ctx: tarpc::context::Context,
+        request: service::BatchCompileRequest,
+    ) -> Result<service::BatchCompileResponse, TarpcCompileError> {
+        let deadline = super::newline_jsonrpc::compile_timeout();
+        let task = tokio::task::spawn_blocking(move || {
+            service::handle_compile_multi(request).map_err(service::TarpcCompileError::from_error)
+        });
+        match tokio::time::timeout(deadline, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => Err(TarpcCompileError {
+                message: format!("batch compile task panicked: {e}"),
+            }),
+            Err(_elapsed) => Err(TarpcCompileError {
+                message: format!("batch compilation exceeded {deadline:?} deadline"),
+            }),
+        }
     }
 
     async fn gemm(

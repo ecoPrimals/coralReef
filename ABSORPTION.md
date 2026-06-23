@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: June 22, 2026 (Sprint 14 / Wave 124: 3601 tests, 84% line coverage. Code size compliance — op_shuffle + gpr_hazards extraction, named constants. Zero debt)
+**Last updated**: June 23, 2026 (Sprint 14 / Wave 125: 3631 tests, 84% line coverage. shader.compile.multi batch compilation. Zero debt)
 
 ---
 

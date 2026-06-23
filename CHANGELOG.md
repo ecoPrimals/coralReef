@@ -4,11 +4,20 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 124
+**Current status**: Phase 10 — Sprint 14 / Wave 125
 
 ---
 
 ## [Unreleased]
+
+### Wave 125: shader.compile.multi — Mixed-Input Batch Compilation (2026-06-23)
+
+#### Added
+- `shader.compile.multi` JSON-RPC method: accepts array of compilation jobs with mixed input types (WGSL, SPIR-V base64, GLSL) and independent target architectures in a single RPC call
+- `BatchCompileRequest`, `BatchCompileJob`, `BatchCompileJobResult`, `BatchCompileResponse` wire types with caller-provided `label` for job correlation
+- tarpc `compile_multi` method mirrors JSON-RPC for high-perf binary transport
+- 17 new tests: handler tests (single WGSL, single GLSL, mixed, cross-vendor, partial failure, unsupported input type, empty jobs, labels, index order, serde roundtrip, FMA policy, case-insensitive input_type) + dispatch tests (WGSL job, GLSL job, mixed, empty rejected, invalid params)
+- SM120 Blackwell codegen verified: 17 dedicated tests confirm PTX emission with `.target sm_120` — no fallback to SM70
 
 ### Wave 124: Code Size Compliance — File Splits + Named Constants (2026-06-22)
 
