@@ -451,3 +451,7 @@ impl DisplayOp for OpRedux {
     }
 }
 impl_display_for_op!(OpRedux);
+
+#[cfg(test)]
+#[path = "op_shuffle_tests.rs"]
+mod tests;

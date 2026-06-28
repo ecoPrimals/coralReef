@@ -283,9 +283,16 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
     // accept pre-parsed modules. Not a correctness issue; WGSL parsing is
     // fast relative to native codegen.
     let spirv = if req.emit_spirv {
-        coral_reef::wgsl_to_spirv(req.wgsl_source.as_ref(), &options)
-            .map(Bytes::from)
-            .ok()
+        match coral_reef::wgsl_to_spirv(req.wgsl_source.as_ref(), &options) {
+            Ok(bytes) => Some(Bytes::from(bytes)),
+            Err(e) => {
+                tracing::warn!(
+                    arch = effective_arch,
+                    "SPIR-V emission failed (native binary succeeded): {e}"
+                );
+                None
+            }
+        }
     } else {
         None
     };

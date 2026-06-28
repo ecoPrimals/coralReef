@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: June 28, 2026 (Sprint 14 / Wave 126: 3648 tests, 84% line coverage. SM120 Blackwell edge cases resolved. Zero debt)
+**Last updated**: June 28, 2026 (Sprint 14 / Wave 126: 3649 tests, 84% line coverage. SM120 Blackwell edge cases resolved. Zero debt)
 
 ---
 
@@ -289,7 +289,7 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 3648 tests passing (post-excision: diesel stack removed).
+*93/93 cross-spring WGSL shaders compile to native SASS. 3649 tests passing (post-excision: diesel stack removed).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass.
 19 served IPC methods. SM120 Blackwell edge cases resolved (loop control flow, subgroup builtins, reduce correctness).

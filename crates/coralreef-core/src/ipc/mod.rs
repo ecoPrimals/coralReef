@@ -178,6 +178,8 @@ mod tests_jsonrpc;
 mod tests_newline_jsonrpc;
 #[cfg(all(test, feature = "tarpc-transport"))]
 mod tests_tarpc;
+#[cfg(all(test, feature = "tarpc-transport"))]
+mod tests_tarpc_compile;
 #[cfg(test)]
 mod tests_unix;
 #[cfg(test)]
@@ -186,3 +188,5 @@ mod tests_unix_advanced;
 mod tests_unix_dispatch;
 #[cfg(test)]
 mod tests_unix_edge;
+#[cfg(test)]
+mod tests_unix_integration;

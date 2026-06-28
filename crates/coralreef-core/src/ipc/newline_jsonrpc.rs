@@ -60,6 +60,99 @@ fn extract_params<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// Serialize a service result to JSON, mapping serde errors to internal IPC errors.
+fn to_json(value: impl serde::Serialize) -> Result<serde_json::Value, IpcServiceError> {
+    serde_json::to_value(value).map_err(|e| IpcServiceError::internal(e.to_string()))
+}
+
+/// Dispatch `auth.*` methods.
+fn dispatch_auth(
+    sub: &str,
+    caller: &method_gate::CallerContext,
+) -> Result<serde_json::Value, IpcServiceError> {
+    match sub {
+        "check" => Ok(serde_json::json!({
+            "authenticated": caller.bearer_token.is_some(),
+            "origin": format!("{:?}", caller.origin).to_lowercase(),
+        })),
+        "mode" => Ok(serde_json::json!({
+            "mode": method_gate::gate().mode().as_str(),
+        })),
+        "peer_info" => {
+            let peer_info = caller
+                .peer
+                .as_ref()
+                .map(|p| serde_json::json!({ "uid": p.uid, "pid": p.pid }));
+            Ok(serde_json::json!({
+                "peer": peer_info,
+                "origin": format!("{:?}", caller.origin).to_lowercase(),
+                "has_token": caller.bearer_token.is_some(),
+            }))
+        }
+        other => Err(IpcServiceError::dispatch(format!(
+            "method not found: auth.{other}"
+        ))),
+    }
+}
+
+/// Dispatch `shader.compile.*` methods.
+fn dispatch_shader_compile(
+    sub: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, IpcServiceError> {
+    match sub {
+        "status" => to_json(service::handle_health()),
+        "capabilities" => to_json(service::handle_compile_capabilities()),
+        "wgsl" => {
+            let req: service::CompileWgslRequest = extract_params(params)?;
+            service::handle_compile_wgsl(&req)
+                .map_err(IpcServiceError::from)
+                .and_then(|r| to_json(r.with_provenance()))
+        }
+        "spirv" => {
+            let req: service::CompileRequest = extract_params(params)?;
+            service::handle_compile(&req)
+                .map_err(IpcServiceError::from)
+                .and_then(|r| to_json(r.with_provenance()))
+        }
+        "wgsl.multi" => {
+            let req: service::MultiDeviceCompileRequest = extract_params(params)?;
+            service::handle_compile_wgsl_multi(req)
+                .map_err(IpcServiceError::from)
+                .and_then(to_json)
+        }
+        "multi" => {
+            let req: service::BatchCompileRequest = extract_params(params)?;
+            service::handle_compile_multi(req)
+                .map_err(IpcServiceError::from)
+                .and_then(to_json)
+        }
+        "gemm" => {
+            let req: service::GemmCompileRequest = extract_params(params)?;
+            service::handle_compile_gemm(&req)
+                .map_err(IpcServiceError::from)
+                .and_then(|r| to_json(r.with_provenance()))
+        }
+        other => Err(IpcServiceError::dispatch(format!(
+            "method not found: shader.compile.{other}"
+        ))),
+    }
+}
+
+/// Dispatch `health.*` methods.
+fn dispatch_health(method: &str) -> Result<serde_json::Value, IpcServiceError> {
+    match method {
+        "health" => Ok(service::handle_health_standard()),
+        "health.check" => to_json(service::handle_health_check()),
+        "health.liveness" => to_json(service::handle_health_liveness()),
+        "health.readiness" => to_json(service::handle_health_readiness()),
+        "health.version" => to_json(service::handle_health_version()),
+        other => Err(IpcServiceError::dispatch(format!(
+            "method not found: {other}"
+        ))),
+    }
+}
+
 /// Route a JSON-RPC method call to the appropriate handler.
 ///
 /// The method gate (JH-0) runs pre-dispatch: public methods pass through,
@@ -80,116 +173,23 @@ pub fn dispatch_jsonrpc(
         return Err(IpcServiceError::gate_denied(denied.message));
     }
 
+    if let Some(auth_method) = method.strip_prefix("auth.") {
+        return dispatch_auth(auth_method, &caller);
+    }
+    if let Some(compile_method) = method.strip_prefix("shader.compile.") {
+        return dispatch_shader_compile(compile_method, params);
+    }
+    if method == "health" || method.starts_with("health.") {
+        return dispatch_health(method);
+    }
     match method {
-        "auth.check" => {
-            let resp = serde_json::json!({
-                "authenticated": caller.bearer_token.is_some(),
-                "origin": format!("{:?}", caller.origin).to_lowercase(),
-            });
-            Ok(resp)
-        }
-        "auth.mode" => {
-            let gate = method_gate::gate();
-            let resp = serde_json::json!({
-                "mode": gate.mode().as_str(),
-            });
-            Ok(resp)
-        }
-        "auth.peer_info" => {
-            let peer_info = caller
-                .peer
-                .as_ref()
-                .map(|p| serde_json::json!({ "uid": p.uid, "pid": p.pid }));
-            let resp = serde_json::json!({
-                "peer": peer_info,
-                "origin": format!("{:?}", caller.origin).to_lowercase(),
-                "has_token": caller.bearer_token.is_some(),
-            });
-            Ok(resp)
-        }
-        "shader.compile.status" => {
-            let health = service::handle_health();
-            serde_json::to_value(health).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "shader.compile.capabilities" => {
-            let caps = service::handle_compile_capabilities();
-            serde_json::to_value(caps).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "shader.compile.wgsl" => {
-            let req: service::CompileWgslRequest = extract_params(params)?;
-            match service::handle_compile_wgsl(&req) {
-                Ok(resp) => serde_json::to_value(resp.with_provenance())
-                    .map_err(|e| IpcServiceError::internal(e.to_string())),
-                Err(e) => Err(IpcServiceError::from(e)),
-            }
-        }
-        "shader.compile.spirv" => {
-            let req: service::CompileRequest = extract_params(params)?;
-            match service::handle_compile(&req) {
-                Ok(resp) => serde_json::to_value(resp.with_provenance())
-                    .map_err(|e| IpcServiceError::internal(e.to_string())),
-                Err(e) => Err(IpcServiceError::from(e)),
-            }
-        }
-        "shader.compile.wgsl.multi" => {
-            let req: service::MultiDeviceCompileRequest = extract_params(params)?;
-            match service::handle_compile_wgsl_multi(req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::from(e)),
-            }
-        }
-        "shader.compile.multi" => {
-            let req: service::BatchCompileRequest = extract_params(params)?;
-            match service::handle_compile_multi(req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::from(e)),
-            }
-        }
-        "shader.compile.gemm" => {
-            let req: service::GemmCompileRequest = extract_params(params)?;
-            match service::handle_compile_gemm(&req) {
-                Ok(resp) => serde_json::to_value(resp.with_provenance())
-                    .map_err(|e| IpcServiceError::internal(e.to_string())),
-                Err(e) => Err(IpcServiceError::from(e)),
-            }
-        }
-        "health" => Ok(service::handle_health_standard()),
-        "health.check" => {
-            let resp = service::handle_health_check();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "health.liveness" => {
-            let resp = service::handle_health_liveness();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "health.readiness" => {
-            let resp = service::handle_health_readiness();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "health.version" => {
-            let resp = service::handle_health_version();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "identity.get" => {
-            let resp = service::handle_identity_get();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "capability.list" | "capabilities.list" => {
-            let resp = service::handle_capability_list();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
+        "identity.get" => to_json(service::handle_identity_get()),
+        "capability.list" | "capabilities.list" => to_json(service::handle_capability_list()),
         "btsp.negotiate" => {
             let req: super::btsp_negotiate::NegotiateRequest = extract_params(params)?;
-            match super::btsp_negotiate::handle_negotiate(&req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
-            }
+            super::btsp_negotiate::handle_negotiate(&req)
+                .map_err(|e| IpcServiceError::handler(e.to_string()))
+                .and_then(to_json)
         }
         other => Err(IpcServiceError::dispatch(format!(
             "method not found: {other}"

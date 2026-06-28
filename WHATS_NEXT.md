@@ -6,7 +6,7 @@
 
 **Last completed**: Wave 126 — SM120 edge cases (loop control flow, subgroup builtins, reduce mul). Wave 125 — shader.compile.multi. Wave 124 — Code size compliance.
 
-**Tests**: 3648 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
+**Tests**: 3649 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
 **Last updated**: June 28, 2026.
 
@@ -685,7 +685,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3648 tests passing, zero failures. ~84% workspace coverage.
+3649 tests passing, zero failures. ~84% workspace coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 19 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.

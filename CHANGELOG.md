@@ -21,7 +21,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 #### Added
 - 6 new SM120 PTX emitter tests: break-uses-label, break-outside-loop-membar, subgroup-size-literal-32, num-subgroups-all-dims, subgroup-id-linearized, loop-break-no-bare-ret
 - 5 new batch compile tests: single SPIR-V job, mixed WGSL/SPIR-V/GLSL batch, invalid base64 SPIR-V, SM120 batch compile, SPIR-V batch helper
-- Stale documentation footers updated (3284/Wave 68 → 3648/Wave 126, sporeprint "0 ignored" corrected to "4 ignored (hardware-gated)")
+- Stale documentation footers updated (3284/Wave 68 → 3649/Wave 126, sporeprint "0 ignored" corrected to "4 ignored (hardware-gated)")
 
 ### Wave 125: shader.compile.multi — Mixed-Input Batch Compilation (2026-06-23)
 
