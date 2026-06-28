@@ -176,7 +176,7 @@ diesel engine migration handoff.
 
 Each evolution pass produces strictly better Rust. FFI is scaffolding —
 tracked and replaced. The Rust language and compilation model is the
-advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
+advantage. See `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` (historical).
 
 | Phase | Milestone | Status |
 |-------|-----------|--------|
@@ -186,7 +186,7 @@ advantage. See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`.
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14: SM120 barrier fix, sovereign SPIR-V emission, math pack/unpack builtins, module hardening, deep debt evolution, primal self-knowledge compliance. 3649 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 126: SM120 Blackwell edge cases, `shader.compile.multi`, artifact provenance, convergence debt. 3649 tests, zero debt |
 
 ---
 

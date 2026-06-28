@@ -1238,20 +1238,17 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (4632 passing, 0 failed, 160 ignored hardware-gated) |
-| `cargo llvm-cov` | ~65% line (8 crates >90%, coralreef-core 95.9%, coral-reef 78.6%) |
+| `cargo test --workspace` | PASS (3649 total: 3645 passing, 0 failed, 4 ignored hardware-gated) |
+| `cargo llvm-cov` | ~84% line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` | PASS (0 warnings) |
-| Hardcoded paths | Evolved — all sysfs/proc via `CORALREEF_SYSFS_ROOT` / `CORALREEF_PROC_ROOT` env overrides |
 
-## Hardware — On-Site
+## Hardware — On-Site (ironGate)
 
-| GPU | PCI | Architecture | Kernel Driver | f64 | VRAM | Role |
-|-----|-----|-------------|---------------|-----|------|------|
-| NVIDIA Titan V #1 | 03:00.0 | Volta SM70 (GV100) | vfio-pci | 1/2 | 12 GB HBM2 | Oracle card (VFIO sovereign) |
-| NVIDIA Titan V #2 | 4a:00.0 | Volta SM70 (GV100) | vfio-pci | 1/2 | 12 GB HBM2 | Compute target (VFIO sovereign) |
-| NVIDIA RTX 5060 | 21:00.0 | Ada SM89 | nvidia-drm | 1/64 | 16 GB | Desktop + UVM dispatch |
+| GPU | Architecture | f64 | VRAM | Role |
+|-----|-------------|-----|------|------|
+| NVIDIA RTX 5070 | Blackwell SM120 (GB20x) | 1/64 | 12 GB | GPU compute (ironGate) |
 
 ## Spring Absorption
 

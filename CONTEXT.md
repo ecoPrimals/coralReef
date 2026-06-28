@@ -34,13 +34,13 @@ JSON-RPC 2.0 and tarpc. They discover each other by capability at
 runtime — no hardcoded primal names, no shared code imports.
 
 - Pull wateringHole: `membrane temporal.cascade`
-- Your gate: biomeGate (Threadripper 3970X, Titan V + K80, 256GB)
+- Your gate: ironGate (RTX 5070, GPU compute node)
 - Ecosystem standards live in `ecoPrimals/infra/wateringHole/`
 
 ## Project status (Sprint 14)
 
 - **Tests**: 3649 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
-- **Sprint 14 (current)**: Wave 68 — SM120 `membar.sys` barrier fix (GAP-HS-115), sovereign SPIR-V emission via `naga::back::spv` (GAP-HS-124), math pack/unpack builtins (13 new PTX math ops), `naga::Module` multi-entry-point hardening, `wgsl_to_spirv()` public API. Wave 67: Adapter-aware arch routing, copy-prop multi-component fix, hyperbolic trig, float decomposition (modf/frexp/ldexp). Sprint 13: Inverse trig, geometry math, bit ops, texture queries, module refactor.
+- **Sprint 14 (current)**: Wave 126 — SM120 Blackwell edge cases (loop control flow, subgroup builtins, reduce correctness), convergence debt (file splits, dispatch refactor, error propagation). Wave 125: `shader.compile.multi` mixed-input batch compilation. Wave 124: code size compliance, named constants. Wave 123: artifact provenance (BLAKE3 sporePrint hash, crypto.sign).
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.
@@ -135,5 +135,5 @@ cargo fmt --check
 - **Conventions**: `CONVENTIONS.md`
 - **Status**: `STATUS.md`
 - **Spec**: `specs/CORALREEF_SPECIFICATION.md`
-- **Evolution plan**: `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md`
+- **Evolution plan**: `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md`
 - **Changelog**: `CHANGELOG.md`

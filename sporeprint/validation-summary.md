@@ -28,7 +28,6 @@ springs = []
 | `shader.compile.wgsl` | WGSL → native GPU binary (NVIDIA/AMD) |
 | `shader.compile.spirv` | SPIR-V → native GPU binary |
 | `shader.compile.wgsl.multi` | Same WGSL → multiple GPU targets in one call |
-| `shader.compile.glsl` | GLSL 450 → native GPU binary |
 | `shader.compile.multi` | Mixed-input (WGSL/SPIR-V/GLSL) batch compilation |
 | `shader.compile.gemm` | Tensor-core GEMM kernel (SM80+ mma.sync HMMA) |
 

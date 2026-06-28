@@ -31,10 +31,10 @@
 11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
 12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
 13. ~~**Module refactor**~~ — **DONE** (Wave 61). `math.rs` split, test module extraction, all files < 1000 LOC.
-14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 120; compiler backends are main gap)
+14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 126; compiler backends are main gap)
 15. ~~`naga::Module` ingest path hardening~~ — **DONE** (Wave 68). Multi-entry-point selection, compute-stage enforcement, improved error messages.
 
-### Gate Deployment Readiness (Wave 120 — ironGate)
+### Gate Deployment Readiness (ironGate)
 
 coralReef is assigned to ironGate (Node Atomic: compute trio). Deployment after NUCLEUS enrollment.
 
@@ -83,9 +83,16 @@ complexity. The dedicated `compile_gemm` API is the practical path.
 > crates excised in Sprint 9 (coral-driver, coral-glowplug, coral-ember, coral-gpu).
 > Retained as fossil record.
 
-### Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–71)**
+### Compiler Remaining Work
 
-All files under 1000 LOC (including tests). Iter 71 resolved the last oversized test file:
+1. PTX emitter: texture instructions, cooperative groups, cluster launch (SM120 advanced features)
+2. Coverage push: 84% → 90% (remaining gaps in codegen edge paths)
+3. Sovereign WGSL parser evolution (reduce naga dependency)
+4. Vertex/fragment shader compilation (currently compute-only)
+
+### Historical: Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–71)**
+
+All files under 1000 LOC. Wave 126 additionally resolved 3 files >800 LOC (tests_unix, tests_tarpc, op_conv_tests).
 
 | File | Was | Now | Status |
 |------|-----|-----|--------|

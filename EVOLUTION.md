@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: June 23, 2026 (Phase 10 — Sprint 14 / Wave 125)
-**Phase**: 10 — Sprint 14 / Wave 126: SM120 Blackwell edge cases resolved. 3649 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: June 28, 2026 (Phase 10 — Sprint 14 / Wave 126)
+**Phase**: 10 — Sprint 14 / Wave 126: SM120 Blackwell edge cases, convergence debt (file splits, dispatch refactor). 3649 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
