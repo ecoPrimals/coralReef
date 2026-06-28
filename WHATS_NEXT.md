@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 125 (shader.compile.multi batch compilation, SM120 codegen verified).
+**Current position**: Phase 10 — Sprint 14 / Wave 126 (SM120 Blackwell edge cases resolved).
 
-**Last completed**: Wave 125 — shader.compile.multi (mixed-input batch compilation: WGSL/SPIR-V/GLSL in single RPC). Wave 124 — Code size compliance. Wave 123 — Artifact provenance evolution (crypto.sign, BLAKE3 sporePrint hash).
+**Last completed**: Wave 126 — SM120 edge cases (loop control flow, subgroup builtins, reduce mul). Wave 125 — shader.compile.multi. Wave 124 — Code size compliance.
 
-**Tests**: 3631 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
+**Tests**: 3648 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 23, 2026.
+**Last updated**: June 28, 2026.
 
 **Next focus**: Coverage push toward 90% (compiler backends are main gap). ironGate deployment validation (gnu binary, RTX 5070 sm_120 compile E2E). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
@@ -685,11 +685,9 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3284 tests passing, zero failures. ~80% coral-reef line coverage, 85% function coverage.
+3648 tests passing, zero failures. ~84% workspace coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
-Sovereign SPIR-V emission (Wave 68): `wgsl_to_spirv()` → valid SPIR-V binary for toadStool `vkCreateShaderModule`.
-SM120 barrier fix (Wave 68): `membar.sys` before thread retirement for Blackwell memory model.
-13 new math builtins (Wave 68): Pack/Unpack (4x8unorm/snorm, 2x16float/unorm/snorm), Transpose, Determinant, Inverse.
-IPC: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
+19 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
+SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
 All pure Rust. Sovereignty is a compile choice.*

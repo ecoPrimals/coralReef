@@ -138,6 +138,11 @@ pub struct PtxEmitter<'a> {
     /// Per ray-query opaque state, keyed by the expression handle that holds
     /// the `TypeInner::RayQuery` local/variable.
     pub(crate) ray_queries: HashMap<naga::Handle<naga::Expression>, types::RayQueryState>,
+
+    /// Label to branch to on `break` (top = innermost loop exit).
+    pub(crate) loop_break_label: Vec<String>,
+    /// Label to branch to on `continue` (top = innermost loop header).
+    pub(crate) loop_continue_label: Vec<String>,
 }
 
 #[cfg(test)]

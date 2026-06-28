@@ -46,17 +46,28 @@ impl PtxEmitter<'_> {
         match collective_op {
             naga::CollectiveOperation::Reduce => {
                 let reduce_op = match op {
-                    naga::SubgroupOperation::All => "and",
-                    naga::SubgroupOperation::Any => "or",
-                    _ => "add",
+                    naga::SubgroupOperation::All => Some("and"),
+                    naga::SubgroupOperation::Any => Some("or"),
+                    naga::SubgroupOperation::Add => Some("add"),
+                    naga::SubgroupOperation::Min => Some("min"),
+                    naga::SubgroupOperation::Max => Some("max"),
+                    naga::SubgroupOperation::And => Some("and"),
+                    naga::SubgroupOperation::Or => Some("or"),
+                    naga::SubgroupOperation::Xor => Some("xor"),
+                    naga::SubgroupOperation::Mul => None,
                 };
-                writeln!(
-                    self.body,
-                    "    redux.sync.{reduce_op}.{type_suffix} {}, {}, 0xFFFFFFFF;",
-                    dst.fmt_operand(),
-                    val.fmt_operand(),
-                )
-                .expect("write to String");
+                if let Some(op_str) = reduce_op {
+                    writeln!(
+                        self.body,
+                        "    redux.sync.{op_str}.{type_suffix} {}, {}, 0xFFFFFFFF;",
+                        dst.fmt_operand(),
+                        val.fmt_operand(),
+                    )
+                    .expect("write to String");
+                } else {
+                    let scan_op = Self::scan_op_str(op, val_scalar)?;
+                    self.emit_warp_scan(&val, &dst, type_suffix, scan_op, false, op, val_scalar);
+                }
             }
             naga::CollectiveOperation::InclusiveScan | naga::CollectiveOperation::ExclusiveScan => {
                 let scan_op = Self::scan_op_str(op, val_scalar)?;

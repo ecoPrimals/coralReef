@@ -192,6 +192,82 @@ fn batch_compile_fma_policy_forwarded() {
     assert_eq!(resp.success_count, 1);
 }
 
+fn spirv_job(arch: &str) -> BatchCompileJob {
+    use base64::Engine as _;
+
+    let wgsl = "@compute @workgroup_size(1) fn main() {}";
+    let module = naga::front::wgsl::parse_str(wgsl).expect("WGSL should parse");
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("should validate");
+    let opts = naga::back::spv::Options::default();
+    let pipeline_opts = naga::back::spv::PipelineOptions {
+        shader_stage: naga::ShaderStage::Compute,
+        entry_point: "main".into(),
+    };
+    let words = naga::back::spv::write_vec(&module, &info, &opts, Some(&pipeline_opts))
+        .expect("SPIR-V write should succeed");
+    let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+    let b64 = base64::prelude::BASE64_STANDARD.encode(&bytes);
+
+    BatchCompileJob {
+        input_type: "spirv".into(),
+        source: Arc::from(b64.as_str()),
+        arch: arch.into(),
+        opt_level: 2,
+        fp64_software: false,
+        fma_policy: None,
+        label: None,
+    }
+}
+
+#[test]
+fn batch_compile_single_spirv() {
+    let req = BatchCompileRequest {
+        jobs: vec![spirv_job("sm_70")],
+    };
+    let resp = handle_compile_multi(req).expect("single SPIR-V job should succeed");
+    assert_eq!(resp.total_count, 1);
+    assert_eq!(resp.success_count, 1);
+    assert_eq!(resp.results[0].input_type, "spirv");
+    assert!(resp.results[0].binary.is_some());
+    assert!(resp.results[0].error.is_none());
+}
+
+#[test]
+fn batch_compile_mixed_wgsl_spirv_glsl() {
+    let req = BatchCompileRequest {
+        jobs: vec![wgsl_job("sm_70"), spirv_job("sm_86"), glsl_job("rdna2")],
+    };
+    let resp = handle_compile_multi(req).expect("mixed 3-type batch should succeed");
+    assert_eq!(resp.total_count, 3);
+    assert_eq!(resp.success_count, 3);
+    assert_eq!(resp.results[0].input_type, "wgsl");
+    assert_eq!(resp.results[1].input_type, "spirv");
+    assert_eq!(resp.results[2].input_type, "glsl");
+}
+
+#[test]
+fn batch_compile_invalid_spirv_base64() {
+    let req = BatchCompileRequest {
+        jobs: vec![BatchCompileJob {
+            input_type: "spirv".into(),
+            source: Arc::from("!!!not-base64!!!"),
+            arch: "sm_70".into(),
+            opt_level: 2,
+            fp64_software: false,
+            fma_policy: None,
+            label: None,
+        }],
+    };
+    let resp = handle_compile_multi(req).expect("bad base64 is per-job error");
+    assert_eq!(resp.success_count, 0);
+    assert!(resp.results[0].error.is_some());
+}
+
 #[test]
 fn batch_compile_case_insensitive_input_type() {
     let mut job = wgsl_job("sm_70");
@@ -199,4 +275,15 @@ fn batch_compile_case_insensitive_input_type() {
     let req = BatchCompileRequest { jobs: vec![job] };
     let resp = handle_compile_multi(req).expect("uppercase input_type should work");
     assert_eq!(resp.success_count, 1);
+}
+
+#[test]
+fn batch_compile_sm120_wgsl() {
+    let req = BatchCompileRequest {
+        jobs: vec![wgsl_job("sm_120")],
+    };
+    let resp = handle_compile_multi(req).expect("SM120 batch compile should work");
+    assert_eq!(resp.success_count, 1);
+    assert!(resp.results[0].binary.is_some());
+    assert_eq!(resp.results[0].arch, "sm_120");
 }

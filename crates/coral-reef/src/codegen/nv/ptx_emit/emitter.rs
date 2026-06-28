@@ -38,6 +38,8 @@ impl<'a> PtxEmitter<'a> {
             inline_depth: 0,
             inline_return_val: None,
             ray_queries: std::collections::HashMap::new(),
+            loop_break_label: Vec::new(),
+            loop_continue_label: Vec::new(),
         }
     }
 

@@ -4,11 +4,24 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 125
+**Current status**: Phase 10 — Sprint 14 / Wave 126
 
 ---
 
 ## [Unreleased]
+
+### Wave 126: SM120 Blackwell Edge Cases (2026-06-28)
+
+#### Fixed
+- **Loop break/continue control flow**: `break` now emits `bra` to loop exit label instead of `ret;`; `continue` branches to loop header. Fallback (break outside loop) adds `membar.sys` before `ret` for Blackwell readback safety (GAP-HS-115 closure)
+- **Subgroup reduce multiply**: `SubgroupOperation::Mul` in `CollectiveOperation::Reduce` now uses shuffle-based warp reduction instead of emitting invalid `redux.sync.add` (PTX `redux.sync` has no `.mul` opcode)
+- **NumSubgroups/SubgroupId multi-dim**: `NumSubgroups` now computes `ceil(ntid.x * ntid.y * ntid.z / 32)` instead of `ntid.x / WARP_SZ`. `SubgroupId` linearizes thread index across all dimensions before dividing by warp size
+- **SubgroupSize literal**: uses `mov.u32 r, 32` instead of referencing `WARP_SZ` symbol, ensuring JIT compatibility
+
+#### Added
+- 6 new SM120 PTX emitter tests: break-uses-label, break-outside-loop-membar, subgroup-size-literal-32, num-subgroups-all-dims, subgroup-id-linearized, loop-break-no-bare-ret
+- 5 new batch compile tests: single SPIR-V job, mixed WGSL/SPIR-V/GLSL batch, invalid base64 SPIR-V, SM120 batch compile, SPIR-V batch helper
+- Stale documentation footers updated (3284/Wave 68 → 3648/Wave 126, sporeprint "0 ignored" corrected to "4 ignored (hardware-gated)")
 
 ### Wave 125: shader.compile.multi — Mixed-Input Batch Compilation (2026-06-23)
 

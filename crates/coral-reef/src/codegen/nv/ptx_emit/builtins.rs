@@ -171,7 +171,7 @@ impl PtxEmitter<'_> {
             }
             naga::BuiltIn::SubgroupSize => {
                 let r = self.alloc_r32();
-                writeln!(self.body, "    mov.u32 {}, WARP_SZ;", r.fmt_operand())
+                writeln!(self.body, "    mov.u32 {}, 32;", r.fmt_operand())
                     .expect("write to String");
                 Ok(r)
             }
@@ -191,36 +191,99 @@ impl PtxEmitter<'_> {
             }
             naga::BuiltIn::NumSubgroups => {
                 let nx = self.alloc_r32();
-                let warp = self.alloc_r32();
+                let ny = self.alloc_r32();
+                let nz = self.alloc_r32();
+                let total = self.alloc_r32();
                 let result = self.alloc_r32();
                 writeln!(self.body, "    mov.u32 {}, %ntid.x;", nx.fmt_operand())
                     .expect("write to String");
-                writeln!(self.body, "    mov.u32 {}, WARP_SZ;", warp.fmt_operand())
+                writeln!(self.body, "    mov.u32 {}, %ntid.y;", ny.fmt_operand())
+                    .expect("write to String");
+                writeln!(self.body, "    mov.u32 {}, %ntid.z;", nz.fmt_operand())
                     .expect("write to String");
                 writeln!(
                     self.body,
-                    "    div.u32 {}, {}, {};",
-                    result.fmt_operand(),
+                    "    mul.lo.u32 {}, {}, {};",
+                    total.fmt_operand(),
                     nx.fmt_operand(),
-                    warp.fmt_operand()
+                    ny.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.lo.u32 {}, {}, {};",
+                    total.fmt_operand(),
+                    total.fmt_operand(),
+                    nz.fmt_operand(),
+                )
+                .expect("write to String");
+                let rounded = self.alloc_r32();
+                writeln!(
+                    self.body,
+                    "    add.u32 {}, {}, 31;",
+                    rounded.fmt_operand(),
+                    total.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    shr.u32 {}, {}, 5;",
+                    result.fmt_operand(),
+                    rounded.fmt_operand(),
                 )
                 .expect("write to String");
                 Ok(result)
             }
             naga::BuiltIn::SubgroupId => {
-                let tid = self.alloc_r32();
-                let warp = self.alloc_r32();
+                let tx = self.alloc_r32();
+                let ty = self.alloc_r32();
+                let tz = self.alloc_r32();
+                let nx = self.alloc_r32();
+                let ny = self.alloc_r32();
+                let linear = self.alloc_r32();
                 let result = self.alloc_r32();
-                writeln!(self.body, "    mov.u32 {}, %tid.x;", tid.fmt_operand())
+                writeln!(self.body, "    mov.u32 {}, %tid.x;", tx.fmt_operand())
                     .expect("write to String");
-                writeln!(self.body, "    mov.u32 {}, WARP_SZ;", warp.fmt_operand())
+                writeln!(self.body, "    mov.u32 {}, %tid.y;", ty.fmt_operand())
                     .expect("write to String");
+                writeln!(self.body, "    mov.u32 {}, %tid.z;", tz.fmt_operand())
+                    .expect("write to String");
+                writeln!(self.body, "    mov.u32 {}, %ntid.x;", nx.fmt_operand())
+                    .expect("write to String");
+                writeln!(self.body, "    mov.u32 {}, %ntid.y;", ny.fmt_operand())
+                    .expect("write to String");
+                let tmp = self.alloc_r32();
                 writeln!(
                     self.body,
-                    "    div.u32 {}, {}, {};",
+                    "    mad.lo.u32 {}, {}, {}, {};",
+                    linear.fmt_operand(),
+                    ty.fmt_operand(),
+                    nx.fmt_operand(),
+                    tx.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mul.lo.u32 {}, {}, {};",
+                    tmp.fmt_operand(),
+                    nx.fmt_operand(),
+                    ny.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    mad.lo.u32 {}, {}, {}, {};",
+                    linear.fmt_operand(),
+                    tz.fmt_operand(),
+                    tmp.fmt_operand(),
+                    linear.fmt_operand(),
+                )
+                .expect("write to String");
+                writeln!(
+                    self.body,
+                    "    shr.u32 {}, {}, 5;",
                     result.fmt_operand(),
-                    tid.fmt_operand(),
-                    warp.fmt_operand()
+                    linear.fmt_operand(),
                 )
                 .expect("write to String");
                 Ok(result)

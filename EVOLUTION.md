@@ -3,7 +3,7 @@
 # coralReef — Compiler Evolution
 
 **Last updated**: June 23, 2026 (Phase 10 — Sprint 14 / Wave 125)
-**Phase**: 10 — Sprint 14 / Wave 125: shader.compile.multi (mixed-input batch compilation). 3631 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
+**Phase**: 10 — Sprint 14 / Wave 126: SM120 Blackwell edge cases resolved. 3648 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3631 tests. Zero clippy warnings.
+Pure Rust. Zero unsafe. 3648 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
@@ -529,7 +529,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 | 10 iter 62 | Deep Audit + Coverage + Hardcoding Evolution: 3460+ workspace tests, 68.7% line coverage, 108 ignored hardware-gated, quality gates green (fmt, clippy pedantic+nursery, doc, all files <1000 LOC) | **3460+** (108 ignored), 68.7% line |
 | 10 iter 65 | Deep Debt Solutions + Ecosystem Integration: comprehensive audit closure (20 items), coralctl handlers refactor (1519→4 modules), `identity.get` + `capability.register` + `ipc.heartbeat`, Songbird ecosystem registration, `CORALREEF_DATA_DIR` env evolution | **3956** (119 ignored), ~66% line |
 | 10 iter 66 | hotSpring Firmware Wiring + Coverage Push: `MailboxSet` + `MultiRing` on `DeviceSlot`, ember `RingMeta` persistence, coralctl firmware subcommands, 31 new coverage tests (debug, FP16, ember hold, mailbox_ring handlers) | **4047** (121 ignored), ~66% line |
-| 10 iter 80 (current) | Wire contract, CompilationInfo IPC, socket alignment, deep debt (hot-path alloc, engine_regs extraction, BootConfig Display), feature-gate VFIO constructors, mmu_oracle unit tests, ML pipeline composition tests, `#[must_use]` audit | **4506** (153 ignored), ~65% line |
+| 10 iter 80 | Wire contract, CompilationInfo IPC, socket alignment, deep debt (hot-path alloc, engine_regs extraction, BootConfig Display), feature-gate VFIO constructors, mmu_oracle unit tests, ML pipeline composition tests, `#[must_use]` audit | **4506** (153 ignored, pre-excision), ~65% line |
 | 10 iter 52 | Ecosystem absorption: deny.toml `yanked = "deny"`, OrExit\<T\> pattern, IpcServiceError structured errors, coral-glowplug JSON-RPC 2.0, GpuPersonality trait system, CAP_SYS_ADMIN evolution, DRM consumer fence check, AMD Vega MI50/GFX906 metal registers, dual-format capability parsing | **2185** (2185 passing, 90 ignored), 57.71% coverage |
 
 ---
@@ -537,7 +537,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 14 / Wave 125: 3631 tests passing. Zero unsafe. Zero clippy warnings.
+Sprint 14 / Wave 126: 3648 tests passing. Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.

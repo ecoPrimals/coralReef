@@ -62,6 +62,9 @@ impl PtxEmitter<'_> {
                 let cont_label = self.alloc_label();
                 let end_label = self.alloc_label();
 
+                self.loop_break_label.push(format!("$L{end_label}"));
+                self.loop_continue_label.push(format!("$L{cont_label}"));
+
                 writeln!(self.body, "$L{loop_label}:").expect("write to String");
                 self.emit_block(body)?;
                 writeln!(self.body, "$L{cont_label}:").expect("write to String");
@@ -74,6 +77,9 @@ impl PtxEmitter<'_> {
                 }
                 writeln!(self.body, "    bra $L{loop_label};").expect("write to String");
                 writeln!(self.body, "$L{end_label}:").expect("write to String");
+
+                self.loop_break_label.pop();
+                self.loop_continue_label.pop();
                 Ok(())
             }
             naga::Statement::Return { value } => {
@@ -95,12 +101,21 @@ impl PtxEmitter<'_> {
             }
             naga::Statement::Block(ref block) => self.emit_block(block),
             naga::Statement::Break => {
-                tracing::warn!("standalone Break without label stack — emitting ret as fallback");
-                writeln!(self.body, "    ret;").expect("write to String");
+                if let Some(label) = self.loop_break_label.last() {
+                    writeln!(self.body, "    bra {label};").expect("write to String");
+                } else {
+                    tracing::warn!("Break outside loop — emitting membar+ret as kernel exit");
+                    writeln!(self.body, "    membar.sys;").expect("write to String");
+                    writeln!(self.body, "    ret;").expect("write to String");
+                }
                 Ok(())
             }
             naga::Statement::Continue => {
-                tracing::warn!("standalone Continue without label stack — no-op fallback");
+                if let Some(label) = self.loop_continue_label.last() {
+                    writeln!(self.body, "    bra {label};").expect("write to String");
+                } else {
+                    tracing::warn!("Continue outside loop — no-op fallback");
+                }
                 Ok(())
             }
             naga::Statement::Switch {

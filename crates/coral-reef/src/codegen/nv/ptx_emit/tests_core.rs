@@ -447,3 +447,135 @@ fn ptx_subgroup_exclusive_scan_add() {
         "Expected selp for identity element in exclusive scan in:\n{ptx}"
     );
 }
+
+#[test]
+fn ptx_loop_break_uses_label_not_ret() {
+    let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    var i: u32 = 0u;
+    loop {
+        if i >= 10u { break; }
+        buf[i] = i;
+        continuing { i = i + 1u; }
+    }
+}
+";
+    let result = emit_compute_ptx(wgsl, 120).expect("compile");
+    let ptx = std::str::from_utf8(&result.binary).expect("PTX is UTF-8");
+    let lines: Vec<&str> = ptx.lines().collect();
+    let has_break_bra = lines
+        .iter()
+        .any(|l| l.trim().starts_with("bra $L") || l.trim().starts_with("@"));
+    assert!(
+        has_break_bra,
+        "break should emit bra to label, not standalone ret:\n{ptx}"
+    );
+    let ret_without_membar = lines
+        .windows(2)
+        .filter(|pair| pair[1].trim() == "ret;" && pair[0].trim() != "membar.sys;")
+        .count();
+    assert_eq!(
+        ret_without_membar, 0,
+        "every ret must be preceded by membar.sys on SM120:\n{ptx}"
+    );
+}
+
+#[test]
+fn ptx_break_outside_loop_has_membar() {
+    let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    buf[gid.x] = 42u;
+}
+";
+    let result = emit_compute_ptx(wgsl, 120).expect("compile");
+    let ptx = std::str::from_utf8(&result.binary).expect("PTX is UTF-8");
+    assert!(
+        ptx.contains("membar.sys"),
+        "SM120 PTX must contain membar.sys before ret:\n{ptx}"
+    );
+}
+
+#[test]
+fn ptx_subgroup_size_uses_literal_32() {
+    let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(32)
+fn main(@builtin(subgroup_size) sz: u32) {
+    buf[0] = sz;
+}
+";
+    let result = emit_compute_ptx(wgsl, 120).expect("compile");
+    let ptx = std::str::from_utf8(&result.binary).expect("PTX is UTF-8");
+    assert!(
+        ptx.contains("mov.u32") && ptx.contains("32"),
+        "subgroup_size should use literal 32, not WARP_SZ:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains("WARP_SZ"),
+        "must not reference undefined WARP_SZ symbol:\n{ptx}"
+    );
+}
+
+#[test]
+fn ptx_num_subgroups_uses_all_dims() {
+    let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(8, 4, 2)
+fn main(@builtin(num_subgroups) ns: u32) {
+    buf[0] = ns;
+}
+";
+    let result = emit_compute_ptx(wgsl, 120).expect("compile");
+    let ptx = std::str::from_utf8(&result.binary).expect("PTX is UTF-8");
+    assert!(
+        ptx.contains("%ntid.y"),
+        "num_subgroups must use ntid.y for multi-dim workgroups:\n{ptx}"
+    );
+    assert!(
+        ptx.contains("%ntid.z"),
+        "num_subgroups must use ntid.z for multi-dim workgroups:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains("WARP_SZ"),
+        "must not reference undefined WARP_SZ:\n{ptx}"
+    );
+}
+
+#[test]
+fn ptx_subgroup_id_linearizes_thread_index() {
+    let wgsl = r"
+@group(0) @binding(0)
+var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(8, 4, 2)
+fn main(@builtin(subgroup_id) sid: u32) {
+    buf[0] = sid;
+}
+";
+    let result = emit_compute_ptx(wgsl, 120).expect("compile");
+    let ptx = std::str::from_utf8(&result.binary).expect("PTX is UTF-8");
+    assert!(
+        ptx.contains("%tid.y"),
+        "subgroup_id must linearize across all dims:\n{ptx}"
+    );
+    assert!(
+        ptx.contains("%tid.z"),
+        "subgroup_id must use tid.z for 3D workgroups:\n{ptx}"
+    );
+    assert!(
+        ptx.contains("shr.u32"),
+        "subgroup_id should use shift-right-by-5 (divide by 32):\n{ptx}"
+    );
+}

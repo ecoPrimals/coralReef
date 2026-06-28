@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: June 23, 2026 (Sprint 14 / Wave 125: 3631 tests, 84% line coverage. shader.compile.multi batch compilation. Zero debt)
+**Last updated**: June 28, 2026 (Sprint 14 / Wave 126: 3648 tests, 84% line coverage. SM120 Blackwell edge cases resolved. Zero debt)
 
 ---
 
@@ -289,10 +289,9 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 3284 tests passing (post-excision: diesel stack removed).
+*93/93 cross-spring WGSL shaders compile to native SASS. 3648 tests passing (post-excision: diesel stack removed).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
-5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass (resolved Iteration 31).
-Sovereign SPIR-V emission via `naga::back::spv` (Wave 68). SM120 barrier fix for Blackwell memory model.
-Wire contract documented (SHADER\_COMPILE\_WIRE\_CONTRACT.md). CompilationInfo in IPC responses.
-Sprint 14 / Wave 68: quality gates green (fmt, clippy pedantic+nursery zero warnings, doc, all files <1000 LOC, deny.toml enforced).
-Next: coverage ~80%→90%, naga replacement evolution (sovereign WGSL parser), vertex/fragment shader compilation.*
+5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass.
+19 served IPC methods. SM120 Blackwell edge cases resolved (loop control flow, subgroup builtins, reduce correctness).
+Sprint 14 / Wave 126: quality gates green (fmt, clippy pedantic+nursery zero warnings, doc, all files <1000 LOC, deny.toml enforced).
+Next: coverage ~84%→90%, naga replacement evolution (sovereign WGSL parser), vertex/fragment shader compilation.*

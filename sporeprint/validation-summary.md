@@ -1,7 +1,7 @@
 +++
 title = "coralReef Validation Summary"
-description = "Sovereign Rust GPU shader compiler — 3631 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), shader.compile.multi batch compilation, artifact provenance with BLAKE3 sporePrint hash + crypto.sign signing, configurable SPIR-V output, mesh capability propagation, tensor-core GEMM, zero unsafe, zero C deps"
-date = 2026-06-22
+description = "Sovereign Rust GPU shader compiler — 3648 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), shader.compile.multi batch compilation, SM120 Blackwell edge case fixes, artifact provenance with BLAKE3 sporePrint hash + crypto.sign signing, configurable SPIR-V output, mesh capability propagation, tensor-core GEMM, zero unsafe, zero C deps"
+date = 2026-06-28
 
 [taxonomies]
 primals = ["coralreef"]
@@ -10,8 +10,8 @@ springs = []
 
 ## Status
 
-- **3631 tests** passing, 0 failed, 0 ignored
-- **Version**: 0.2.0 — Sprint 14 / Wave 125
+- **3648 tests** passing, 0 failed, 4 ignored (hardware-gated)
+- **Version**: 0.2.0 — Sprint 14 / Wave 126
 - **Grade**: A++ (Multi-Vendor Sovereign GPU Compiler — Stadial Ready)
 - **License**: AGPL-3.0-or-later
 - **Binary**: `coralreef` (single UniBin, clap subcommands)
@@ -19,7 +19,7 @@ springs = []
 - **BTSP Phase 3** — authenticated IPC (ChaCha20-Poly1305 + HKDF)
 - **Stale socket detection** — connect-probe discovery, PID file liveness
 
-## Key Capabilities (16 served, 3 consumed)
+## Key Capabilities (19 served, 3 consumed)
 
 ### Compilation
 
@@ -28,6 +28,8 @@ springs = []
 | `shader.compile.wgsl` | WGSL → native GPU binary (NVIDIA/AMD) |
 | `shader.compile.spirv` | SPIR-V → native GPU binary |
 | `shader.compile.wgsl.multi` | Same WGSL → multiple GPU targets in one call |
+| `shader.compile.glsl` | GLSL 450 → native GPU binary |
+| `shader.compile.multi` | Mixed-input (WGSL/SPIR-V/GLSL) batch compilation |
 | `shader.compile.gemm` | Tensor-core GEMM kernel (SM80+ mma.sync HMMA) |
 
 ### Health & Identity
@@ -80,7 +82,7 @@ Compiler is consumer-agnostic — any primal requesting `shader.compile.*` is se
 
 ## Test Categories
 
-- PTX emitter: SM120 atomics, barriers, subgroups, scans, texture sampling, texture gather, image atomics, workgroup uniform load, RayQuery, function inlining
+- PTX emitter: SM120 atomics, barriers, subgroups, scans, texture sampling, texture gather, image atomics, workgroup uniform load, RayQuery, function inlining, loop control flow, multi-dim subgroup builtins
 - HMMA GEMM: tile computation, precision modes, boundary checks
 - IPC: tarpc Unix roundtrip, JSON-RPC chaos/fault, BTSP Phase 3 AEAD crypto
 - Compute Trio: wire contract serde, multi-device, dispatch hints
