@@ -1,5 +1,52 @@
 # coralReef — Cargo build configuration
-# Applied workspace-wide by Cargo.
+# ecoBin cross-compilation targets + release profile.
+# coralReef is pure Rust with zero C dependencies.
+
+# ═══════════════════════════════════════════════════════════════════
+# ARM64 Targets
+# ═══════════════════════════════════════════════════════════════════
+
+# ARM64 Linux (musl — static, fully portable)
+# relocation-model=static prevents static-PIE segfault on musl ≤1.2.2
+# link-self-contained=yes: use Rust's bundled musl CRT (no musl-tools needed)
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-gnu-gcc"
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "relocation-model=static",
+    "-C", "link-self-contained=yes",
+]
+
+# ARM64 Android (via NDK — Pixel 8a / GrapheneOS)
+# Requires: ANDROID_NDK_HOME environment variable
+[target.aarch64-linux-android]
+ar = "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+linker = "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang"
+rustflags = [
+    "-C", "link-arg=-lm",
+    "-C", "link-arg=-llog",
+]
+
+# ARM64 Linux (gnu — for development/testing)
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+# ═══════════════════════════════════════════════════════════════════
+# x86_64 Targets
+# ═══════════════════════════════════════════════════════════════════
+
+# x86_64 Linux (musl — static, fully portable)
+# link-self-contained=yes: use Rust's bundled rust-lld + musl CRT
+[target.x86_64-unknown-linux-musl]
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "relocation-model=static",
+    "-C", "link-self-contained=yes",
+]
+
+# ═══════════════════════════════════════════════════════════════════
+# Profiles
+# ═══════════════════════════════════════════════════════════════════
 
 [profile.release]
 lto = "thin"
@@ -7,5 +54,13 @@ codegen-units = 1
 strip = "symbols"
 
 [profile.dev]
-# Faster incremental builds via split debuginfo
 split-debuginfo = "unpacked"
+
+# ═══════════════════════════════════════════════════════════════════
+# Aliases
+# ═══════════════════════════════════════════════════════════════════
+
+[alias]
+build-arm64 = "build --release --target aarch64-unknown-linux-musl --bin coralreef"
+build-x64 = "build --release --target x86_64-unknown-linux-musl --bin coralreef"
+build-android = "build --release --target aarch64-linux-android --bin coralreef"
