@@ -142,8 +142,9 @@ pub fn default_tcp_bind() -> String {
 /// Platform-aware default bind address for tarpc.
 ///
 /// On Unix: returns a path for a Unix domain socket under the canonical
-/// socket directory (3-tier resolution: `$BIOMEOS_SOCKET_DIR` >
-/// `$XDG_RUNTIME_DIR` > `/run/biomeos`), namespaced by primal identity.
+/// socket directory (4-tier resolution: `$BIOMEOS_SOCKET_DIR` >
+/// `$XDG_RUNTIME_DIR` > `/run/biomeos` if exists > temp dir),
+/// namespaced by primal identity.
 /// On non-Unix: returns TCP loopback with OS-assigned port.
 #[cfg(feature = "tarpc-transport")]
 #[must_use]

@@ -13,7 +13,7 @@ use coralreef_core::ipc::{default_unix_socket_path, unix_socket_path_for_base};
 use test_env::{ENV_LOCK, EnvGuard};
 
 #[test]
-fn default_socket_path_uses_run_when_no_env() {
+fn default_socket_path_uses_run_or_temp_when_no_env() {
     let _guard = ENV_LOCK.lock().unwrap();
     let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
     let mut socket_dir = EnvGuard::capture("BIOMEOS_SOCKET_DIR");
@@ -21,14 +21,19 @@ fn default_socket_path_uses_run_when_no_env() {
     socket_dir.remove();
 
     let got = default_unix_socket_path();
-    assert!(
-        got.starts_with("/run/biomeos"),
-        "without XDG or BIOMEOS_SOCKET_DIR, should resolve to /run/biomeos: {got:?}"
-    );
-    assert!(
-        !got.starts_with("/tmp"),
-        "must never fall back to /tmp: {got:?}"
-    );
+    let run_exists = std::path::Path::new("/run/biomeos").exists();
+    if run_exists {
+        assert!(
+            got.starts_with("/run/biomeos"),
+            "with /run/biomeos present, should resolve there: {got:?}"
+        );
+    } else {
+        let temp = std::env::temp_dir().join("biomeos-runtime");
+        assert!(
+            got.starts_with(&temp),
+            "without /run/biomeos, should fall to temp dir: {got:?} (expected prefix: {temp:?})"
+        );
+    }
 }
 
 #[test]
@@ -52,7 +57,7 @@ fn default_socket_path_respects_xdg_runtime_dir() {
 }
 
 #[test]
-fn default_socket_path_empty_xdg_falls_to_run() {
+fn default_socket_path_empty_xdg_falls_to_run_or_temp() {
     let _guard = ENV_LOCK.lock().unwrap();
     let mut xdg = EnvGuard::capture("XDG_RUNTIME_DIR");
     let mut socket_dir = EnvGuard::capture("BIOMEOS_SOCKET_DIR");
@@ -60,14 +65,19 @@ fn default_socket_path_empty_xdg_falls_to_run() {
     socket_dir.remove();
 
     let got = default_unix_socket_path();
-    assert!(
-        got.starts_with("/run/biomeos"),
-        "empty XDG should fall through to /run/biomeos: {got:?}"
-    );
-    assert!(
-        !got.starts_with("/tmp"),
-        "must never fall back to /tmp: {got:?}"
-    );
+    let run_exists = std::path::Path::new("/run/biomeos").exists();
+    if run_exists {
+        assert!(
+            got.starts_with("/run/biomeos"),
+            "empty XDG + /run/biomeos present → should use /run/biomeos: {got:?}"
+        );
+    } else {
+        let temp = std::env::temp_dir().join("biomeos-runtime");
+        assert!(
+            got.starts_with(&temp),
+            "empty XDG + no /run/biomeos → should fall to temp dir: {got:?}"
+        );
+    }
 }
 
 #[test]

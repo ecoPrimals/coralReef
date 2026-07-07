@@ -4,11 +4,19 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 126
+**Current status**: Phase 10 — Sprint 14 / Wave 133a
 
 ---
 
 ## [Unreleased]
+
+### Wave 133a: Android UDS Adaptation (2026-07-07)
+
+#### Fixed
+- **CORALREEF-ANDROID-01**: UDS fatal on Android (grapheneGate) — `socket_base_dir()` now uses 4-tier resolution with temp-dir fallback when `/run/biomeos` does not exist (Android, Termux, constrained environments)
+- **tarpc TCP fallback**: tarpc server bind failure on Unix sockets now falls back to TCP (`127.0.0.1:0`) instead of exiting fatally — allows startup on platforms where UDS paths are unwritable
+- Updated socket resolution tests to be platform-aware (handle both `/run/biomeos`-present and temp-dir-fallback scenarios)
+- Doc comments updated from "3-tier" to "4-tier" resolution across `config.rs`, `unix_jsonrpc.rs`, `ipc/mod.rs`
 
 ### Wave 126: SM120 Blackwell Edge Cases (2026-06-28)
 

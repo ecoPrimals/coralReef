@@ -255,7 +255,7 @@ mod inner {
     /// Build the socket path from an explicit base directory.
     ///
     /// When `runtime_dir` is `None`, falls back to the canonical socket
-    /// base directory (3-tier resolution, never `/tmp`).
+    /// base directory (4-tier resolution with temp-dir fallback).
     /// Per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0:
     /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
     #[must_use]
@@ -269,12 +269,13 @@ mod inner {
             .join(crate::config::primal_socket_name())
     }
 
-    /// Default socket path per wateringHole standard (3-tier resolution).
+    /// Default socket path per wateringHole standard (4-tier resolution).
     ///
     /// Resolution order:
     /// 1. `$BIOMEOS_SOCKET_DIR` — explicit override
     /// 2. `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
-    /// 3. `/run/biomeos/<primal>-<family_id>.sock`
+    /// 3. `/run/biomeos/<primal>-<family_id>.sock` (if `/run/biomeos` exists)
+    /// 4. `$TMPDIR/biomeos-runtime/<primal>-<family_id>.sock` (portable fallback)
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
         crate::config::default_socket_path()

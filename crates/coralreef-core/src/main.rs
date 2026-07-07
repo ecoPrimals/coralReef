@@ -454,6 +454,24 @@ async fn cmd_server(
                 tarpc_bound = Some(bound);
                 tarpc_handle = Some(handle);
             }
+            Err(e) if tarpc_actual_bind.starts_with("unix://") => {
+                tracing::warn!(
+                    error = %e,
+                    bind = %tarpc_actual_bind,
+                    "tarpc Unix socket failed — falling back to TCP tarpc"
+                );
+                let tcp_fallback = ipc::FALLBACK_TCP_BIND;
+                match ipc::start_tarpc_server(tcp_fallback, shutdown_rx.clone()).await {
+                    Ok((bound, handle)) => {
+                        tarpc_bound = Some(bound);
+                        tarpc_handle = Some(handle);
+                        tracing::info!("tarpc TCP fallback started");
+                    }
+                    Err(e2) => {
+                        tracing::warn!(error = %e2, "tarpc TCP fallback also failed — continuing without tarpc");
+                    }
+                }
+            }
             Err(e) => {
                 tracing::error!(error = %e, "failed to start tarpc server");
                 if let Some(h) = &rpc_handle {

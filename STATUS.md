@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: June 28, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 126 (SM120 Blackwell edge cases: loop break/continue control flow, subgroup builtins (SubgroupSize/NumSubgroups/SubgroupId), reduce mul correctness, SPIR-V batch tests. 3649 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
+**Last updated**: July 7, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 133a (Android UDS adaptation: 4-tier socket resolution, tarpc TCP fallback, grapheneGate CORALREEF-ANDROID-01 resolved. 3649 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
 
 ---
 
