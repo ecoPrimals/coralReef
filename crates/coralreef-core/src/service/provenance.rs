@@ -20,10 +20,13 @@
 //! with a tracing warning.
 
 use crate::config;
+#[cfg(unix)]
 use crate::ipc::btsp;
 use crate::service::types::ArtifactProvenance;
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
 use std::path::PathBuf;
+#[cfg(unix)]
 use std::sync::OnceLock;
 
 /// Cached socket path for the `crypto.sign` provider.
@@ -31,9 +34,11 @@ use std::sync::OnceLock;
 /// Resolved once at first use. `None` means no provider was found.
 /// Re-discovery requires process restart — consistent with ecosystem
 /// primal lifecycle (primals restart on topology changes).
+#[cfg(unix)]
 static CRYPTO_SIGN_SOCKET: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// Discover and cache the `crypto.sign` provider socket.
+#[cfg(unix)]
 fn crypto_sign_socket() -> Option<&'static PathBuf> {
     CRYPTO_SIGN_SOCKET
         .get_or_init(|| {

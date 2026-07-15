@@ -110,6 +110,7 @@ impl BtspOutcome {
 
     /// The session ID from a successful Phase 2 authentication, if any.
     #[must_use]
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub fn session_id(&self) -> Option<&str> {
         match self {
             Self::Authenticated { session_id } => Some(session_id),

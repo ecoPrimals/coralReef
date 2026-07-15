@@ -60,11 +60,20 @@ async fn tcp_roundtrip(
     read_http_response_body(&mut stream).await
 }
 
+#[cfg(unix)]
 async fn unix_roundtrip(path: &std::path::Path, body: &[u8]) -> Result<Bytes, RpcError> {
     let mut stream = tokio::net::UnixStream::connect(path).await?;
     let host = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unix");
     send_http_request(&mut stream, host, "/", body).await?;
     read_http_response_body(&mut stream).await
+}
+
+#[cfg(not(unix))]
+async fn unix_roundtrip(_path: &std::path::Path, _body: &[u8]) -> Result<Bytes, RpcError> {
+    Err(RpcError::Io(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Unix sockets not available on this platform",
+    )))
 }
 
 async fn send_http_request<W: AsyncWriteExt + Unpin>(

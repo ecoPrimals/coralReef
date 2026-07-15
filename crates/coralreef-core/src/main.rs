@@ -363,10 +363,14 @@ async fn cmd_server(
 
     let skip_tarpc = matches!(bind, ResolvedBind::TcpOnly { .. });
     let (tarpc_actual_bind, unix_jsonrpc_override) = resolve_uds_binds(tarpc_bind);
+    #[cfg(not(unix))]
+    let _ = unix_jsonrpc_override;
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
 
+    #[cfg_attr(not(unix), allow(unused_assignments))]
     let mut rpc_handle: Option<tokio::task::JoinHandle<()>> = None;
+    #[cfg_attr(not(unix), allow(unused_assignments))]
     let mut rpc_addr: Option<std::net::SocketAddr> = None;
     #[cfg(unix)]
     let mut unix_jsonrpc_path: Option<std::path::PathBuf> = None;
@@ -421,6 +425,8 @@ async fn cmd_server(
                     return UniBinExit::GeneralError;
                 }
             }
+            #[cfg(not(unix))]
+            let _ = sock_ovr;
             #[cfg(unix)]
             {
                 let path = sock_ovr

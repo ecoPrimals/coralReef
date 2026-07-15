@@ -21,7 +21,7 @@
 use std::fmt;
 use std::net::SocketAddr;
 
-#[cfg(feature = "tarpc-transport")]
+#[cfg(all(unix, feature = "tarpc-transport"))]
 use crate::config;
 use crate::env_keys;
 
@@ -63,6 +63,7 @@ pub use newline_jsonrpc::start_newline_tcp_jsonrpc;
 pub use newline_jsonrpc::dispatch;
 
 pub mod btsp;
+#[cfg_attr(not(unix), allow(dead_code))]
 pub mod btsp_negotiate;
 
 #[cfg(unix)]

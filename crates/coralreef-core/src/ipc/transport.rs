@@ -118,6 +118,7 @@ pub enum ResolvedBind {
     /// Bind UDS only (launcher-injected transport).
     UdsOnly {
         /// Path to bind the Unix domain socket.
+        #[cfg_attr(not(unix), allow(dead_code))]
         path: std::path::PathBuf,
     },
     /// Bind TCP only (launcher-injected transport).

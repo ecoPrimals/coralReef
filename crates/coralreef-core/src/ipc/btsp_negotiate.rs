@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! BTSP Phase 3 — `btsp.negotiate` server handler and encrypted session keys.
 //!
+//! Crypto primitives are platform-independent; callers are unix-gated.
+//!
 //! After a successful Phase 2 BTSP handshake (in [`super::btsp`]), the client may
 //! send a `btsp.negotiate` JSON-RPC call to upgrade the channel from plaintext to
 //! ChaCha20-Poly1305 AEAD. This module handles that negotiation and provides the

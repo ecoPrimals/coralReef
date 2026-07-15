@@ -77,6 +77,7 @@ pub fn handle_capability_list() -> CapabilityListResponse {
     let methods = SERVED_METHODS.iter().map(|&s| s.into()).collect();
 
     let transport: Vec<Cow<'static, str>> = {
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut t = vec![Cow::Borrowed("tcp"), Cow::Borrowed("tarpc")];
         #[cfg(unix)]
         t.insert(0, Cow::Borrowed("uds"));

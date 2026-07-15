@@ -15,10 +15,9 @@
 //! peer names.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
+#[cfg(unix)]
 use serde::Serialize;
-use serde_json::json;
 use thiserror::Error;
 
 use crate::capability::SelfDescription;
@@ -27,18 +26,20 @@ use crate::env_keys;
 
 // biomeOS dispatch graph cost/latency hints for `primal.announce`.
 // These are approximate performance metadata — not SLA guarantees.
-/// Relative compute cost: basic compilation path.
-const COST_COMPILE: f64 = 60.0;
-/// Relative compute cost: full shader compilation pipeline.
-const COST_SHADER_COMPILE: f64 = 80.0;
-/// Relative compute cost: GPU dispatch coordination.
-const COST_GPU_DISPATCH: f64 = 100.0;
-/// Expected latency: basic compilation (milliseconds).
-const LATENCY_COMPILE_MS: u32 = 500;
-/// Expected latency: full shader compilation (milliseconds).
-const LATENCY_SHADER_COMPILE_MS: u32 = 800;
-/// Expected latency: GPU dispatch coordination (milliseconds).
-const LATENCY_GPU_DISPATCH_MS: u32 = 50;
+#[cfg(unix)]
+mod announce_hints {
+    pub const COST_COMPILE: f64 = 60.0;
+    pub const COST_SHADER_COMPILE: f64 = 80.0;
+    pub const COST_GPU_DISPATCH: f64 = 100.0;
+    pub const LATENCY_COMPILE_MS: u32 = 500;
+    pub const LATENCY_SHADER_COMPILE_MS: u32 = 800;
+    pub const LATENCY_GPU_DISPATCH_MS: u32 = 50;
+}
+#[cfg(unix)]
+use announce_hints::{
+    COST_COMPILE, COST_GPU_DISPATCH, COST_SHADER_COMPILE, LATENCY_COMPILE_MS,
+    LATENCY_GPU_DISPATCH_MS, LATENCY_SHADER_COMPILE_MS,
+};
 
 /// Errors from ecosystem JSON-RPC calls (non-fatal; logged at debug level).
 #[derive(Debug, Error)]
@@ -100,6 +101,7 @@ pub fn spawn_registration(desc: SelfDescription) {
 
 #[cfg(unix)]
 async fn heartbeat_loop(path: PathBuf) {
+    use std::time::Duration;
     use tokio::time::{MissedTickBehavior, interval};
 
     const DEFAULT_HEARTBEAT_INTERVAL_SECS: u64 = 45;
@@ -208,6 +210,7 @@ pub fn jsonrpc_bind_to_unix_path(bind: &str) -> Option<PathBuf> {
 /// Delegates to [`config::default_socket_path`] — the single canonical
 /// source of truth for socket path resolution. This guarantees the
 /// advertised path in `primal.announce` matches the actual bind path.
+#[cfg(unix)]
 fn resolve_own_socket_path() -> PathBuf {
     config::default_socket_path()
 }
@@ -234,6 +237,12 @@ fn socket_is_alive(path: &Path) -> bool {
     )
 }
 
+#[cfg(not(unix))]
+fn socket_is_alive(_path: &Path) -> bool {
+    false
+}
+
+#[cfg(unix)]
 #[derive(Serialize)]
 struct RegisterParams<'a> {
     name: &'static str,
@@ -266,6 +275,7 @@ async fn send_capability_register(
 
 #[cfg(unix)]
 async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
+    use serde_json::json;
     let socket_path = resolve_own_socket_path();
     let params = json!({
         "primal": config::PRIMAL_NAME,
@@ -291,6 +301,7 @@ async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
 
 #[cfg(unix)]
 async fn send_ipc_heartbeat(path: &Path) -> Result<(), EcosystemError> {
+    use serde_json::json;
     let params = json!({
         "name": config::PRIMAL_NAME,
         "version": config::PRIMAL_VERSION,
@@ -306,6 +317,7 @@ async fn send_jsonrpc_line(
     params: serde_json::Value,
     id: u64,
 ) -> Result<(), EcosystemError> {
+    use serde_json::json;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::UnixStream;
     use tokio::time::timeout;
