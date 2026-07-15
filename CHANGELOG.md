@@ -4,11 +4,35 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 133a
+**Current status**: Phase 10 — Sprint 14 / Wave 143
 
 ---
 
 ## [Unreleased]
+
+### Wave 143: Deep Debt — File Splits, Namespace-Agnostic Paths (2026-07-15)
+
+#### Changed
+- Split 3 test files >800 LOC into 6 focused modules: `codegen_coverage_extended` (926→540) + `codegen_coverage_crossarch` (422), `spring_absorption` (925→601) + `spring_absorption_advanced` (349), `codegen_coverage_targeted` (858→431) + `codegen_coverage_ops` (431)
+- Extract `btsp.rs` inline tests to `btsp/tests_btsp.rs` (797→416 LOC production code)
+- `socket_base_dir()` now uses `ecosystem_namespace()` for `/run/{ns}` and `{ns}-runtime` paths — full `$BIOMEOS_ECOSYSTEM_NAMESPACE` override support
+- Removed 4 unused imports: `service`, `Bytes` (tests_tarpc), `DeviceTarget` (service/tests), `super::*` (main_tests/discovery)
+
+### Wave 141a: Cross-Architecture Adoption (2026-07-09)
+
+#### Changed
+- `#[cfg(unix)]` / `#[cfg(not(unix))]` guards on all Unix-specific code: `transport.rs`, `ecosystem/mod.rs`, `btsp.rs`, `btsp_negotiate.rs`, `provenance.rs`, `main.rs`, `service/mod.rs`
+- `cargo check --target x86_64-pc-windows-gnu` now succeeds with zero errors and zero warnings
+- `unix_roundtrip()` returns `ErrorKind::Unsupported` on non-Unix platforms
+
+### Wave 133b: Convergence Pattern Hardening (2026-07-07)
+
+#### Added
+- `rust-toolchain.toml`: explicit stable channel with `rustfmt`, `clippy`, `llvm-tools-preview`
+- `.cargo/config.toml`: ecosystem cross-compilation targets (musl, Android) and convenience aliases
+
+#### Changed
+- Verified `PRIMAL_BIND_MODE=tcp_only` correctly skips all UDS attempts
 
 ### Wave 133a: Android UDS Adaptation (2026-07-07)
 

@@ -40,7 +40,7 @@ runtime — no hardcoded primal names, no shared code imports.
 ## Project status (Sprint 14)
 
 - **Tests**: 3649 workspace tests, 0 failed. Zero clippy warnings. Zero unsafe.
-- **Sprint 14 (current)**: Wave 126 — SM120 Blackwell edge cases (loop control flow, subgroup builtins, reduce correctness), convergence debt (file splits, dispatch refactor, error propagation). Wave 125: `shader.compile.multi` mixed-input batch compilation. Wave 124: code size compliance, named constants. Wave 123: artifact provenance (BLAKE3 sporePrint hash, crypto.sign).
+- **Sprint 14 (current)**: Wave 143 — SM120 Blackwell edge cases (loop control flow, subgroup builtins, reduce correctness), convergence debt (file splits, dispatch refactor, error propagation). Wave 125: `shader.compile.multi` mixed-input batch compilation. Wave 124: code size compliance, named constants. Wave 123: artifact provenance (BLAKE3 sporePrint hash, crypto.sign).
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.
@@ -117,7 +117,7 @@ FRAGO: `FRAGO_CORALREEF_SPIRV_EMISSION_WAVE68_JUN02_2026.md`
 Root cause identified: missing `membar.sys` before `ret;`/`exit;` in PTX emitter
 for SM120+ targets. SASS inserts `insert_exit_system_membar()` automatically but
 PTX does not. Fix applied to `emitter.rs`, `statements.rs`, and `gemm.rs`.
-Awaiting hardware validation by hotSpring on RTX 5060.
+(addressed Wave 126 — SM120 barrier fix deployed)
 FRAGO: `FRAGO_CORALREEF_SM120_BARRIER_FIX_WAVE68_JUN02_2026.md`
 
 ## Quick start
@@ -135,5 +135,5 @@ cargo fmt --check
 - **Conventions**: `CONVENTIONS.md`
 - **Status**: `STATUS.md`
 - **Spec**: `specs/CORALREEF_SPECIFICATION.md`
-- **Evolution plan**: `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md`
+- **Evolution plan**: `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` (historical — pre-excision driver narrative)
 - **Changelog**: `CHANGELOG.md`

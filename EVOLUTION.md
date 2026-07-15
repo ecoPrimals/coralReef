@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: June 28, 2026 (Phase 10 — Sprint 14 / Wave 126)
-**Phase**: 10 — Sprint 14 / Wave 126: SM120 Blackwell edge cases, convergence debt (file splits, dispatch refactor). 3649 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: July 15, 2026 (Phase 10 — Sprint 14 / Wave 143)
+**Phase**: 10 — Sprint 14 / Wave 143: SM120 Blackwell edge cases, convergence debt (file splits, dispatch refactor). 3649 tests, 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -537,7 +537,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 14 / Wave 126: 3649 tests passing. Zero unsafe. Zero clippy warnings.
+Sprint 14 / Wave 143: 3649 tests passing. Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.

@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 133a (Android UDS adaptation, 4-tier socket resolution, tarpc TCP fallback; 3649 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 143 (deep debt pass, namespace-agnostic paths, file size compliance; 3649 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -186,10 +186,10 @@ advantage. See `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` (historical).
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 126: SM120 Blackwell edge cases, `shader.compile.multi`, artifact provenance, convergence debt. 3649 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 143: SM120 Blackwell, `shader.compile.multi`, namespace-agnostic paths, cross-arch Windows, file size compliance. 3649 tests, zero debt |
 
 ---
 
 **License**: AGPL-3.0-or-later (upstream-derived files retain original attribution)
 **Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals  
-**IPC**: `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.wgsl.multi`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `identity.get`, `capability.register`, `ipc.heartbeat`, `btsp.negotiate`, `auth.*` — JSON-RPC 2.0 + tarpc + ecosystem mesh relay
+**IPC**: 18 served methods (JSON-RPC 2.0 + tarpc): `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.multi`, `shader.compile.wgsl.multi`, `shader.compile.gemm`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `health.version`, `identity.get`, `capability.list`, `capabilities.list`, `btsp.negotiate`, `auth.check`, `auth.mode`, `auth.peer_info` — 5 consumed: `compute.dispatch`, `capability.register`, `ipc.heartbeat`, `primal.announce`, `crypto.sign`

@@ -8,18 +8,15 @@ Deployment scaffolding for the coralReef primal.
 
 ```
 genomebin/
-└── config/     config templates, environment configs
+└── config/
+    └── config-template.toml   deployment config template
 ```
 
-Planned:
-
-- `wrapper/` — genome-wrapper.sh, system detection
-- `services/` — systemd, launchd, rc.d templates
-- `scripts/` — create, test, sign scripts
+`wrapper/`, `services/`, and `scripts/` are not yet present.
 
 ## Status
 
 **Active** — compiler pipeline fully operational (`cargo run -- compile`).
 Pure compiler primal — hardware dispatch delegated to toadStool (Sprint 9 excision).
-Sovereign SPIR-V emission (Wave 68), SM120 barrier fix, full math builtin coverage.
+Sovereign SPIR-V emission, SM120 barrier fix, full math builtin coverage.
 3649 tests, zero clippy warnings, zero FFI, zero unsafe.

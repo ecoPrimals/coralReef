@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: July 7, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 133a (Android UDS adaptation: 4-tier socket resolution, tarpc TCP fallback, grapheneGate CORALREEF-ANDROID-01 resolved. 3649 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
+**Last updated**: July 15, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 143 (deep debt: file splits, namespace-agnostic paths, cross-arch Windows. 3649 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
 
 ---
 
@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A+ | Single binary: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef server`: `--port` + `--bind-mode` (standard envelope), `--socket PATH` (UDS override for NUCLEUS launcher). Diesel binaries excised Sprint 9 |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 19 served methods (`health` + `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 4 consumed (`capability.register`, `ipc.heartbeat`, `primal.announce`, `compute.dispatch`), ecosystem `discovery` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (ecosystem wire-compatible), **zero /tmp** socket paths, **riboCipher signal acceptance** (`[0xEC, 0x01]` prefix strip) |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 18 served methods (`health` + `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 5 consumed (`compute.dispatch`, `capability.register`, `ipc.heartbeat`, `primal.announce`, `crypto.sign`), ecosystem `discovery` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (ecosystem wire-compatible), **zero /tmp** socket paths, **riboCipher signal acceptance** (`[0xEC, 0x01]` prefix strip) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |
@@ -21,7 +21,7 @@
 | Vendor-agnostic arch | A+ | `Shader` holds `&dyn ShaderModel` — idiomatic Rust trait dispatch, no manual vtables |
 | coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to compute-dispatch provider |
 | coralGpu | — | *Excised Sprint 9* — dispatch delegated to compute-dispatch provider |
-| Code structure | A+ | All files under 1000 LOC. Smart refactoring: ecosystem.rs → directory module (343 LOC + extracted tests), btsp.rs test extraction (779 LOC), service 828→146 (Iter 76). Excised hardware crates removed Sprint 9. |
+| Code structure | A+ | All files under 1000 LOC. Smart refactoring: ecosystem.rs → directory module (343 LOC + extracted tests), btsp.rs test extraction (797→416 LOC), service 828→146 (Iter 76). Excised hardware crates removed Sprint 9. |
 | Tests | A+ | 3649 passing, 0 failed, IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery NotImplemented coverage, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening, SPIR-V version targeting, provenance hash determinism, mesh registration payload validation, SPIR-V e2e compile→provenance→validation, **TransportEndpoint injection tests (19)**, **capabilities.list dispatch**, **socket cleanup paths**, **ecosystem discovery capability-domain tests** |
 | Error handling | A+ | Typed errors via `thiserror` (`CompileError`, `EcosystemError`, `IpcError`, `TarpcCompileError`); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
@@ -33,15 +33,15 @@
 | Tolerance model | A | 13-tier `tol::` module (ecosystem precision alignment), `within()`, `compare_all()` |
 | FMA control | A | `FmaPolicy` enum (AllowFusion / NoContraction) in `CompileOptions` |
 | Uniform buffers | A | `var<uniform>` → CBuf reads (scalar/vector/matrix), struct field access |
-| GlowPlug security | A+ | BDF validation, connection limits, idle timeout, circuit breaker, chaos/fault/pen testing (143 tests), `device.lend`/`device.reclaim` VFIO broker |
-| Boot sovereignty | A+ | vfio-pci.ids preemption, softdep nvidia ordering, initramfs, boot safety validation |
+| GlowPlug security | — | *Excised Sprint 9* — hardware security delegated to compute-dispatch provider |
+| Boot sovereignty | — | *Excised Sprint 9* — boot sovereignty delegated to gate/dispatch providers |
 
 ## Phase Status
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 77** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 143** |
 
 ### Post-101: Sprint 6 — Ecosystem Wave Sync: Phase D Markers, FECS Stability (May 12, 2026)
 

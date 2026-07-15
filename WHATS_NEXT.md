@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 126 (SM120 Blackwell edge cases resolved).
+**Current position**: Phase 10 — Sprint 14 / Wave 143 (SM120 Blackwell edge cases resolved).
 
-**Last completed**: Wave 126 — SM120 edge cases (loop control flow, subgroup builtins, reduce mul). Wave 125 — shader.compile.multi. Wave 124 — Code size compliance.
+**Last completed**: Wave 143 — SM120 edge cases (loop control flow, subgroup builtins, reduce mul). Wave 125 — shader.compile.multi. Wave 124 — Code size compliance.
 
 **Tests**: 3649 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: June 28, 2026.
+**Last updated**: July 15, 2026.
 
 **Next focus**: Coverage push toward 90% (compiler backends are main gap). ironGate deployment validation (gnu binary, RTX 5070 sm_120 compile E2E). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
@@ -31,7 +31,7 @@
 11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
 12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
 13. ~~**Module refactor**~~ — **DONE** (Wave 61). `math.rs` split, test module extraction, all files < 1000 LOC.
-14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 126; compiler backends are main gap)
+14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 143; compiler backends are main gap)
 15. ~~`naga::Module` ingest path hardening~~ — **DONE** (Wave 68). Multi-entry-point selection, compute-stage enforcement, improved error messages.
 
 ### Gate Deployment Readiness (ironGate)
@@ -92,7 +92,7 @@ complexity. The dedicated `compile_gemm` API is the practical path.
 
 ### Historical: Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–71)**
 
-All files under 1000 LOC. Wave 126 additionally resolved 3 files >800 LOC (tests_unix, tests_tarpc, op_conv_tests).
+All files under 1000 LOC. Wave 143 additionally resolved 3 files >800 LOC (tests_unix, tests_tarpc, op_conv_tests).
 
 | File | Was | Now | Status |
 |------|-----|-----|--------|
@@ -694,7 +694,7 @@ the full Spring absorption map.
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
 3649 tests passing, zero failures. ~84% workspace coverage.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
-19 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
+18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
 Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
 All pure Rust. Sovereignty is a compile choice.*
