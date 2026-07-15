@@ -144,7 +144,7 @@ pub fn default_tcp_bind() -> String {
 ///
 /// On Unix: returns a path for a Unix domain socket under the canonical
 /// socket directory (4-tier resolution: `$BIOMEOS_SOCKET_DIR` >
-/// `$XDG_RUNTIME_DIR` > `/run/biomeos` if exists > temp dir),
+/// `$XDG_RUNTIME_DIR` > `/run/{namespace}` if exists > temp dir),
 /// namespaced by primal identity.
 /// On non-Unix: returns TCP loopback with OS-assigned port.
 #[cfg(feature = "tarpc-transport")]

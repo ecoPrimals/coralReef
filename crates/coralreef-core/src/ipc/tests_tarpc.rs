@@ -4,8 +4,6 @@
 // All panic!("expected TCP address") below are test-only assertions:
 // start_tarpc_tcp_server returns BoundAddr::Tcp by design.
 use super::*;
-use crate::service;
-use bytes::Bytes;
 use tokio_serde::formats::Bincode;
 
 #[tokio::test]

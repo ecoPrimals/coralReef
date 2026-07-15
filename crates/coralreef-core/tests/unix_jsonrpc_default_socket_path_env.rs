@@ -9,6 +9,7 @@
 #[path = "test_env.rs"]
 mod test_env;
 
+use coralreef_core::config::ecosystem_namespace;
 use coralreef_core::ipc::{default_unix_socket_path, unix_socket_path_for_base};
 use test_env::{ENV_LOCK, EnvGuard};
 
@@ -20,18 +21,20 @@ fn default_socket_path_uses_run_or_temp_when_no_env() {
     xdg.remove();
     socket_dir.remove();
 
+    let ns = ecosystem_namespace();
     let got = default_unix_socket_path();
-    let run_exists = std::path::Path::new("/run/biomeos").exists();
+    let run_dir = format!("/run/{ns}");
+    let run_exists = std::path::Path::new(&run_dir).exists();
     if run_exists {
         assert!(
-            got.starts_with("/run/biomeos"),
-            "with /run/biomeos present, should resolve there: {got:?}"
+            got.starts_with(&run_dir),
+            "with {run_dir} present, should resolve there: {got:?}"
         );
     } else {
-        let temp = std::env::temp_dir().join("biomeos-runtime");
+        let temp = std::env::temp_dir().join(format!("{ns}-runtime"));
         assert!(
             got.starts_with(&temp),
-            "without /run/biomeos, should fall to temp dir: {got:?} (expected prefix: {temp:?})"
+            "without {run_dir}, should fall to temp dir: {got:?} (expected prefix: {temp:?})"
         );
     }
 }
@@ -64,18 +67,20 @@ fn default_socket_path_empty_xdg_falls_to_run_or_temp() {
     xdg.set("");
     socket_dir.remove();
 
+    let ns = ecosystem_namespace();
     let got = default_unix_socket_path();
-    let run_exists = std::path::Path::new("/run/biomeos").exists();
+    let run_dir = format!("/run/{ns}");
+    let run_exists = std::path::Path::new(&run_dir).exists();
     if run_exists {
         assert!(
-            got.starts_with("/run/biomeos"),
-            "empty XDG + /run/biomeos present → should use /run/biomeos: {got:?}"
+            got.starts_with(&run_dir),
+            "empty XDG + {run_dir} present → should use {run_dir}: {got:?}"
         );
     } else {
-        let temp = std::env::temp_dir().join("biomeos-runtime");
+        let temp = std::env::temp_dir().join(format!("{ns}-runtime"));
         assert!(
             got.starts_with(&temp),
-            "empty XDG + no /run/biomeos → should fall to temp dir: {got:?}"
+            "empty XDG + no {run_dir} → should fall to temp dir: {got:?}"
         );
     }
 }

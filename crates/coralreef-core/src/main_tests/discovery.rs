@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-use super::*;
 
 use coralreef_core::capability::{Capability, SelfDescription, Transport};
 use coralreef_core::server_lifecycle::{remove_discovery_file_from, write_discovery_file_to};

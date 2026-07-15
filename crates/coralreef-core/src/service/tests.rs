@@ -6,7 +6,7 @@ use compile::parse_target;
 use coral_reef::{AmdArch, FmaPolicy, GpuArch, GpuTarget, NvArch};
 use std::sync::Arc;
 use types::{
-    CompileRequest, CompileResponse, CompileWgslRequest, DeviceTarget, MultiDeviceCompileRequest,
+    CompileRequest, CompileResponse, CompileWgslRequest, MultiDeviceCompileRequest,
 };
 
 #[test]

@@ -214,9 +214,9 @@ pub fn primal_socket_name() -> String {
 /// Resolution order (first non-empty wins):
 /// 1. `$BIOMEOS_SOCKET_DIR` — explicit override from composition launcher
 /// 2. `$XDG_RUNTIME_DIR` — Linux/freedesktop runtime directory
-/// 3. `/run/biomeos` — system fallback (standard for production deployments),
-///    **only if the directory exists and is writable**
-/// 4. `$TMPDIR` / system temp dir — platform-portable fallback
+/// 3. `/run/{namespace}` — system fallback (standard for production deployments),
+///    **only if the directory exists** (namespace from [`ecosystem_namespace()`])
+/// 4. `$TMPDIR/{namespace}-runtime` — platform-portable fallback
 ///    (Android, Termux, constrained environments)
 ///
 /// This is the canonical resolution used by both socket binding and
@@ -236,14 +236,16 @@ pub fn socket_base_dir() -> PathBuf {
             return PathBuf::from(trimmed);
         }
     }
-    let system_dir = PathBuf::from("/run/biomeos");
+    let ns = ecosystem_namespace();
+    let system_dir = PathBuf::from(format!("/run/{ns}"));
     if system_dir.exists() {
         return system_dir;
     }
-    let fallback = std::env::temp_dir().join("biomeos-runtime");
+    let fallback = std::env::temp_dir().join(format!("{ns}-runtime"));
     tracing::debug!(
         path = %fallback.display(),
-        "using temp-dir fallback for socket base (no /run/biomeos, no XDG_RUNTIME_DIR)"
+        ns,
+        "using temp-dir fallback for socket base (no /run/{ns}, no XDG_RUNTIME_DIR)"
     );
     fallback
 }
@@ -265,8 +267,8 @@ pub fn default_socket_path() -> PathBuf {
 /// Resolution order (first non-empty wins):
 /// 1. `$BIOMEOS_SOCKET_DIR` — explicit override from composition launcher
 /// 2. `$XDG_RUNTIME_DIR/{namespace}` — Linux/freedesktop standard
-/// 3. `/run/biomeos` — system fallback (only if exists)
-/// 4. `$TMPDIR/biomeos-runtime` — platform-portable fallback
+/// 3. `/run/{namespace}` — system fallback (only if exists)
+/// 4. `$TMPDIR/{namespace}-runtime` — platform-portable fallback
 ///
 /// # Errors
 ///
