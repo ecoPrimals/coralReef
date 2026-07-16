@@ -28,14 +28,14 @@ use crate::capability::SelfDescription;
 use crate::config;
 use coral_reef::{AmdArch, NvArch};
 
-static IDENTITY_ADVERTISED: OnceLock<IdentityGetResponse> = OnceLock::new();
+static IDENTITY_ADVERTISED: OnceLock<std::sync::Arc<IdentityGetResponse>> = OnceLock::new();
 static STARTUP_INSTANT: OnceLock<std::time::Instant> = OnceLock::new();
 
 /// Store the primal identity for `identity.get` after IPC binds (full transports).
 ///
 /// If not called, [`handle_identity_get`] returns [`IdentityGetResponse::fallback`].
 pub fn set_identity_for_ipc(identity: IdentityGetResponse) {
-    let _ = IDENTITY_ADVERTISED.set(identity);
+    let _ = IDENTITY_ADVERTISED.set(std::sync::Arc::new(identity));
 }
 
 /// Build identity from a bound [`SelfDescription`] and publish for JSON-RPC.
@@ -50,12 +50,15 @@ pub fn set_identity_from_self_description(desc: &SelfDescription) {
 }
 
 /// `identity.get` — return this primal's self-description for ecosystem discovery.
+///
+/// Returns an `Arc` to avoid cloning the full capability/transport vectors
+/// on every RPC call. `Arc<T>` implements `Serialize` via `Deref`.
 #[must_use]
-pub fn handle_identity_get() -> IdentityGetResponse {
+pub fn handle_identity_get() -> std::sync::Arc<IdentityGetResponse> {
     IDENTITY_ADVERTISED
         .get()
         .cloned()
-        .unwrap_or_else(IdentityGetResponse::fallback)
+        .unwrap_or_else(|| std::sync::Arc::new(IdentityGetResponse::fallback()))
 }
 
 /// Re-export from config — single source of truth accessible without cfg gates.

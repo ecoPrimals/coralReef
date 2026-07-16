@@ -359,8 +359,7 @@ async fn guard_connection_inner_dev_mode() {
 
 #[test]
 fn discover_security_socket_returns_none_in_clean_env() {
-    if std::env::var("BTSP_PROVIDER_SOCKET").is_ok() || std::env::var("BEARDOG_SOCKET").is_ok()
-    {
+    if std::env::var("BTSP_PROVIDER_SOCKET").is_ok() {
         return;
     }
 

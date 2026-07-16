@@ -172,7 +172,7 @@ impl ShaderCompileTarpc for TarpcServer {
     }
 
     async fn identity_get(self, _ctx: tarpc::context::Context) -> service::IdentityGetResponse {
-        service::handle_identity_get()
+        (*service::handle_identity_get()).clone()
     }
 
     async fn compile_multi(

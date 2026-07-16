@@ -70,14 +70,6 @@ pub const FAMILY_SEED: &str = "FAMILY_SEED";
 /// Security-domain provider socket path (preferred).
 pub const BTSP_PROVIDER_SOCKET: &str = "BTSP_PROVIDER_SOCKET";
 
-/// Deprecated alias for [`BTSP_PROVIDER_SOCKET`].
-///
-/// **Removal target: v0.3.0.** Migrate to [`BTSP_PROVIDER_SOCKET`].
-/// The legacy name embeds a specific primal identity; the modern name is
-/// capability-based.
-#[deprecated(since = "0.2.0", note = "use BTSP_PROVIDER_SOCKET")]
-pub const BEARDOG_SOCKET: &str = "BEARDOG_SOCKET";
-
 /// Ecosystem discovery relay socket path from the composition launcher.
 pub const DISCOVERY_SOCKET: &str = "DISCOVERY_SOCKET";
 

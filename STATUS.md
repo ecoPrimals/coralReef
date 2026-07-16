@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: July 16, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 144 (Silicon Atheism Phase 2: transport abstraction — `connect_local()` / `connect_local_sync()` centralize all client UDS dispatch. 3649 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
+**Version**: 0.2.0 — Sprint 14 / Wave 145 (deep debt: BEARDOG_SOCKET excised, provenance error visibility, mutex poison logging, main.rs 788→627 LOC dedup, identity.get Arc optimization. 3648 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
 
 ---
 

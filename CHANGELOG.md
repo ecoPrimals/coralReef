@@ -4,11 +4,23 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 144
+**Current status**: Phase 10 — Sprint 14 / Wave 145
 
 ---
 
 ## [Unreleased]
+
+### Wave 145: Deep Debt — Error Handling, De-hardcoding, Deduplication (2026-07-16)
+
+#### Removed
+- **`BEARDOG_SOCKET`** env var and `security_provider_socket_legacy()` — hardcoded primal name excised; pure capability-based `$BTSP_PROVIDER_SOCKET` is the sole path
+
+#### Changed
+- `provenance.rs`: all `.ok()` calls in `try_sign()` now emit `tracing::warn` with context before discarding errors; timeouts extracted to `CRYPTO_SIGN_READ_TIMEOUT` / `CRYPTO_SIGN_WRITE_TIMEOUT` named constants
+- `btsp_negotiate.rs`: mutex poison on session/key registries now logged with `tracing::warn` instead of silently downgrading
+- `main.rs`: collapsed duplicate `cmd_server` (tarpc / no-tarpc) into single unified function (788→627 LOC, net -169 lines)
+- `service/mod.rs`: `IDENTITY_ADVERTISED` stores `Arc<IdentityGetResponse>` — JSON-RPC `identity.get` avoids per-call clone
+- `tarpc_transport.rs`: `identity_get` handler explicitly clones from Arc (tarpc requires owned return)
 
 ### Wave 144: Silicon Atheism Phase 2 — Transport Abstraction (2026-07-16)
 

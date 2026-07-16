@@ -15,6 +15,12 @@ pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 /// Default ecosystem registry RPC timeout.
 pub const DEFAULT_REGISTRY_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Default read timeout for `crypto.sign` provider RPC.
+pub const CRYPTO_SIGN_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default write timeout for `crypto.sign` provider RPC.
+pub const CRYPTO_SIGN_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// Resolve the shutdown timeout (env-configurable via `$CORALREEF_SHUTDOWN_TIMEOUT_SECS`).
 #[must_use]
 pub fn shutdown_timeout() -> Duration {
@@ -279,25 +285,11 @@ pub fn discovery_dir() -> std::io::Result<PathBuf> {
 
 /// Resolve the security-domain provider socket path.
 ///
-/// The composition launcher sets `$BTSP_PROVIDER_SOCKET` (preferred) or
-/// `$BEARDOG_SOCKET` (legacy alias) to the concrete path.
-/// Returns `None` when unset or empty (standalone/dev mode).
+/// The composition launcher sets `$BTSP_PROVIDER_SOCKET` to the concrete
+/// path. Returns `None` when unset or empty (standalone/dev mode).
 #[must_use]
 pub fn btsp_provider_socket() -> Option<PathBuf> {
     non_empty_env_path(env_keys::BTSP_PROVIDER_SOCKET)
-}
-
-/// Deprecated legacy alias — reads `$BEARDOG_SOCKET`.
-///
-/// Prefer [`btsp_provider_socket`] (`$BTSP_PROVIDER_SOCKET`). This exists
-/// only for backward compatibility with composition launchers that have not
-/// yet migrated to the generic env var name.
-#[deprecated(since = "0.2.0", note = "use btsp_provider_socket() instead")]
-#[must_use]
-pub fn security_provider_socket_legacy() -> Option<PathBuf> {
-    #[allow(deprecated)]
-    let key = env_keys::BEARDOG_SOCKET;
-    non_empty_env_path(key)
 }
 
 /// Resolve the ecosystem discovery relay socket path.
@@ -447,14 +439,6 @@ mod tests {
         let path = discovery_dir().unwrap();
         let parent = path.parent().unwrap_or(&path);
         assert!(parent.exists() || std::fs::create_dir_all(parent).is_ok());
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn security_provider_legacy_returns_none_when_unset() {
-        if std::env::var("BEARDOG_SOCKET").is_err() {
-            assert!(security_provider_socket_legacy().is_none());
-        }
     }
 
     #[test]

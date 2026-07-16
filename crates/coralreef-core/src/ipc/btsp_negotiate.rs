@@ -185,10 +185,13 @@ pub fn handle_negotiate(req: &NegotiateRequest) -> Result<NegotiateResponse, Neg
 ///
 /// In development mode, unknown sessions are accepted with `None` key.
 fn lookup_session(session_id: &str) -> Result<Option<[u8; 32]>, NegotiateError> {
-    let entry = session_registry()
-        .lock()
-        .ok()
-        .and_then(|sessions| sessions.get(session_id).map(|e| e.handshake_key));
+    let entry = session_registry().lock().map_or_else(
+        |_| {
+            tracing::warn!("session_registry mutex poisoned — treating as missing session");
+            None
+        },
+        |sessions| sessions.get(session_id).map(|e| e.handshake_key),
+    );
 
     entry.map_or_else(
         || {
@@ -360,10 +363,15 @@ fn store_negotiated_keys(session_id: &str, keys: SessionKeys) {
 /// `"chacha20-poly1305"` to switch to encrypted framing.
 #[must_use]
 pub fn take_negotiated_keys(session_id: &str) -> Option<SessionKeys> {
-    negotiated_keys_registry()
-        .lock()
-        .ok()
-        .and_then(|mut map| map.remove(session_id))
+    negotiated_keys_registry().lock().map_or_else(
+        |_| {
+            tracing::warn!(
+                "negotiated_keys_registry mutex poisoned — encryption upgrade unavailable"
+            );
+            None
+        },
+        |mut map| map.remove(session_id),
+    )
 }
 
 // ──── Errors ───────────────────────────────────────────────────────────────

@@ -75,7 +75,6 @@ fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
     #[cfg(unix)]
     {
         use std::io::{BufRead, BufReader, Write};
-        use std::time::Duration;
 
         let socket_path = crypto_sign_socket()?;
 
@@ -89,9 +88,13 @@ fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
             })
             .ok()?;
 
-        stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
         stream
-            .set_write_timeout(Some(Duration::from_secs(2)))
+            .set_read_timeout(Some(config::CRYPTO_SIGN_READ_TIMEOUT))
+            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: set_read_timeout failed"))
+            .ok()?;
+        stream
+            .set_write_timeout(Some(config::CRYPTO_SIGN_WRITE_TIMEOUT))
+            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: set_write_timeout failed"))
             .ok()?;
 
         let request = serde_json::json!({
@@ -104,18 +107,31 @@ fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
             "id": 1,
         });
 
-        let mut payload = serde_json::to_vec(&request).ok()?;
+        let mut payload = serde_json::to_vec(&request)
+            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: request serialization failed"))
+            .ok()?;
         payload.push(b'\n');
 
         let mut stream_ref = &stream;
-        stream_ref.write_all(&payload).ok()?;
-        stream_ref.flush().ok()?;
+        stream_ref
+            .write_all(&payload)
+            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: write failed"))
+            .ok()?;
+        stream_ref
+            .flush()
+            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: flush failed"))
+            .ok()?;
 
         let mut reader = BufReader::new(&stream);
         let mut line = String::new();
-        reader.read_line(&mut line).ok()?;
+        reader
+            .read_line(&mut line)
+            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: read response failed"))
+            .ok()?;
 
-        let resp: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+        let resp: serde_json::Value = serde_json::from_str(line.trim())
+            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: response parse failed"))
+            .ok()?;
 
         if let Some(err) = resp.get("error") {
             tracing::warn!(

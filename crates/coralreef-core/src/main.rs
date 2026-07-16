@@ -164,19 +164,16 @@ async fn main() -> ExitCode {
             #[cfg(feature = "tarpc-transport")]
             let tarpc_bind = tarpc_bind.unwrap_or_else(ipc::default_tarpc_bind);
             #[cfg(feature = "tarpc-transport")]
-            {
-                cmd_server(
-                    &effective_bind,
-                    &tarpc_bind,
-                    socket.as_deref(),
-                    bind_mode.as_deref(),
-                )
-                .await
-            }
+            let tarpc = Some(tarpc_bind.as_str());
             #[cfg(not(feature = "tarpc-transport"))]
-            {
-                cmd_server(&effective_bind, socket.as_deref(), bind_mode.as_deref()).await
-            }
+            let tarpc: Option<&str> = None;
+            cmd_server(
+                &effective_bind,
+                tarpc,
+                socket.as_deref(),
+                bind_mode.as_deref(),
+            )
+            .await
         }
         Commands::Compile {
             input,
@@ -275,14 +272,11 @@ fn shutdown_join_timeout_elapsed_message(join_timeout: std::time::Duration) -> S
 
 /// Log NUCLEUS composition environment variables at startup for diagnostics.
 fn log_composition_env() {
-    #[allow(deprecated)]
-    let legacy_btsp = config::security_provider_socket_legacy().map(|p| p.display().to_string());
     let vars = [
         (
             "BTSP_PROVIDER_SOCKET",
             config::btsp_provider_socket().map(|p| p.display().to_string()),
         ),
-        ("BEARDOG_SOCKET (deprecated)", legacy_btsp),
         (
             "DISCOVERY_SOCKET",
             config::discovery_socket().map(|p| p.display().to_string()),
@@ -341,10 +335,9 @@ fn resolve_uds_binds(tarpc_bind: &str) -> (String, Option<std::path::PathBuf>) {
     (format!("{UNIX_PREFIX}{}", tarpc_path.display()), Some(path))
 }
 
-#[cfg(feature = "tarpc-transport")]
 async fn cmd_server(
     rpc_bind: &str,
-    tarpc_bind: &str,
+    tarpc_bind: Option<&str>,
     socket_override: Option<&std::path::Path>,
     bind_mode: Option<&str>,
 ) -> UniBinExit {
@@ -355,7 +348,11 @@ async fn cmd_server(
         return UniBinExit::ConfigError;
     }
 
-    tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
+    if tarpc_bind.is_some() {
+        tracing::info!("{} server starting", env!("CARGO_PKG_NAME"));
+    } else {
+        tracing::info!("{} server starting (JSON-RPC only)", env!("CARGO_PKG_NAME"));
+    }
     log_composition_env();
 
     let bind = match resolve_bind_with_mode(rpc_bind, socket_override, bind_mode) {
@@ -366,8 +363,9 @@ async fn cmd_server(
         }
     };
 
-    let skip_tarpc = matches!(bind, ResolvedBind::TcpOnly { .. });
-    let (tarpc_actual_bind, unix_jsonrpc_override) = resolve_uds_binds(tarpc_bind);
+    let skip_tarpc = tarpc_bind.is_none() || matches!(bind, ResolvedBind::TcpOnly { .. });
+    let (tarpc_actual_bind, unix_jsonrpc_override) =
+        tarpc_bind.map_or_else(|| (String::new(), None), resolve_uds_binds);
     #[cfg(not(unix))]
     let _ = unix_jsonrpc_override;
 
@@ -376,226 +374,6 @@ async fn cmd_server(
     #[cfg_attr(not(unix), allow(unused_assignments))]
     let mut rpc_handle: Option<tokio::task::JoinHandle<()>> = None;
     #[cfg_attr(not(unix), allow(unused_assignments))]
-    let mut rpc_addr: Option<std::net::SocketAddr> = None;
-    #[cfg(unix)]
-    let mut unix_jsonrpc_path: Option<std::path::PathBuf> = None;
-    #[cfg(unix)]
-    let mut unix_jsonrpc_handle: Option<tokio::task::JoinHandle<()>> = None;
-
-    match &bind {
-        ResolvedBind::TcpOnly { addr } => {
-            tracing::info!(addr, tarpc_bind, "binding TCP (transport-injected) + tarpc");
-            match ipc::start_newline_tcp_jsonrpc(addr, shutdown_rx.clone()).await {
-                Ok((bound, handle)) => {
-                    rpc_addr = Some(bound);
-                    rpc_handle = Some(handle);
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to start TCP JSON-RPC server");
-                    return UniBinExit::GeneralError;
-                }
-            }
-        }
-        #[cfg(unix)]
-        ResolvedBind::UdsOnly { path } => {
-            tracing::info!(path = %path.display(), tarpc_bind, "binding UDS (transport-injected) + tarpc");
-            match ipc::start_unix_jsonrpc_server(path, shutdown_rx.clone()).await {
-                Ok((_path, handle)) => {
-                    unix_jsonrpc_path = Some(path.clone());
-                    unix_jsonrpc_handle = Some(handle);
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to start Unix JSON-RPC server");
-                    return UniBinExit::GeneralError;
-                }
-            }
-        }
-        #[cfg(not(unix))]
-        ResolvedBind::UdsOnly { .. } => {
-            tracing::error!("UDS transport injection not supported on this platform");
-            return UniBinExit::ConfigError;
-        }
-        ResolvedBind::Both {
-            tcp_bind,
-            socket_override: sock_ovr,
-        } => {
-            tracing::info!(tcp_bind, tarpc_bind, "binding addresses (standalone mode)");
-            match ipc::start_newline_tcp_jsonrpc(tcp_bind, shutdown_rx.clone()).await {
-                Ok((bound, handle)) => {
-                    rpc_addr = Some(bound);
-                    rpc_handle = Some(handle);
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to start JSON-RPC server");
-                    return UniBinExit::GeneralError;
-                }
-            }
-            #[cfg(not(unix))]
-            let _ = sock_ovr;
-            #[cfg(unix)]
-            {
-                let path = sock_ovr
-                    .clone()
-                    .or(unix_jsonrpc_override)
-                    .unwrap_or_else(ipc::default_unix_socket_path);
-                match ipc::start_unix_jsonrpc_server(&path, shutdown_rx.clone()).await {
-                    Ok((_p, handle)) => {
-                        tracing::info!(path = %path.display(), "Unix JSON-RPC server started");
-                        unix_jsonrpc_path = Some(path);
-                        unix_jsonrpc_handle = Some(handle);
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Unix JSON-RPC server failed to start (ecosystem primal discovery degraded)");
-                    }
-                }
-            }
-        }
-    }
-
-    let mut tarpc_bound: Option<ipc::BoundAddr> = None;
-    let mut tarpc_handle: Option<tokio::task::JoinHandle<()>> = None;
-
-    if skip_tarpc {
-        tracing::info!(
-            "PRIMAL_BIND_MODE=tcp_only — skipping tarpc server (JSON-RPC TCP serves all methods)"
-        );
-    } else {
-        match ipc::start_tarpc_server(&tarpc_actual_bind, shutdown_rx.clone()).await {
-            Ok((bound, handle)) => {
-                tarpc_bound = Some(bound);
-                tarpc_handle = Some(handle);
-            }
-            Err(e) if tarpc_actual_bind.starts_with("unix://") => {
-                tracing::warn!(
-                    error = %e,
-                    bind = %tarpc_actual_bind,
-                    "tarpc Unix socket failed — falling back to TCP tarpc"
-                );
-                let tcp_fallback = ipc::FALLBACK_TCP_BIND;
-                match ipc::start_tarpc_server(tcp_fallback, shutdown_rx.clone()).await {
-                    Ok((bound, handle)) => {
-                        tarpc_bound = Some(bound);
-                        tarpc_handle = Some(handle);
-                        tracing::info!("tarpc TCP fallback started");
-                    }
-                    Err(e2) => {
-                        tracing::warn!(error = %e2, "tarpc TCP fallback also failed — continuing without tarpc");
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "failed to start tarpc server");
-                if let Some(h) = &rpc_handle {
-                    h.abort();
-                }
-                return UniBinExit::GeneralError;
-            }
-        }
-    }
-
-    let mut transports = Vec::new();
-    if let Some(addr) = rpc_addr {
-        transports.push(coralreef_core::capability::Transport {
-            protocol: "jsonrpc".into(),
-            address: addr.to_string().into(),
-        });
-    }
-    if let Some(ref bound) = tarpc_bound {
-        transports.push(coralreef_core::capability::Transport {
-            protocol: format!("tarpc+{}", bound.protocol()).into(),
-            address: bound.to_string().into(),
-        });
-    }
-    #[cfg(unix)]
-    if let Some(ref path) = unix_jsonrpc_path {
-        transports.push(coralreef_core::capability::Transport {
-            protocol: "jsonrpc+unix".into(),
-            address: format!("unix://{}", path.display()).into(),
-        });
-    }
-    let desc = coralreef_core::capability::self_description();
-    let desc = coralreef_core::capability::with_transports(desc, transports);
-    tracing::info!(
-        rpc_addr = ?rpc_addr,
-        tarpc_addr = ?tarpc_bound,
-        provides = ?desc.provides.iter().map(|c| &c.id).collect::<Vec<_>>(),
-        requires = ?desc.requires.iter().map(|c| &c.id).collect::<Vec<_>>(),
-        "{} ready — capability advertisement prepared", env!("CARGO_PKG_NAME")
-    );
-
-    service::set_identity_from_self_description(&desc);
-
-    if let Err(e) = write_discovery_file(&desc).await {
-        tracing::warn!(error = %e, "failed to write discovery file (peers must use fallback discovery)");
-    }
-
-    write_pid_file();
-
-    coralreef_core::ecosystem::spawn_registration(desc);
-
-    let signal_received = wait_for_shutdown_signal().await;
-    tracing::info!(signal = ?signal_received, "received shutdown signal, stopping servers");
-
-    let _ = shutdown_tx.send(());
-
-    let join_timeout = shutdown_join_timeout();
-    let shutdown_result = tokio::time::timeout(join_timeout, async move {
-        if let Some(h) = rpc_handle {
-            if let Err(e) = h.await {
-                tracing::warn!(error = %e, "JSON-RPC task join failed during shutdown");
-            }
-        }
-        if let Some(h) = tarpc_handle {
-            if let Err(e) = h.await {
-                tracing::warn!(error = %e, "tarpc task join failed during shutdown");
-            }
-        }
-        #[cfg(unix)]
-        if let Some(h) = unix_jsonrpc_handle {
-            if let Err(e) = h.await {
-                tracing::warn!(error = %e, "Unix JSON-RPC task join failed during shutdown");
-            }
-        }
-    })
-    .await;
-
-    if shutdown_result.is_err() {
-        tracing::warn!("{}", shutdown_join_timeout_elapsed_message(join_timeout));
-    }
-
-    remove_discovery_file().await;
-    remove_pid_file();
-
-    UniBinExit::Signal
-}
-
-#[cfg(not(feature = "tarpc-transport"))]
-async fn cmd_server(
-    rpc_bind: &str,
-    socket_override: Option<&std::path::Path>,
-    bind_mode: Option<&str>,
-) -> UniBinExit {
-    use ipc::transport::{ResolvedBind, resolve_bind_with_mode};
-
-    if let Err(e) = config::validate_insecure_guard() {
-        tracing::error!(error = %e, "configuration rejected");
-        return UniBinExit::ConfigError;
-    }
-
-    tracing::info!("{} server starting (JSON-RPC only)", env!("CARGO_PKG_NAME"));
-    log_composition_env();
-
-    let bind = match resolve_bind_with_mode(rpc_bind, socket_override, bind_mode) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::error!(error = %e, "TRANSPORT_ENDPOINT resolution failed");
-            return UniBinExit::ConfigError;
-        }
-    };
-
-    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
-
-    let mut rpc_handle: Option<tokio::task::JoinHandle<()>> = None;
     let mut rpc_addr: Option<std::net::SocketAddr> = None;
     #[cfg(unix)]
     let mut unix_jsonrpc_path: Option<std::path::PathBuf> = None;
@@ -650,10 +428,13 @@ async fn cmd_server(
                     return UniBinExit::GeneralError;
                 }
             }
+            #[cfg(not(unix))]
+            let _ = sock_ovr;
             #[cfg(unix)]
             {
                 let path = sock_ovr
                     .clone()
+                    .or(unix_jsonrpc_override)
                     .unwrap_or_else(ipc::default_unix_socket_path);
                 match ipc::start_unix_jsonrpc_server(&path, shutdown_rx.clone()).await {
                     Ok((_p, handle)) => {
@@ -669,11 +450,63 @@ async fn cmd_server(
         }
     }
 
+    #[cfg(feature = "tarpc-transport")]
+    let (mut tarpc_bound, mut tarpc_handle): (
+        Option<ipc::BoundAddr>,
+        Option<tokio::task::JoinHandle<()>>,
+    ) = (None, None);
+
+    #[cfg(feature = "tarpc-transport")]
+    if skip_tarpc {
+        tracing::info!(
+            "tarpc skipped (tcp_only or not configured)"
+        );
+    } else {
+        match ipc::start_tarpc_server(&tarpc_actual_bind, shutdown_rx.clone()).await {
+            Ok((bound, handle)) => {
+                tarpc_bound = Some(bound);
+                tarpc_handle = Some(handle);
+            }
+            Err(e) if tarpc_actual_bind.starts_with("unix://") => {
+                tracing::warn!(
+                    error = %e,
+                    bind = %tarpc_actual_bind,
+                    "tarpc Unix socket failed — falling back to TCP tarpc"
+                );
+                let tcp_fallback = ipc::FALLBACK_TCP_BIND;
+                match ipc::start_tarpc_server(tcp_fallback, shutdown_rx.clone()).await {
+                    Ok((bound, handle)) => {
+                        tarpc_bound = Some(bound);
+                        tarpc_handle = Some(handle);
+                        tracing::info!("tarpc TCP fallback started");
+                    }
+                    Err(e2) => {
+                        tracing::warn!(error = %e2, "tarpc TCP fallback also failed — continuing without tarpc");
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to start tarpc server");
+                if let Some(h) = &rpc_handle {
+                    h.abort();
+                }
+                return UniBinExit::GeneralError;
+            }
+        }
+    }
+
     let mut transports = Vec::new();
     if let Some(addr) = rpc_addr {
         transports.push(coralreef_core::capability::Transport {
             protocol: "jsonrpc".into(),
             address: addr.to_string().into(),
+        });
+    }
+    #[cfg(feature = "tarpc-transport")]
+    if let Some(ref bound) = tarpc_bound {
+        transports.push(coralreef_core::capability::Transport {
+            protocol: format!("tarpc+{}", bound.protocol()).into(),
+            address: bound.to_string().into(),
         });
     }
     #[cfg(unix)]
@@ -712,6 +545,12 @@ async fn cmd_server(
         if let Some(h) = rpc_handle {
             if let Err(e) = h.await {
                 tracing::warn!(error = %e, "JSON-RPC task join failed during shutdown");
+            }
+        }
+        #[cfg(feature = "tarpc-transport")]
+        if let Some(h) = tarpc_handle {
+            if let Err(e) = h.await {
+                tracing::warn!(error = %e, "tarpc task join failed during shutdown");
             }
         }
         #[cfg(unix)]
