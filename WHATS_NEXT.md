@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 143 (SM120 Blackwell edge cases resolved).
+**Current position**: Phase 10 — Sprint 14 / Wave 145.
 
-**Last completed**: Wave 143 — SM120 edge cases (loop control flow, subgroup builtins, reduce mul). Wave 125 — shader.compile.multi. Wave 124 — Code size compliance.
+**Last completed**: Wave 145 — deep debt (BEARDOG excised, provenance error visibility, main.rs dedup 788→627, identity.get Arc). Wave 144 — `local_transport` transport abstraction (Silicon Atheism Phase 2). Wave 143 — file splits, namespace-agnostic paths. Wave 125 — shader.compile.multi.
 
-**Tests**: 3649 passing, 0 failed. 84% line coverage. Zero clippy warnings. Zero unsafe.
+**Tests**: 3650 total (3646 passing, 4 ignored). 84% line coverage. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: July 15, 2026.
+**Last updated**: July 16, 2026.
 
 **Next focus**: Coverage push toward 90% (compiler backends are main gap). ironGate deployment validation (gnu binary, RTX 5070 sm_120 compile E2E). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
@@ -31,7 +31,7 @@
 11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
 12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
 13. ~~**Module refactor**~~ — **DONE** (Wave 61). `math.rs` split, test module extraction, all files < 1000 LOC.
-14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 143; compiler backends are main gap)
+14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 145; compiler backends are main gap)
 15. ~~`naga::Module` ingest path hardening~~ — **DONE** (Wave 68). Multi-entry-point selection, compute-stage enforcement, improved error messages.
 
 ### Gate Deployment Readiness (ironGate)
@@ -104,7 +104,7 @@ All files under 1000 LOC. Wave 143 additionally resolved 3 files >800 LOC (tests
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 
-**Approaching 1000 (monitor):** `tests_unix_edge.rs` (935, test), `nv_metal.rs` (882), `vfio/memory.rs` (874). Iter 101 refactored: `error.rs` (928→mod 412 + vfio 523), `pfifo.rs` (882→695 + bar2_init 199), `nv/mod.rs` (857→747 + fecs_init 124). Iter 82 extracted tests: `nvidia_headers.rs` (839→460), `firmware_parser.rs` (806→318), `registers.rs` (822→725). `codegen_coverage_saturation.rs` (was 982) split into 572 + 441 (Iter 81). Former monolithic files now directories: `shader_header` → 5 submodules (Iter 77); `personality` → 2 submodules (Iter 77); `sysmem_impl` → orchestrator + 5 submodules (Iter 76); `sec2_hal` → 9-file directory (Iter 76); `identity` → 7-file directory (Iter 76); `uvm_compute` → 5 submodules (Iter 74); `pci_discovery` → 7 submodules (Iter 74).
+**Approaching 800 (monitor):** `sm20/encoder.rs` (795), `amd/encoding.rs` (795) — near threshold, split candidates by instruction/encoding category. Auto-generated ISA files (`vop3/mod.rs` 929, `mimg/table.rs` 801) are acceptable exceptions. All previous >800 LOC files resolved: Wave 143 splits (`codegen_coverage_extended`, `spring_absorption`, `codegen_coverage_targeted` → 6 focused modules), Wave 145 `main.rs` dedup (788→627). Former monitors (`tests_unix_edge.rs` 935→625, `nv_metal.rs`, `vfio/memory.rs`) are excised Sprint 9 / no longer in workspace.
 
 **Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
 
@@ -692,7 +692,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3649 tests passing, zero failures. ~84% workspace coverage.
+3650 tests (3646 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 145.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.

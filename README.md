@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 143 (deep debt pass, namespace-agnostic paths, file size compliance; 3649 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 145 (transport abstraction, BEARDOG excised, main.rs dedup, provenance error visibility; 3650 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -29,7 +29,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3649 passing, 0 failed
+cargo test --workspace     # 3650 total (3646 passing, 4 ignored)
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
@@ -141,7 +141,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3649 passing, 0 failed) |
+| `cargo test --workspace` | PASS (3650 total: 3646 passing, 4 ignored) |
 | `cargo llvm-cov` | Target 90% line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -186,7 +186,7 @@ advantage. See `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` (historical).
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 143: SM120 Blackwell, `shader.compile.multi`, namespace-agnostic paths, cross-arch Windows, file size compliance. 3649 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 145: SM120 Blackwell, `local_transport` abstraction, BEARDOG excised, main.rs dedup (788→627), namespace-agnostic paths, cross-arch Windows. 3650 tests, zero debt |
 
 ---
 
