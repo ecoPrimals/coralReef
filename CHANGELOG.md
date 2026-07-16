@@ -4,11 +4,28 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 145
+**Current status**: Phase 10 — Sprint 14 / Wave 146
 
 ---
 
 ## [Unreleased]
+
+### Wave 146: Silicon Atheism Phase 2 — Server-Side Transport Abstraction (2026-07-16)
+
+#### Added
+- `local_transport` server-side: `bind_local()`, `prepare_local_bind()`, `install_capability_symlink()` centralize all socket bind/cleanup/discovery logic — matching client-side `connect_local()` pattern
+- New tests: `bind_local_to_tempdir_succeeds`, `prepare_local_bind_creates_parent_and_removes_stale`, symlink lifecycle tests
+
+#### Changed
+- `BoundAddr::Unix` → `BoundAddr::Local` — variant always compiled on all platforms, no more `#[cfg(unix)]` on the enum
+- `unix_jsonrpc.rs`: module de-cfg-gated — `handle_connection` and path functions compile on all platforms; `start_unix_jsonrpc_server` returns `Unsupported` on non-Unix via `local_transport::bind_local`
+- `tarpc_transport.rs`: `start_tarpc_unix_server` de-cfg-gated — uses `local_transport::prepare_local_bind` + `bind_local`; non-Unix returns `Unsupported`
+- `ipc/mod.rs`: `mod unix_jsonrpc` and all re-exports de-cfg-gated; `default_tarpc_bind()` always returns `unix://` path (callers handle non-Unix gracefully)
+- `main.rs`: **all `#[cfg(unix)]` / `#[cfg(not(unix))]` blocks removed** from `cmd_server` orchestration — unified `Option<PathBuf>` flow handles UDS/Both/TCP on all platforms via runtime error handling
+- Test modules: `make_response` import path changed from `unix_jsonrpc` to `newline_jsonrpc` (module restructuring)
+
+#### Removed
+- 12 `#[cfg(unix)]` / `#[cfg(not(unix))]` annotations from server orchestration code
 
 ### Wave 145: Deep Debt — Error Handling, De-hardcoding, Deduplication (2026-07-16)
 

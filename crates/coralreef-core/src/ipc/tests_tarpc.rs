@@ -49,7 +49,7 @@ async fn test_tarpc_unix_server_starts() {
 
     let (_tx, rx) = test_helpers::test_shutdown_channel();
     let (addr, _handle) = start_tarpc_unix_server(&path, rx).unwrap();
-    assert!(matches!(addr, BoundAddr::Unix(_)));
+    assert!(matches!(addr, BoundAddr::Local(_)));
 
     let _ = std::fs::remove_file(&path);
 }
@@ -92,7 +92,7 @@ async fn test_tarpc_server_auto_unix() {
 
     let (_tx, rx) = test_helpers::test_shutdown_channel();
     let (addr, _handle) = start_tarpc_server(&bind, rx).await.unwrap();
-    assert!(matches!(addr, BoundAddr::Unix(_)));
+    assert!(matches!(addr, BoundAddr::Local(_)));
 
     let _ = std::fs::remove_file(&sock_path);
 }
@@ -197,7 +197,7 @@ fn test_bound_addr_tcp_protocol_and_display() {
 #[test]
 fn test_bound_addr_unix_protocol_and_display() {
     let path = std::path::PathBuf::from("/tmp/test.sock");
-    let bound = BoundAddr::Unix(path);
+    let bound = BoundAddr::Local(path);
     assert_eq!(bound.protocol(), "unix");
     assert!(bound.to_string().contains("unix://"));
     assert!(bound.to_string().contains("test.sock"));

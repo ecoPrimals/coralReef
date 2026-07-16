@@ -115,11 +115,10 @@ async fn test_bound_addr_display() {
     assert_eq!(tcp.to_string(), "127.0.0.1:8080");
     assert_eq!(tcp.protocol(), "tcp");
 
-    #[cfg(unix)]
     {
-        let unix = BoundAddr::Unix(std::path::PathBuf::from("/tmp/test.sock"));
-        assert_eq!(unix.to_string(), "unix:///tmp/test.sock");
-        assert_eq!(unix.protocol(), "unix");
+        let local = BoundAddr::Local(std::path::PathBuf::from("/tmp/test.sock"));
+        assert_eq!(local.to_string(), "unix:///tmp/test.sock");
+        assert_eq!(local.protocol(), "unix");
     }
 }
 

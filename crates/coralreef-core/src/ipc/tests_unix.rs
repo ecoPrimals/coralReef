@@ -3,7 +3,7 @@
 
 #[cfg(unix)]
 use super::newline_jsonrpc::dispatch;
-use super::unix_jsonrpc::make_response;
+use super::newline_jsonrpc::make_response;
 #[cfg(unix)]
 use super::*;
 

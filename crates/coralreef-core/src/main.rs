@@ -364,21 +364,15 @@ async fn cmd_server(
     };
 
     let skip_tarpc = tarpc_bind.is_none() || matches!(bind, ResolvedBind::TcpOnly { .. });
-    let (tarpc_actual_bind, unix_jsonrpc_override) =
+    let (tarpc_actual_bind, local_jsonrpc_override) =
         tarpc_bind.map_or_else(|| (String::new(), None), resolve_uds_binds);
-    #[cfg(not(unix))]
-    let _ = unix_jsonrpc_override;
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
 
-    #[cfg_attr(not(unix), allow(unused_assignments))]
     let mut rpc_handle: Option<tokio::task::JoinHandle<()>> = None;
-    #[cfg_attr(not(unix), allow(unused_assignments))]
     let mut rpc_addr: Option<std::net::SocketAddr> = None;
-    #[cfg(unix)]
-    let mut unix_jsonrpc_path: Option<std::path::PathBuf> = None;
-    #[cfg(unix)]
-    let mut unix_jsonrpc_handle: Option<tokio::task::JoinHandle<()>> = None;
+    let mut local_jsonrpc_path: Option<std::path::PathBuf> = None;
+    let mut local_jsonrpc_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     match &bind {
         ResolvedBind::TcpOnly { addr } => {
@@ -394,24 +388,18 @@ async fn cmd_server(
                 }
             }
         }
-        #[cfg(unix)]
         ResolvedBind::UdsOnly { path } => {
-            tracing::info!(path = %path.display(), "binding UDS (transport-injected)");
+            tracing::info!(path = %path.display(), "binding local socket (transport-injected)");
             match ipc::start_unix_jsonrpc_server(path, shutdown_rx.clone()).await {
                 Ok((_path, handle)) => {
-                    unix_jsonrpc_path = Some(path.clone());
-                    unix_jsonrpc_handle = Some(handle);
+                    local_jsonrpc_path = Some(path.clone());
+                    local_jsonrpc_handle = Some(handle);
                 }
                 Err(e) => {
-                    tracing::error!(error = %e, "failed to start Unix JSON-RPC server");
+                    tracing::error!(error = %e, "failed to start local JSON-RPC server");
                     return UniBinExit::GeneralError;
                 }
             }
-        }
-        #[cfg(not(unix))]
-        ResolvedBind::UdsOnly { .. } => {
-            tracing::error!("UDS transport injection not supported on this platform");
-            return UniBinExit::ConfigError;
         }
         ResolvedBind::Both {
             tcp_bind,
@@ -428,23 +416,18 @@ async fn cmd_server(
                     return UniBinExit::GeneralError;
                 }
             }
-            #[cfg(not(unix))]
-            let _ = sock_ovr;
-            #[cfg(unix)]
-            {
-                let path = sock_ovr
-                    .clone()
-                    .or(unix_jsonrpc_override)
-                    .unwrap_or_else(ipc::default_unix_socket_path);
-                match ipc::start_unix_jsonrpc_server(&path, shutdown_rx.clone()).await {
-                    Ok((_p, handle)) => {
-                        tracing::info!(path = %path.display(), "Unix JSON-RPC server started");
-                        unix_jsonrpc_path = Some(path);
-                        unix_jsonrpc_handle = Some(handle);
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Unix JSON-RPC server failed to start (ecosystem primal discovery degraded)");
-                    }
+            let path = sock_ovr
+                .clone()
+                .or(local_jsonrpc_override)
+                .unwrap_or_else(ipc::default_unix_socket_path);
+            match ipc::start_unix_jsonrpc_server(&path, shutdown_rx.clone()).await {
+                Ok((_p, handle)) => {
+                    tracing::info!(path = %path.display(), "local JSON-RPC server started");
+                    local_jsonrpc_path = Some(path);
+                    local_jsonrpc_handle = Some(handle);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "local JSON-RPC server failed to start (ecosystem primal discovery degraded)");
                 }
             }
         }
@@ -471,7 +454,7 @@ async fn cmd_server(
                 tracing::warn!(
                     error = %e,
                     bind = %tarpc_actual_bind,
-                    "tarpc Unix socket failed — falling back to TCP tarpc"
+                    "tarpc local socket failed — falling back to TCP tarpc"
                 );
                 let tcp_fallback = ipc::FALLBACK_TCP_BIND;
                 match ipc::start_tarpc_server(tcp_fallback, shutdown_rx.clone()).await {
@@ -509,8 +492,7 @@ async fn cmd_server(
             address: bound.to_string().into(),
         });
     }
-    #[cfg(unix)]
-    if let Some(ref path) = unix_jsonrpc_path {
+    if let Some(ref path) = local_jsonrpc_path {
         transports.push(coralreef_core::capability::Transport {
             protocol: "jsonrpc+unix".into(),
             address: format!("unix://{}", path.display()).into(),
@@ -553,10 +535,9 @@ async fn cmd_server(
                 tracing::warn!(error = %e, "tarpc task join failed during shutdown");
             }
         }
-        #[cfg(unix)]
-        if let Some(h) = unix_jsonrpc_handle {
+        if let Some(h) = local_jsonrpc_handle {
             if let Err(e) = h.await {
-                tracing::warn!(error = %e, "Unix JSON-RPC task join failed during shutdown");
+                tracing::warn!(error = %e, "local JSON-RPC task join failed during shutdown");
             }
         }
     })

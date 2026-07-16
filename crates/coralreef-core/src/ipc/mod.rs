@@ -21,7 +21,7 @@
 use std::fmt;
 use std::net::SocketAddr;
 
-#[cfg(all(unix, feature = "tarpc-transport"))]
+#[cfg(feature = "tarpc-transport")]
 use crate::config;
 use crate::env_keys;
 
@@ -33,7 +33,7 @@ pub mod transport;
 mod tarpc_transport;
 #[cfg(feature = "tarpc-transport")]
 pub use tarpc_transport::start_tarpc_server;
-#[cfg(all(test, unix, feature = "tarpc-transport"))]
+#[cfg(all(test, feature = "tarpc-transport"))]
 pub use tarpc_transport::start_tarpc_unix_server;
 #[cfg(all(any(test, feature = "e2e"), feature = "tarpc-transport"))]
 #[allow(
@@ -66,15 +66,12 @@ pub mod btsp;
 #[cfg_attr(not(unix), allow(dead_code))]
 pub mod btsp_negotiate;
 
-#[cfg(unix)]
 mod unix_jsonrpc;
-#[cfg(unix)]
 #[allow(
     unused_imports,
     reason = "pub API for Unix embedders; lint fires on bin target but not lib"
 )]
 pub use unix_jsonrpc::unix_socket_path_for_base;
-#[cfg(unix)]
 pub use unix_jsonrpc::{default_unix_socket_path, start_unix_jsonrpc_server};
 /// Errors from IPC server operations.
 #[derive(Debug, thiserror::Error)]
@@ -101,9 +98,9 @@ pub type CoralReefError = IpcError;
 pub enum BoundAddr {
     /// TCP socket address (host:port).
     Tcp(SocketAddr),
-    /// Unix domain socket path (Unix platforms only).
-    #[cfg(unix)]
-    Unix(std::path::PathBuf),
+    /// Local socket path (Unix domain socket on Unix, future named pipe on Windows).
+    #[cfg_attr(not(unix), allow(dead_code))]
+    Local(std::path::PathBuf),
 }
 
 impl BoundAddr {
@@ -112,8 +109,7 @@ impl BoundAddr {
     pub const fn protocol(&self) -> &'static str {
         match self {
             Self::Tcp(_) => "tcp",
-            #[cfg(unix)]
-            Self::Unix(_) => "unix",
+            Self::Local(_) => "unix",
         }
     }
 }
@@ -122,8 +118,7 @@ impl fmt::Display for BoundAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Tcp(addr) => write!(f, "{addr}"),
-            #[cfg(unix)]
-            Self::Unix(path) => write!(f, "unix://{}", path.display()),
+            Self::Local(path) => write!(f, "unix://{}", path.display()),
         }
     }
 }
@@ -150,20 +145,13 @@ pub fn default_tcp_bind() -> String {
 #[cfg(feature = "tarpc-transport")]
 #[must_use]
 pub fn default_tarpc_bind() -> String {
-    #[cfg(unix)]
-    {
-        let dir = config::socket_base_dir().join(config::ecosystem_namespace());
-        let sock = dir.join(format!(
-            "{}-{}-tarpc.sock",
-            config::PRIMAL_NAME,
-            config::family_id(),
-        ));
-        format!("unix://{}", sock.display())
-    }
-    #[cfg(not(unix))]
-    {
-        default_tcp_bind()
-    }
+    let dir = config::socket_base_dir().join(config::ecosystem_namespace());
+    let sock = dir.join(format!(
+        "{}-{}-tarpc.sock",
+        config::PRIMAL_NAME,
+        config::family_id(),
+    ));
+    format!("unix://{}", sock.display())
 }
 
 #[cfg(test)]

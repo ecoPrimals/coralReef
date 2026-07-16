@@ -228,7 +228,7 @@ fn dispatch_compile_multi_invalid_params_type() {
 #[test]
 fn make_response_success_format() {
     let resp =
-        super::unix_jsonrpc::make_response(serde_json::json!(1), Ok(serde_json::json!("ok")));
+        super::newline_jsonrpc::make_response(serde_json::json!(1), Ok(serde_json::json!("ok")));
     let parsed: serde_json::Value = serde_json::from_str(&resp).unwrap();
     assert_eq!(parsed["jsonrpc"], "2.0");
     assert_eq!(parsed["id"], 1);
@@ -240,7 +240,7 @@ fn make_response_success_format() {
 #[test]
 fn make_response_error_format() {
     use super::error::IpcServiceError;
-    let resp = super::unix_jsonrpc::make_response(
+    let resp = super::newline_jsonrpc::make_response(
         serde_json::json!(2),
         Err(IpcServiceError::handler("something went wrong")),
     );
@@ -260,7 +260,7 @@ fn make_response_error_format() {
 #[test]
 fn make_response_null_id() {
     let resp =
-        super::unix_jsonrpc::make_response(serde_json::Value::Null, Ok(serde_json::json!(42)));
+        super::newline_jsonrpc::make_response(serde_json::Value::Null, Ok(serde_json::json!(42)));
     let parsed: serde_json::Value = serde_json::from_str(&resp).unwrap();
     assert!(parsed["id"].is_null());
     assert_eq!(parsed["result"], 42);
@@ -309,7 +309,7 @@ fn dispatch_extract_params_object_invalid_spirv_type() {
 #[test]
 fn make_response_transport_error_code() {
     use super::error::IpcServiceError;
-    let resp = super::unix_jsonrpc::make_response(
+    let resp = super::newline_jsonrpc::make_response(
         serde_json::json!(1),
         Err(IpcServiceError::transport("connection refused")),
     );
@@ -483,7 +483,7 @@ fn dispatch_health_check_liveness_readiness() {
 #[test]
 fn make_response_internal_error_jsonrpc_code() {
     use super::error::IpcServiceError;
-    let resp = super::unix_jsonrpc::make_response(
+    let resp = super::newline_jsonrpc::make_response(
         serde_json::json!(3),
         Err(IpcServiceError::internal("serialization bug")),
     );

@@ -263,31 +263,34 @@ pub async fn start_tarpc_tcp_server(
     Ok((bound, handle))
 }
 
-/// Start a tarpc server over a Unix domain socket.
+/// Start a tarpc server over a local (Unix domain) socket.
 ///
-/// Creates the socket file at `path`, removing any stale socket first.
-/// Returns the bound path and join handle for graceful shutdown.
+/// Creates the socket file at `path` via [`crate::local_transport::bind_local`],
+/// removing any stale socket first. On non-Unix, returns `Unsupported`.
 ///
 /// # Errors
 ///
-/// Returns an error if the socket cannot be created.
-#[cfg(unix)]
+/// Returns an error if the socket cannot be created or local sockets are
+/// unsupported.
 pub fn start_tarpc_unix_server(
     path: &std::path::Path,
     shutdown_rx: watch::Receiver<()>,
 ) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
+    start_tarpc_local_impl(path, shutdown_rx)
+}
+
+#[cfg(unix)]
+fn start_tarpc_local_impl(
+    path: &std::path::Path,
+    shutdown_rx: watch::Receiver<()>,
+) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
     use tarpc::server::{self, Channel};
-    use tokio::net::UnixListener;
     use tokio_serde::formats::Bincode;
     use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(IpcError::Tarpc)?;
-    }
-    let _ = std::fs::remove_file(path);
-
-    let listener = UnixListener::bind(path).map_err(IpcError::Tarpc)?;
-    let bound = BoundAddr::Unix(path.to_path_buf());
+    crate::local_transport::prepare_local_bind(path).map_err(IpcError::Tarpc)?;
+    let listener = crate::local_transport::bind_local(path).map_err(IpcError::Tarpc)?;
+    let bound = BoundAddr::Local(path.to_path_buf());
     let cleanup_path = path.to_path_buf();
 
     let handle = tokio::spawn(async move {
@@ -311,7 +314,7 @@ pub fn start_tarpc_unix_server(
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "tarpc unix: failed to accept connection");
+                            tracing::warn!(error = %e, "tarpc local: failed to accept connection");
                         }
                     }
                 }
@@ -321,13 +324,25 @@ pub fn start_tarpc_unix_server(
         let _ = std::fs::remove_file(&cleanup_path);
     });
 
-    tracing::info!(%bound, "tarpc server listening (unix)");
+    tracing::info!(%bound, "tarpc server listening (local)");
     Ok((bound, handle))
+}
+
+#[cfg(not(unix))]
+fn start_tarpc_local_impl(
+    path: &std::path::Path,
+    shutdown_rx: watch::Receiver<()>,
+) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
+    let _ = (path, shutdown_rx);
+    Err(IpcError::Tarpc(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "local socket server not available on this platform",
+    )))
 }
 
 /// Start a tarpc server, automatically selecting transport from the bind string.
 ///
-/// - `unix:///path/to/socket` → Unix domain socket (Unix platforms only)
+/// - `unix:///path/to/socket` → local socket (Unix domain socket on Unix)
 /// - `host:port` → TCP
 ///
 /// # Errors
@@ -337,7 +352,6 @@ pub async fn start_tarpc_server(
     bind: &str,
     shutdown_rx: watch::Receiver<()>,
 ) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
-    #[cfg(unix)]
     if let Some(path) = bind.strip_prefix("unix://") {
         return start_tarpc_unix_server(std::path::Path::new(path), shutdown_rx);
     }

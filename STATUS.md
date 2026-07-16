@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: July 16, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 145 (deep debt: BEARDOG_SOCKET excised, provenance error visibility, mutex poison logging, main.rs 788→627 LOC dedup, identity.get Arc optimization. 3650 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
+**Version**: 0.2.0 — Sprint 14 / Wave 146 (server-side transport abstraction: `bind_local()`, `BoundAddr::Local`, de-cfg-gated orchestration — 12 `#[cfg]` blocks removed from main.rs. 3647 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
 
 ---
 
@@ -41,7 +41,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 145** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 146** |
 
 ### Post-101: Sprint 6 — Ecosystem Wave Sync: Phase D Markers, FECS Stability (May 12, 2026)
 
