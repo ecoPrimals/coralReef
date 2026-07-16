@@ -38,6 +38,7 @@ pub mod ecosystem;
 pub mod env_keys;
 pub mod health;
 pub mod lifecycle;
+pub mod local_transport;
 pub mod or_exit;
 pub mod server_lifecycle;
 

@@ -7,6 +7,29 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+/// Connect to a local socket path (platform-dispatched).
+///
+/// Unix: `tokio::net::UnixStream::connect`.
+/// Non-Unix: returns [`std::io::ErrorKind::Unsupported`].
+#[cfg(unix)]
+async fn connect_local(
+    path: &std::path::Path,
+) -> std::io::Result<tokio::net::UnixStream> {
+    tokio::net::UnixStream::connect(path).await
+}
+
+/// Connect to a local socket path (non-Unix stub).
+#[cfg(not(unix))]
+async fn connect_local(
+    path: &std::path::Path,
+) -> std::io::Result<tokio::net::TcpStream> {
+    let _ = path;
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "local socket connections not available on this platform",
+    ))
+}
+
 /// How the client reaches the JSON-RPC server.
 #[derive(Debug, Clone)]
 pub enum Transport {
@@ -60,20 +83,11 @@ async fn tcp_roundtrip(
     read_http_response_body(&mut stream).await
 }
 
-#[cfg(unix)]
 async fn unix_roundtrip(path: &std::path::Path, body: &[u8]) -> Result<Bytes, RpcError> {
-    let mut stream = tokio::net::UnixStream::connect(path).await?;
+    let mut stream = connect_local(path).await?;
     let host = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unix");
     send_http_request(&mut stream, host, "/", body).await?;
     read_http_response_body(&mut stream).await
-}
-
-#[cfg(not(unix))]
-async fn unix_roundtrip(_path: &std::path::Path, _body: &[u8]) -> Result<Bytes, RpcError> {
-    Err(RpcError::Io(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "Unix sockets not available on this platform",
-    )))
 }
 
 async fn send_http_request<W: AsyncWriteExt + Unpin>(
@@ -134,19 +148,10 @@ async fn tcp_line_roundtrip(addr: SocketAddr, body: &[u8]) -> Result<Bytes, RpcE
     line_roundtrip(&mut stream, body).await
 }
 
-/// Newline-delimited JSON-RPC roundtrip over a Unix domain socket.
-#[cfg(unix)]
+/// Newline-delimited JSON-RPC roundtrip over a local socket.
 async fn unix_line_roundtrip(path: &std::path::Path, body: &[u8]) -> Result<Bytes, RpcError> {
-    let mut stream = tokio::net::UnixStream::connect(path).await?;
+    let mut stream = connect_local(path).await?;
     line_roundtrip(&mut stream, body).await
-}
-
-#[cfg(not(unix))]
-async fn unix_line_roundtrip(_path: &std::path::Path, _body: &[u8]) -> Result<Bytes, RpcError> {
-    Err(RpcError::Io(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "Unix sockets not available on this platform",
-    )))
 }
 
 async fn line_roundtrip<S>(stream: &mut S, body: &[u8]) -> Result<Bytes, RpcError>

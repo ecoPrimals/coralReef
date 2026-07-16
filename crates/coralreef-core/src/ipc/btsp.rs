@@ -332,7 +332,7 @@ async fn create_btsp_session(
 ) -> Result<(String, Option<[u8; 32]>), BtspSessionError> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    let stream = tokio::net::UnixStream::connect(security_sock).await?;
+    let stream = crate::local_transport::connect_local(security_sock).await?;
     let (reader, mut writer) = stream.into_split();
 
     let request = serde_json::json!({

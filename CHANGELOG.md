@@ -4,11 +4,23 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 143
+**Current status**: Phase 10 — Sprint 14 / Wave 144
 
 ---
 
 ## [Unreleased]
+
+### Wave 144: Silicon Atheism Phase 2 — Transport Abstraction (2026-07-16)
+
+#### Added
+- `local_transport` module: centralized `connect_local()` (async) and `connect_local_sync()` platform-dispatched transport — Unix UDS, non-Unix returns `Unsupported`
+- `primal-rpc-client` internal `connect_local()` helper replacing duplicated `#[cfg(unix)]`/`#[cfg(not(unix))]` stubs
+
+#### Changed
+- `ecosystem/mod.rs`: `socket_is_alive()` and `send_jsonrpc_line()` now use `local_transport` dispatch instead of raw `UnixStream`
+- `ipc/btsp.rs`: `create_btsp_session()` uses `connect_local()` instead of raw `UnixStream::connect`
+- `service/provenance.rs`: `try_sign()` uses `connect_local_sync()` instead of raw `std::os::unix::net::UnixStream`
+- `primal-rpc-client/transport.rs`: `unix_roundtrip()` and `unix_line_roundtrip()` unified — no more duplicated cfg blocks
 
 ### Wave 143: Deep Debt — File Splits, Namespace-Agnostic Paths (2026-07-15)
 

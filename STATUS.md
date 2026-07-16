@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: July 15, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 143 (deep debt: file splits, namespace-agnostic paths, cross-arch Windows. 3649 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
+**Last updated**: July 16, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 144 (Silicon Atheism Phase 2: transport abstraction — `connect_local()` / `connect_local_sync()` centralize all client UDS dispatch. 3649 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
 
 ---
 

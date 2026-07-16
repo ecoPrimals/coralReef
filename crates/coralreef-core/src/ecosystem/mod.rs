@@ -221,25 +221,17 @@ fn resolve_own_socket_path() -> PathBuf {
 /// instead of `path.exists()` to avoid discovering stale sockets left by
 /// crashed primals. Local Unix connect is effectively instant (no network
 /// round-trip), so a blocking probe is acceptable here.
-#[cfg(unix)]
 fn socket_is_alive(path: &Path) -> bool {
-    use std::os::unix::net::UnixStream;
-
     if !path.exists() {
         return false;
     }
-    UnixStream::connect(path).map_or_else(
+    crate::local_transport::connect_local_sync(path).map_or_else(
         |_| {
             tracing::debug!(path = %path.display(), "stale socket detected (connect refused)");
             false
         },
         |_stream| true,
     )
-}
-
-#[cfg(not(unix))]
-fn socket_is_alive(_path: &Path) -> bool {
-    false
 }
 
 #[cfg(unix)]
@@ -319,10 +311,9 @@ async fn send_jsonrpc_line(
 ) -> Result<(), EcosystemError> {
     use serde_json::json;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::net::UnixStream;
     use tokio::time::timeout;
 
-    let mut stream = UnixStream::connect(path)
+    let mut stream = crate::local_transport::connect_local(path)
         .await
         .map_err(|e| EcosystemError::Transport(e.to_string()))?;
 

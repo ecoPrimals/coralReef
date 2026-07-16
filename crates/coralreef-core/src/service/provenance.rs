@@ -75,12 +75,11 @@ fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
     #[cfg(unix)]
     {
         use std::io::{BufRead, BufReader, Write};
-        use std::os::unix::net::UnixStream;
         use std::time::Duration;
 
         let socket_path = crypto_sign_socket()?;
 
-        let stream = UnixStream::connect(socket_path)
+        let stream = crate::local_transport::connect_local_sync(socket_path)
             .inspect_err(|e| {
                 tracing::warn!(
                     path = %socket_path.display(),

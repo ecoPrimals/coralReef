@@ -29,6 +29,11 @@ mod capability {
     pub use coralreef_core::capability::*;
 }
 
+mod local_transport {
+    #[allow(unused_imports)]
+    pub use coralreef_core::local_transport::*;
+}
+
 mod ipc;
 mod service;
 
