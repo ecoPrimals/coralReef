@@ -108,7 +108,9 @@ fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
         });
 
         let mut payload = serde_json::to_vec(&request)
-            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: request serialization failed"))
+            .inspect_err(
+                |e| tracing::warn!(error = %e, "crypto.sign: request serialization failed"),
+            )
             .ok()?;
         payload.push(b'\n');
 

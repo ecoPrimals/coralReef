@@ -25,9 +25,7 @@ use std::path::{Path, PathBuf};
 /// Returns an IO error if the socket does not exist, connection is refused,
 /// or (on non-Unix) local sockets are unsupported.
 #[cfg(unix)]
-pub async fn connect_local(
-    path: &Path,
-) -> std::io::Result<tokio::net::UnixStream> {
+pub async fn connect_local(path: &Path) -> std::io::Result<tokio::net::UnixStream> {
     tokio::net::UnixStream::connect(path).await
 }
 
@@ -37,9 +35,7 @@ pub async fn connect_local(
 ///
 /// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
 #[cfg(not(unix))]
-pub async fn connect_local(
-    path: &Path,
-) -> std::io::Result<tokio::net::TcpStream> {
+pub async fn connect_local(path: &Path) -> std::io::Result<tokio::net::TcpStream> {
     let _ = path;
     Err(unsupported("local socket connections"))
 }
@@ -55,9 +51,7 @@ pub async fn connect_local(
 /// Returns an IO error if the socket does not exist, connection is refused,
 /// or (on non-Unix) local sockets are unsupported.
 #[cfg(unix)]
-pub fn connect_local_sync(
-    path: &Path,
-) -> std::io::Result<std::os::unix::net::UnixStream> {
+pub fn connect_local_sync(path: &Path) -> std::io::Result<std::os::unix::net::UnixStream> {
     std::os::unix::net::UnixStream::connect(path)
 }
 
@@ -67,9 +61,7 @@ pub fn connect_local_sync(
 ///
 /// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
 #[cfg(not(unix))]
-pub fn connect_local_sync(
-    path: &Path,
-) -> std::io::Result<std::net::TcpStream> {
+pub fn connect_local_sync(path: &Path) -> std::io::Result<std::net::TcpStream> {
     let _ = path;
     Err(unsupported("local socket connections"))
 }

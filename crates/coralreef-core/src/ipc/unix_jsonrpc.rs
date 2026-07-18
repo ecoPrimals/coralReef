@@ -29,23 +29,29 @@ use tokio::task::JoinHandle;
 use super::btsp_negotiate;
 use super::newline_jsonrpc::dispatch_maybe_blocking;
 use super::newline_jsonrpc::process_newline_reader_writer;
-#[cfg_attr(not(unix), allow(unused_imports))]
+#[cfg_attr(
+    not(unix),
+    allow(unused_imports, reason = "btsp guard used in Unix accept loop only")
+)]
 use crate::ipc::btsp;
 
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(unix), allow(dead_code, reason = "used in Unix accept loop only"))]
 const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(unix), allow(dead_code, reason = "used in Unix accept loop only"))]
 const RIBOCIPHER_PREFIX: &[u8] = &[0xEC, 0x01];
 
-use super::newline_jsonrpc::{make_response, JsonRpcRequest};
+use super::newline_jsonrpc::{JsonRpcRequest, make_response};
 
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(unix), allow(dead_code, reason = "used in Unix accept loop only"))]
 const MAX_FRAME_LEN: u32 = 8 * 1024 * 1024;
 
 /// Handle a single connection: attempt Phase 3 negotiate on first line,
 /// then either enter encrypted frame loop or fall back to plaintext.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(
+    not(unix),
+    allow(dead_code, reason = "called from Unix accept loop only")
+)]
 pub(super) async fn handle_connection<R, W>(
     mut reader: R,
     mut writer: W,
@@ -153,7 +159,10 @@ pub(super) async fn handle_connection<R, W>(
 }
 
 /// Encrypted frame loop: `[4B BE u32 len][payload]` → decrypt → dispatch → encrypt → write.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(
+    not(unix),
+    allow(dead_code, reason = "called from Unix accept loop only")
+)]
 async fn process_encrypted_frames<R, W>(
     mut reader: R,
     mut writer: W,
@@ -286,8 +295,7 @@ fn start_local_server_impl(
     let listener = crate::local_transport::bind_local(path)?;
     let bound_path = path.to_path_buf();
     let cleanup_path = bound_path.clone();
-    let cleanup_capability_link =
-        crate::local_transport::install_capability_symlink(&bound_path);
+    let cleanup_capability_link = crate::local_transport::install_capability_symlink(&bound_path);
 
     tracing::info!(path = %bound_path.display(), "local JSON-RPC server listening");
 

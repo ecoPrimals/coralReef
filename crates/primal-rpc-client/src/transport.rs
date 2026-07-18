@@ -12,17 +12,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// Unix: `tokio::net::UnixStream::connect`.
 /// Non-Unix: returns [`std::io::ErrorKind::Unsupported`].
 #[cfg(unix)]
-async fn connect_local(
-    path: &std::path::Path,
-) -> std::io::Result<tokio::net::UnixStream> {
+async fn connect_local(path: &std::path::Path) -> std::io::Result<tokio::net::UnixStream> {
     tokio::net::UnixStream::connect(path).await
 }
 
 /// Connect to a local socket path (non-Unix stub).
 #[cfg(not(unix))]
-async fn connect_local(
-    path: &std::path::Path,
-) -> std::io::Result<tokio::net::TcpStream> {
+async fn connect_local(path: &std::path::Path) -> std::io::Result<tokio::net::TcpStream> {
     let _ = path;
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,

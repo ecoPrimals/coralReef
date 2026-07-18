@@ -63,7 +63,13 @@ pub use newline_jsonrpc::start_newline_tcp_jsonrpc;
 pub use newline_jsonrpc::dispatch;
 
 pub mod btsp;
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(
+    not(unix),
+    allow(
+        dead_code,
+        reason = "BTSP negotiation is Unix-only (local socket transport)"
+    )
+)]
 pub mod btsp_negotiate;
 
 mod unix_jsonrpc;
@@ -99,7 +105,13 @@ pub enum BoundAddr {
     /// TCP socket address (host:port).
     Tcp(SocketAddr),
     /// Local socket path (Unix domain socket on Unix, future named pipe on Windows).
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(
+        not(unix),
+        allow(
+            dead_code,
+            reason = "variant exists on all platforms but constructed on Unix only"
+        )
+    )]
     Local(std::path::PathBuf),
 }
 

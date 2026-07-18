@@ -441,9 +441,7 @@ async fn cmd_server(
 
     #[cfg(feature = "tarpc-transport")]
     if skip_tarpc {
-        tracing::info!(
-            "tarpc skipped (tcp_only or not configured)"
-        );
+        tracing::info!("tarpc skipped (tcp_only or not configured)");
     } else {
         match ipc::start_tarpc_server(&tarpc_actual_bind, shutdown_rx.clone()).await {
             Ok((bound, handle)) => {

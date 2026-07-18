@@ -5,9 +5,7 @@ use super::*;
 use compile::parse_target;
 use coral_reef::{AmdArch, FmaPolicy, GpuArch, GpuTarget, NvArch};
 use std::sync::Arc;
-use types::{
-    CompileRequest, CompileResponse, CompileWgslRequest, MultiDeviceCompileRequest,
-};
+use types::{CompileRequest, CompileResponse, CompileWgslRequest, MultiDeviceCompileRequest};
 
 #[test]
 fn test_handle_compile_spirv_valid_minimal() {
