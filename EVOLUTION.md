@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: July 16, 2026 (Phase 10 — Sprint 14 / Wave 145)
-**Phase**: 10 — Sprint 14 / Wave 145: transport abstraction, BEARDOG excised, main.rs dedup, deep debt resolution. 3650 tests (3646 passed, 4 ignored), 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: July 21, 2026 (Phase 10 — Sprint 14 / Wave 146)
+**Phase**: 10 — Sprint 14 / Wave 146: server-side transport abstraction (`bind_local()`, `BoundAddr::Local`, de-cfg-gated orchestration), BEARDOG excised, deep debt resolved. 3678 tests (3674 passed, 4 ignored), 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3650 tests. Zero clippy warnings.
+Pure Rust. Zero unsafe. 3678 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
@@ -537,7 +537,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 14 / Wave 145: 3650 tests (3646 passing, 4 ignored). Zero unsafe. Zero clippy warnings.
+Sprint 14 / Wave 146: 3678 tests (3674 passing, 4 ignored). Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.
