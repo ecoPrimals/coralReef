@@ -4,11 +4,26 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 146
+**Current status**: Phase 10 — Sprint 14 / Wave 151b
 
 ---
 
 ## [Unreleased]
+
+### Wave 151b: BTSP Client Handshake — Standard Evolution (2026-07-26)
+
+#### Added
+- `btsp_client` module: synchronous BTSP `ClientHello → ServerHello → ChallengeResponse → HandshakeComplete` wire protocol per `BTSP_PROTOCOL_STANDARD` v1.0
+- `BtspSession` struct: authenticated session result with `session_id` + `cipher`
+- `BtspClientError` typed errors via `thiserror` (Io, Json, Protocol)
+- `provider_rpc()`: security provider JSON-RPC helper for `btsp.session.create` / `btsp.session.verify`
+- Byte-by-byte wire I/O (`read_json_line`, `write_json_line`) avoiding `BufReader` buffering interference
+- 14 new tests: session structs, wire error parsing, JSON-RPC line I/O, provider connectivity
+
+#### Changed
+- `provenance.rs`: `try_sign()` now performs BTSP handshake before `crypto.sign` RPC when `FAMILY_ID` is set (production mode); development mode unchanged
+- `btsp.rs`: `discover_security_socket()` elevated to `pub` for cross-module client handshake use
+- Uses songBird-standard params: `family_seed_ref: "env:FAMILY_SEED"`, `role: "client"` (aligned with `BTSP_PROTOCOL_STANDARD`)
 
 ### Wave 146: Silicon Atheism Phase 2 — Server-Side Transport Abstraction (2026-07-16)
 

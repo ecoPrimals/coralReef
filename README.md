@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 146 (server-side transport abstraction: `bind_local()`, `BoundAddr::Local`, de-cfg-gated orchestration; 3678 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 151b (BTSP client handshake: `ClientHello → ServerHello → ChallengeResponse → HandshakeComplete`, provenance signing via BTSP; 3700 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -29,7 +29,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3678 total (3674 passing, 4 ignored)
+cargo test --workspace     # 3700 total (3696 passing, 4 ignored)
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
@@ -141,7 +141,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3678 total: 3674 passing, 4 ignored) |
+| `cargo test --workspace` | PASS (3700 total: 3696 passing, 4 ignored) |
 | `cargo llvm-cov` | Target 90% line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
