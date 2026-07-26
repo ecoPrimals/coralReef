@@ -21,7 +21,7 @@
 
 use crate::config;
 #[cfg(unix)]
-use crate::ipc::btsp;
+use crate::ipc::{btsp, btsp_client};
 use crate::service::types::ArtifactProvenance;
 use sha2::{Digest, Sha256};
 #[cfg(unix)]
@@ -96,6 +96,32 @@ fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
             .set_write_timeout(Some(config::CRYPTO_SIGN_WRITE_TIMEOUT))
             .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: set_write_timeout failed"))
             .ok()?;
+
+        if let btsp::BtspMode::Production { family_id } = btsp::btsp_mode() {
+            let Some(provider) = btsp::discover_security_socket(family_id) else {
+                tracing::warn!(
+                    "BTSP production mode but no security provider — provenance unsigned"
+                );
+                return None;
+            };
+            match btsp_client::handshake_on_stream_sync(&stream, &provider) {
+                Ok(session) => {
+                    tracing::debug!(
+                        session_id = %session.session_id,
+                        cipher = %session.cipher,
+                        "BTSP handshake succeeded for crypto.sign"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        provider = %provider.display(),
+                        "BTSP client handshake failed — provenance unsigned"
+                    );
+                    return None;
+                }
+            }
+        }
 
         let request = serde_json::json!({
             "jsonrpc": "2.0",

@@ -67,6 +67,14 @@ pub mod btsp;
     not(unix),
     allow(
         dead_code,
+        reason = "BTSP client handshake is Unix-only (local socket transport)"
+    )
+)]
+pub mod btsp_client;
+#[cfg_attr(
+    not(unix),
+    allow(
+        dead_code,
         reason = "BTSP negotiation is Unix-only (local socket transport)"
     )
 )]

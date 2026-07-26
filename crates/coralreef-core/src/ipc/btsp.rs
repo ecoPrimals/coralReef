@@ -227,7 +227,7 @@ fn resolve_socket_dir() -> PathBuf {
 /// 2. `{sock_dir}/{SECURITY_DOMAIN}-{family_id}.sock` — convention scan
 /// 3. `{sock_dir}/{SECURITY_DOMAIN}.sock` — unscoped fallback
 /// 4. Discovery files in `{sock_dir}/*.json` advertising `btsp.session.create`
-fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
+pub fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
     if let Some(path) = config::btsp_provider_socket().filter(|p| p.exists()) {
         tracing::debug!(path = %path.display(), "BTSP provider from $BTSP_PROVIDER_SOCKET");
         return Some(path);
