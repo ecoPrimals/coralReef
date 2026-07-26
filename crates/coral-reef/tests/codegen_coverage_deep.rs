@@ -7,38 +7,11 @@
 
 use std::fmt::Write;
 
-use coral_reef::{CompileError, CompileOptions, GpuTarget, NvArch};
+use coral_reef::{CompileError, NvArch};
 
-fn opts_for(nv: NvArch) -> CompileOptions {
-    CompileOptions {
-        target: GpuTarget::Nvidia(nv),
-        opt_level: 2,
-        debug_info: false,
-        fp64_software: true,
-        ..CompileOptions::default()
-    }
-}
-
-fn compile_for(wgsl: &str, nv: NvArch) -> Result<Vec<u8>, coral_reef::CompileError> {
-    coral_reef::compile_wgsl(wgsl, &opts_for(nv))
-}
-
-/// Compile `wgsl` for every supported NVIDIA architecture (SM35–SM120).
-///
-/// SM 120 (Blackwell) uses the WIP PTX emitter — `NotImplemented` errors
-/// and panics are tolerated until the emitter covers all patterns.
-fn compile_fixture_all_nv(wgsl: &str) {
-    for &nv in NvArch::ALL {
-        let result = std::panic::catch_unwind(|| compile_for(wgsl, nv));
-        match result {
-            Ok(Ok(bin)) => assert!(!bin.is_empty(), "{nv}: empty binary"),
-            Ok(Err(coral_reef::CompileError::NotImplemented(_))) if nv == NvArch::Sm120 => {}
-            Ok(Err(e)) => panic!("{nv}: {e}"),
-            Err(_) if nv == NvArch::Sm120 => {}
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
-    }
-}
+#[path = "codegen_sat/helpers.rs"]
+mod helpers;
+use helpers::{compile_fixture_all_nv, compile_for};
 
 fn compile_wgsl_raw_sm(wgsl: &str, sm: u8) {
     let bin = coral_reef::compile_wgsl_raw_sm(wgsl, sm)

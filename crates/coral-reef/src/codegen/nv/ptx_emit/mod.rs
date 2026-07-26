@@ -47,6 +47,18 @@ use crate::error::CompileError;
 
 use types::{BufferBinding, PtxVal, SharedVar, SurfaceBinding, TextureBinding};
 
+/// Extract a required math function argument from an `Option`.
+///
+/// Returns `CompileError::NotImplemented` when the argument is missing,
+/// with a message like `"min without arg1"`.
+fn require_math_arg<'a>(
+    arg: Option<&'a PtxVal>,
+    func: &str,
+    index: u8,
+) -> Result<&'a PtxVal, CompileError> {
+    arg.ok_or_else(|| CompileError::NotImplemented(format!("{func} without arg{index}").into()))
+}
+
 /// Compile WGSL source directly to PTX for SM100+ targets.
 ///
 /// Parses WGSL → naga Module, then emits PTX text. Returns a

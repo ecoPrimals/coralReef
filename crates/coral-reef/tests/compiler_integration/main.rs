@@ -31,6 +31,14 @@ pub(crate) fn wgsl_to_spirv(source: &str) -> Vec<u32> {
 /// SPH header size: 32 words = 128 bytes (SPHV4).
 pub(crate) const SPH_HEADER_BYTES: usize = 32 * 4;
 
+/// Assert that a compile result either succeeded or returned `NotImplemented`.
+pub(crate) fn assert_ok_or_not_implemented(result: &Result<Vec<u8>, CompileError>, context: &str) {
+    assert!(
+        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
+        "{context} should compile or fail with NotImplemented: {result:?}"
+    );
+}
+
 /// SM70 compile options for encoder tests.
 pub(crate) fn sm70_opts() -> CompileOptions {
     CompileOptions {
@@ -361,10 +369,7 @@ fn test_pipeline_legalize_via_arithmetic() {
         }
     ";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "legalize (arithmetic) should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "legalize (arithmetic)");
 }
 
 #[test]
@@ -378,10 +383,7 @@ fn test_pipeline_copy_prop_via_let_bindings() {
         }
     ";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "copy prop (let bindings) should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "copy prop (let bindings)");
 }
 
 #[test]
@@ -397,10 +399,7 @@ fn test_pipeline_calc_instr_deps_via_memory() {
         }
     ";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "calc_instr_deps (memory) should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "calc_instr_deps (memory)");
 }
 
 // ---------------------------------------------------------------------------

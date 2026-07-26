@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use coral_reef::{CompileError, CompileOptions, compile_wgsl};
+use super::assert_ok_or_not_implemented;
+use coral_reef::{CompileOptions, compile_wgsl};
 
 // ---------------------------------------------------------------------------
 // Stress tests
@@ -10,20 +11,14 @@ use coral_reef::{CompileError, CompileOptions, compile_wgsl};
 fn test_pipeline_stress_large_workgroup_256() {
     let wgsl = "@compute @workgroup_size(256) fn main() { workgroupBarrier(); }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "workgroup_size(256) should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "workgroup_size(256)");
 }
 
 #[test]
 fn test_pipeline_stress_large_workgroup_1024() {
     let wgsl = "@compute @workgroup_size(1024) fn main() { workgroupBarrier(); }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "workgroup_size(1024) should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "workgroup_size(1024)");
 }
 
 #[test]
@@ -34,10 +29,7 @@ fn test_pipeline_stress_many_barriers() {
         workgroupBarrier();
     }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "many barriers should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "many barriers");
 }
 
 #[test]
@@ -52,8 +44,5 @@ fn test_pipeline_stress_deep_nesting() {
         } else { }
     }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "deep nesting should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "deep nesting");
 }

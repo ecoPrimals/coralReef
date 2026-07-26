@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use super::assert_ok_or_not_implemented;
 use coral_reef::{CompileError, CompileOptions, GpuArch, compile_wgsl};
 
 // ---------------------------------------------------------------------------
@@ -11,10 +12,7 @@ use coral_reef::{CompileError, CompileOptions, GpuArch, compile_wgsl};
 fn test_pipeline_pass_alu_ops() {
     let wgsl = "@compute @workgroup_size(1) fn main() { let x = 1u + 2u; }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "ALU ops (1u+2u) should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "ALU ops (1u+2u)");
     if let Ok(binary) = result {
         assert!(!binary.is_empty());
     }
@@ -33,10 +31,7 @@ fn test_pipeline_pass_memory_ops() {
         }
     ";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "memory ops (storage buffer) should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "memory ops (storage buffer)");
     if let Ok(binary) = result {
         assert!(!binary.is_empty());
     }
@@ -51,10 +46,7 @@ fn test_pipeline_pass_control_flow() {
         }
     ";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "control flow (if/else) should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "control flow (if/else)");
     if let Ok(binary) = result {
         assert!(!binary.is_empty());
     }
@@ -118,10 +110,7 @@ fn test_pipeline_minimal_compute_binary_has_header() {
 fn test_pipeline_compute_workgroup_size_64_with_barrier() {
     let wgsl = "@compute @workgroup_size(64) fn main() { workgroupBarrier(); }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "compute with barrier should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "compute with barrier");
     if let Ok(binary) = result {
         assert!(!binary.is_empty());
     }
@@ -135,10 +124,7 @@ fn test_pipeline_compute_arithmetic() {
         let z = fma(1.0, 2.0, 3.0);
     }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "compute with add/mul/fma should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "compute with add/mul/fma");
     if let Ok(binary) = result {
         assert!(!binary.is_empty());
     }
@@ -150,10 +136,7 @@ fn test_pipeline_compute_control_flow_if_else() {
         if true { } else { }
     }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "compute with if/else should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "compute with if/else");
     if let Ok(binary) = result {
         assert!(!binary.is_empty());
     }
@@ -165,10 +148,7 @@ fn test_pipeline_compute_loop() {
         loop { break; }
     }";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "compute with loop should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "compute with loop");
     if let Ok(binary) = result {
         assert!(!binary.is_empty());
     }
@@ -187,10 +167,7 @@ fn test_pipeline_compute_builtin_inputs() {
         }
     ";
     let result = compile_wgsl(wgsl, &CompileOptions::default());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "compute with builtins should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "compute with builtins");
     if let Ok(binary) = result {
         assert!(!binary.is_empty());
     }
@@ -208,10 +185,7 @@ fn test_pipeline_cross_arch_sm70() {
         ..CompileOptions::default()
     };
     let result = compile_wgsl(wgsl, &opts);
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "Sm70 should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "Sm70");
 }
 
 #[test]
@@ -222,10 +196,7 @@ fn test_pipeline_cross_arch_sm75() {
         ..CompileOptions::default()
     };
     let result = compile_wgsl(wgsl, &opts);
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "Sm75 should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "Sm75");
 }
 
 #[test]
@@ -236,10 +207,7 @@ fn test_pipeline_cross_arch_sm80() {
         ..CompileOptions::default()
     };
     let result = compile_wgsl(wgsl, &opts);
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "Sm80 should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "Sm80");
 }
 
 #[test]
@@ -250,10 +218,7 @@ fn test_pipeline_cross_arch_sm86() {
         ..CompileOptions::default()
     };
     let result = compile_wgsl(wgsl, &opts);
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "Sm86 should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "Sm86");
 }
 
 #[test]
@@ -264,10 +229,7 @@ fn test_pipeline_cross_arch_sm89() {
         ..CompileOptions::default()
     };
     let result = compile_wgsl(wgsl, &opts);
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "Sm89 should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "Sm89");
 }
 
 #[test]

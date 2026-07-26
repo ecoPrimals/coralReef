@@ -109,8 +109,7 @@ impl PtxEmitter<'_> {
                 Ok(PtxVal::Vec(result))
             }
             MF::Distance => {
-                let rhs = arg1
-                    .ok_or_else(|| CompileError::NotImplemented("distance without arg1".into()))?;
+                let rhs = super::require_math_arg(arg1, "distance", 1)?;
                 let (PtxVal::Vec(lhs_comps), PtxVal::Vec(rhs_comps)) = (arg, rhs) else {
                     return Err(CompileError::NotImplemented(
                         "PTX distance: non-vector operands".into(),
@@ -165,8 +164,7 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Cross => {
-                let rhs =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("cross without arg1".into()))?;
+                let rhs = super::require_math_arg(arg1, "cross", 1)?;
                 let (PtxVal::Vec(a), PtxVal::Vec(b)) = (arg, rhs) else {
                     return Err(CompileError::NotImplemented(
                         "PTX cross: non-vector operands".into(),
@@ -234,8 +232,7 @@ impl PtxEmitter<'_> {
                 self.eval_math_trig(fun, arg, arg1, scalar, ts)
             }
             MF::Reflect => {
-                let rhs = arg1
-                    .ok_or_else(|| CompileError::NotImplemented("reflect without arg1".into()))?;
+                let rhs = super::require_math_arg(arg1, "reflect", 1)?;
                 let (PtxVal::Vec(i_comps), PtxVal::Vec(n_comps)) = (arg, rhs) else {
                     return Err(CompileError::NotImplemented(
                         "PTX reflect: non-vector operands".into(),
@@ -472,8 +469,7 @@ impl PtxEmitter<'_> {
             }
             MF::Ldexp => {
                 // ldexp(x, exp) = x * 2^exp
-                let exp_val =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("ldexp without arg1".into()))?;
+                let exp_val = super::require_math_arg(arg1, "ldexp", 1)?;
                 let pow2 = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(

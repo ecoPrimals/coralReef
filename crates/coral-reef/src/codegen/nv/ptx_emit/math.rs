@@ -34,8 +34,7 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Min => {
-                let rhs =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("min without arg1".into()))?;
+                let rhs = super::require_math_arg(arg1, "min", 1)?;
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(
                     self.body,
@@ -48,8 +47,7 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Max => {
-                let rhs =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("max without arg1".into()))?;
+                let rhs = super::require_math_arg(arg1, "max", 1)?;
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(
                     self.body,
@@ -62,10 +60,8 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Clamp => {
-                let lo =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("clamp without arg1".into()))?;
-                let hi =
-                    arg2.ok_or_else(|| CompileError::NotImplemented("clamp without arg2".into()))?;
+                let lo = super::require_math_arg(arg1, "clamp", 1)?;
+                let hi = super::require_math_arg(arg2, "clamp", 2)?;
                 let tmp = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(
@@ -161,10 +157,8 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Fma => {
-                let mul_term =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("fma without arg1".into()))?;
-                let add_term =
-                    arg2.ok_or_else(|| CompileError::NotImplemented("fma without arg2".into()))?;
+                let mul_term = super::require_math_arg(arg1, "fma", 1)?;
+                let add_term = super::require_math_arg(arg2, "fma", 2)?;
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(
                     self.body,
@@ -178,8 +172,7 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Pow => {
-                let exp =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("pow without arg1".into()))?;
+                let exp = super::require_math_arg(arg1, "pow", 1)?;
                 let lg = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(
@@ -304,10 +297,8 @@ impl PtxEmitter<'_> {
             }
             MF::Mix => {
                 // mix(a, b, t) = a*(1-t) + b*t = a + t*(b - a)
-                let b =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("mix without arg1".into()))?;
-                let t =
-                    arg2.ok_or_else(|| CompileError::NotImplemented("mix without arg2".into()))?;
+                let b = super::require_math_arg(arg1, "mix", 1)?;
+                let t = super::require_math_arg(arg2, "mix", 2)?;
                 let diff = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(
@@ -331,8 +322,7 @@ impl PtxEmitter<'_> {
             }
             MF::Step => {
                 // step(edge, x) = x >= edge ? 1.0 : 0.0
-                let x =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("step without arg1".into()))?;
+                let x = super::require_math_arg(arg1, "step", 1)?;
                 let pred = self.alloc_pred();
                 let dst = self.alloc_for_scalar(scalar);
                 writeln!(
@@ -353,8 +343,7 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Dot => {
-                let rhs =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("dot without arg1".into()))?;
+                let rhs = super::require_math_arg(arg1, "dot", 1)?;
                 match (arg, rhs) {
                     (PtxVal::Vec(lhs_comps), PtxVal::Vec(rhs_comps)) => {
                         let dst = self.alloc_for_scalar(scalar);
@@ -481,12 +470,8 @@ impl PtxEmitter<'_> {
             }
             MF::SmoothStep => {
                 // smoothstep(low, high, x) = t*t*(3-2t), where t = clamp((x-low)/(high-low), 0, 1)
-                let low = arg1.ok_or_else(|| {
-                    CompileError::NotImplemented("smoothstep without arg1".into())
-                })?;
-                let x = arg2.ok_or_else(|| {
-                    CompileError::NotImplemented("smoothstep without arg2".into())
-                })?;
+                let low = super::require_math_arg(arg1, "smoothstep", 1)?;
+                let x = super::require_math_arg(arg2, "smoothstep", 2)?;
                 let range = self.alloc_for_scalar(scalar);
                 let t = self.alloc_for_scalar(scalar);
                 let two_t = self.alloc_for_scalar(scalar);

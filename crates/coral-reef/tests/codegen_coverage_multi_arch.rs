@@ -8,41 +8,9 @@ use std::fmt::Write;
 
 use coral_reef::{AmdArch, CompileOptions, GpuTarget, NvArch};
 
-fn opts_for(nv: NvArch) -> CompileOptions {
-    CompileOptions {
-        target: GpuTarget::Nvidia(nv),
-        opt_level: 2,
-        debug_info: false,
-        fp64_software: true,
-        ..CompileOptions::default()
-    }
-}
-
-fn compile_for(wgsl: &str, nv: NvArch) -> Result<Vec<u8>, coral_reef::CompileError> {
-    coral_reef::compile_wgsl(wgsl, &opts_for(nv))
-}
-
-/// Compile `wgsl` for every supported NVIDIA architecture (SM35–SM120).
-///
-/// SM 120 (Blackwell) uses the WIP PTX emitter — `NotImplemented` errors and panics are
-/// tolerated until the emitter covers all patterns.
-fn compile_fixture_all_nv(wgsl: &str) {
-    for &nv in NvArch::ALL {
-        let result = std::panic::catch_unwind(|| compile_for(wgsl, nv));
-        match result {
-            Ok(Ok(bin)) => assert!(!bin.is_empty(), "{nv}: empty binary"),
-            Ok(Err(coral_reef::CompileError::NotImplemented(_))) if nv == NvArch::Sm120 => {}
-            Ok(Err(e)) => panic!("{nv}: {e}"),
-            Err(_) if nv == NvArch::Sm120 => {}
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
-    }
-}
-
-fn compile_raw_sm(wgsl: &str, sm: u8) {
-    let r = coral_reef::compile_wgsl_raw_sm(wgsl, sm);
-    assert!(r.is_ok(), "SM{sm}: {}", r.unwrap_err());
-}
+#[path = "codegen_sat/helpers.rs"]
+mod helpers;
+use helpers::{compile_fixture_all_nv, compile_wgsl_raw_sm, opts_for};
 
 fn compile_fixture_legacy_nv(wgsl: &str) {
     for sm in [50, 32, 30, 21, 20] {
@@ -385,7 +353,7 @@ fn main() {
     out[0] = 42.0;
 }
 ";
-    compile_raw_sm(wgsl, 50);
+    compile_wgsl_raw_sm(wgsl, 50);
 }
 
 #[test]
@@ -397,7 +365,7 @@ fn main() {
     out[0] = 42.0;
 }
 ";
-    compile_raw_sm(wgsl, 32);
+    compile_wgsl_raw_sm(wgsl, 32);
 }
 
 #[test]
@@ -409,7 +377,7 @@ fn main() {
     out[0] = 42.0;
 }
 ";
-    compile_raw_sm(wgsl, 20);
+    compile_wgsl_raw_sm(wgsl, 20);
 }
 
 #[test]
@@ -572,7 +540,7 @@ fn legacy_sm50_register_pressure() {
         let _ = writeln!(wgsl, "  v{i} = v{i} * 2.0 + 1.0;");
     }
     wgsl.push_str("  out[0] = v0 + v31;\n}\n");
-    compile_raw_sm(&wgsl, 50);
+    compile_wgsl_raw_sm(&wgsl, 50);
 }
 
 #[test]
@@ -586,7 +554,7 @@ fn main() {
     out[0] = v.x * w.x + v.y * w.y + v.z * w.z + v.w * w.w;
 }
 ";
-    compile_raw_sm(wgsl, 50);
+    compile_wgsl_raw_sm(wgsl, 50);
 }
 
 #[test]
@@ -601,7 +569,7 @@ fn main() {
     out[0] = x;
 }
 ";
-    compile_raw_sm(wgsl, 30);
+    compile_wgsl_raw_sm(wgsl, 30);
 }
 
 #[test]
@@ -616,5 +584,5 @@ fn main() {
     out[0] = x;
 }
 ";
-    compile_raw_sm(wgsl, 21);
+    compile_wgsl_raw_sm(wgsl, 21);
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use super::assert_ok_or_not_implemented;
 use coral_reef::{CompileError, CompileOptions, GpuArch, compile_wgsl};
 
 // ---------------------------------------------------------------------------
@@ -18,10 +19,7 @@ fn test_sm70_encode_integer_shift_or() {
         }
     ";
     let result = compile_wgsl(wgsl, &super::sm70_opts());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "integer shift+OR should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "integer shift+OR");
 }
 
 #[test]
@@ -37,10 +35,7 @@ fn test_sm70_encode_comparison_select() {
         }
     ";
     let result = compile_wgsl(wgsl, &super::sm70_opts());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "comparison+select should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "comparison+select");
 }
 
 #[test]
@@ -55,10 +50,7 @@ fn test_sm70_encode_float_math_variety() {
         }
     ";
     let result = compile_wgsl(wgsl, &super::sm70_opts());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "sin/cos/exp2 float math should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "sin/cos/exp2 float math");
 }
 
 #[test]
@@ -75,10 +67,7 @@ fn test_sm70_encode_shared_memory_barrier() {
         }
     ";
     let result = compile_wgsl(wgsl, &super::sm70_opts());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "shared memory+barrier should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "shared memory+barrier");
 }
 
 #[test]
@@ -93,10 +82,7 @@ fn test_sm70_encode_conversion_ops() {
         }
     ";
     let result = compile_wgsl(wgsl, &super::sm70_opts());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "i2f/f2i conversions should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "i2f/f2i conversions");
 }
 
 #[test]
@@ -116,10 +102,7 @@ fn test_sm70_encode_typed_data() {
         }
     ";
     let result = compile_wgsl(wgsl, &super::sm70_opts());
-    assert!(
-        result.is_ok() || matches!(result, Err(CompileError::NotImplemented(_))),
-        "i32+f32 mixed types should compile or fail with NotImplemented: {result:?}"
-    );
+    assert_ok_or_not_implemented(&result, "i32+f32 mixed types");
 }
 
 // ---------------------------------------------------------------------------

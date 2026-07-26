@@ -10,6 +10,17 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 152: Deep Debt — Deduplication & File Size (2026-07-26)
+
+#### Added
+- `require_math_arg()` helper in PTX emit module: centralizes 18 `arg.ok_or_else(|| NotImplemented("func without argN"))` patterns across `math.rs`, `math_ext.rs`, `math_ext_trig.rs`
+- `assert_ok_or_not_implemented()` shared helper in `compiler_integration/main.rs`: eliminates 26 repeated assertion patterns across `pipeline.rs`, `sm70.rs`, `stress.rs`
+- `dataflow_tests.rs`: extracted 478-line test module from `dataflow.rs` (768 → 293 LOC)
+
+#### Changed
+- 5 codegen coverage test files now import from canonical `codegen_sat/helpers.rs` via `#[path = ...]` instead of duplicating `opts_for`, `compile_for`, `compile_fixture_all_nv`
+- Test count reconciled to 3665 (dedup consolidation)
+
 ### Wave 151b: BTSP Client Handshake — Standard Evolution (2026-07-26)
 
 #### Added

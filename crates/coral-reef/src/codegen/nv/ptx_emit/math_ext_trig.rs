@@ -91,8 +91,7 @@ impl PtxEmitter<'_> {
                 Ok(dst)
             }
             MF::Atan2 => {
-                let rhs =
-                    arg1.ok_or_else(|| CompileError::NotImplemented("atan2 without arg1".into()))?;
+                let rhs = super::require_math_arg(arg1, "atan2", 1)?;
                 let dst = self.alloc_for_scalar(scalar);
                 let ratio = self.alloc_for_scalar(scalar);
                 writeln!(
