@@ -3,8 +3,8 @@
 # coralReef — Specification
 
 **Version**: 0.2.0
-**Date**: July 21, 2026
-**Status**: Phase 10 — Sprint 14 / Wave 146 (Pure compiler primal, 3678 tests, zero unsafe)
+**Date**: July 26, 2026
+**Status**: Phase 10 — Sprint 14 / Wave 152 (Pure compiler primal, 3669 tests, zero unsafe)
 
 ---
 
@@ -173,7 +173,7 @@ Adopted from barraCuda's `Fp64Strategy`:
 | 7 | coralDriver — userspace GPU dispatch (AMD + NVIDIA) | **Complete** |
 | 8 | coralGpu — unified Rust GPU abstraction | **Complete** |
 | 9 | Full sovereignty — zero FFI, zero C, all Rust | **Complete** |
-| 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 14 / Wave 146 — 3678 tests, zero unsafe, zero debt** |
+| 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 14 / Wave 152 — 3669 tests, zero unsafe, zero debt** |
 
 ## Full-GPU Silicon Exploitation — Future Horizons
 
@@ -263,7 +263,7 @@ FFI is acceptable as scaffolding in early passes. Every FFI
 introduction is tracked for Rust replacement. No FFI survives to
 production release. Each pass produces strictly better Rust.
 
-See `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md` for the full evolution
+See `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` for the historical evolution
 plan, pass definitions, and dependency tracking.
 
 ---

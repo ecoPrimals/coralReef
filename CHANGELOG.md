@@ -4,13 +4,13 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 151b
+**Current status**: Phase 10 — Sprint 14 / Wave 152
 
 ---
 
 ## [Unreleased]
 
-### Wave 152: Deep Debt — Deduplication & File Size (2026-07-26)
+### Wave 152: Deep Debt — Deduplication & File Size + Doc Refresh (2026-07-26)
 
 #### Added
 - `require_math_arg()` helper in PTX emit module: centralizes 18 `arg.ok_or_else(|| NotImplemented("func without argN"))` patterns across `math.rs`, `math_ext.rs`, `math_ext_trig.rs`
@@ -19,7 +19,11 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 #### Changed
 - 5 codegen coverage test files now import from canonical `codegen_sat/helpers.rs` via `#[path = ...]` instead of duplicating `opts_for`, `compile_for`, `compile_fixture_all_nv`
-- Test count reconciled to 3665 (dedup consolidation)
+- Test count reconciled to 3669 (3665 passing, 4 ignored)
+- All 13 root docs aligned to Wave 152: README, STATUS, WHATS_NEXT, CONTEXT, EVOLUTION, ABSORPTION, CONTRIBUTING, START_HERE, sporeprint/validation-summary, genomebin/README, genomebin/manifest.toml, specs/CORALREEF_SPECIFICATION, CHANGELOG
+
+#### Fixed
+- Broken cross-reference in `specs/CORALREEF_SPECIFICATION.md`: `specs/SOVEREIGN_MULTI_GPU_EVOLUTION.md` → `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md`
 
 ### Wave 151b: BTSP Client Handshake — Standard Evolution (2026-07-26)
 

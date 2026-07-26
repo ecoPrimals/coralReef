@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 151b (BTSP client handshake: `ClientHello → ServerHello → ChallengeResponse → HandshakeComplete`, provenance signing via BTSP; 3700 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 152 (deep debt deduplication: `require_math_arg()` helper, test helper consolidation, dataflow.rs 768→293 LOC; BTSP client handshake; 3669 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -29,7 +29,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3700 total (3696 passing, 4 ignored)
+cargo test --workspace     # 3669 total (3665 passing, 4 ignored)
 cargo clippy --all-features -- -D warnings
 cargo fmt --check
 ```
@@ -141,7 +141,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3700 total: 3696 passing, 4 ignored) |
+| `cargo test --workspace` | PASS (3669 total: 3665 passing, 4 ignored) |
 | `cargo llvm-cov` | Target 90% line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -186,7 +186,7 @@ advantage. See `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` (historical).
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 146: SM120 Blackwell, `local_transport` client+server (`connect_local`+`bind_local`), `BoundAddr::Local`, de-cfg-gated orchestration, BEARDOG excised, namespace-agnostic paths, cross-arch Windows. 3678 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 152: SM120 Blackwell, `local_transport` client+server, BTSP client handshake, deep debt deduplication, dataflow.rs 768→293, transport abstraction, namespace-agnostic paths, cross-arch Windows. 3669 tests, zero debt |
 
 ---
 

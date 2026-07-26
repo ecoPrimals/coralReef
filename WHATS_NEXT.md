@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 146.
+**Current position**: Phase 10 — Sprint 14 / Wave 152.
 
-**Last completed**: Wave 146 — server-side transport abstraction (`bind_local()`, `BoundAddr::Local`, de-cfg-gated orchestration). Wave 145 — deep debt (BEARDOG excised, provenance error visibility, main.rs dedup 788→627, identity.get Arc). Wave 144 — `local_transport` client-side (Silicon Atheism Phase 2). Wave 143 — file splits, namespace-agnostic paths. Wave 125 — shader.compile.multi.
+**Last completed**: Wave 152 — deep debt deduplication (`require_math_arg()`, test helper consolidation, dataflow.rs 768→293). Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction. Wave 145 — deep debt (BEARDOG excised, provenance error visibility, main.rs dedup). Wave 144 — `local_transport` client-side. Wave 143 — file splits, namespace-agnostic paths.
 
-**Tests**: 3678 total (3674 passing, 4 ignored). 84% line coverage. Zero clippy warnings. Zero unsafe.
+**Tests**: 3669 total (3665 passing, 4 ignored). 84% line coverage. Zero clippy warnings. Zero unsafe.
 
-**Last updated**: July 21, 2026.
+**Last updated**: July 26, 2026.
 
 **Next focus**: Coverage push toward 90% (compiler backends are main gap). ironGate deployment validation (gnu binary, RTX 5070 sm_120 compile E2E). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
@@ -692,7 +692,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3678 tests (3674 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 146.
+3669 tests (3665 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 152.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.

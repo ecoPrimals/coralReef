@@ -39,8 +39,8 @@ runtime — no hardcoded primal names, no shared code imports.
 
 ## Project status (Sprint 14)
 
-- **Tests**: 3678 workspace tests (3674 passed, 4 ignored). Zero clippy warnings. Zero unsafe.
-- **Sprint 14 (current)**: Wave 146 — server-side transport abstraction (`bind_local()`, `BoundAddr::Local`, de-cfg-gated orchestration). Wave 145 — deep debt (BEARDOG excised, provenance error visibility, main.rs dedup, identity.get Arc). Wave 144 — `local_transport` client-side (Silicon Atheism Phase 2). Wave 143 — file splits, namespace-agnostic paths, cross-arch Windows. Wave 125: `shader.compile.multi`. Wave 124: code size compliance.
+- **Tests**: 3669 workspace tests (3665 passed, 4 ignored). Zero clippy warnings. Zero unsafe.
+- **Sprint 14 (current)**: Wave 152 — deep debt deduplication (`require_math_arg()`, test helper consolidation, dataflow.rs 768→293). Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction. Wave 145 — deep debt (BEARDOG excised, provenance error visibility, main.rs dedup, identity.get Arc). Wave 144 — `local_transport` client-side. Wave 143 — file splits, namespace-agnostic paths, cross-arch Windows.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.
