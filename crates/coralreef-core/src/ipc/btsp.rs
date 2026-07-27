@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! BTSP (biomeOS Transport Security Protocol) Phase 3: AEAD-secured sessions.
+//! BTSP (biomeOS Transport Security Protocol) Phase 2: `BearDog` delegation.
 //!
 //! Per wateringHole `BTSP_PROTOCOL_STANDARD` v1.0 and `PRIMAL_SELF_KNOWLEDGE_STANDARD`
 //! v1.1: when `FAMILY_ID` is set (production mode), every incoming socket connection
@@ -7,17 +7,17 @@
 //!
 //! ## Architecture
 //!
-//! Consumer primals delegate the handshake to the security-domain provider via
-//! `btsp.session.create` over newline-delimited JSON-RPC on a Unix socket.
-//! Discovery is capability-based: we look for a `security` domain socket or
-//! `btsp.session.create` capability, never hardcoding a primal name.
+//! Consumer primals (coralReef) delegate the handshake to the security-domain
+//! provider (`BearDog`) via `btsp.session.create` over newline-delimited JSON-RPC
+//! on a Unix socket. Discovery is capability-based: we look for a `crypto` domain
+//! socket, never hardcoding a primal name.
 //!
 //! ## Degraded Mode
 //!
 //! When `FAMILY_ID` is set but the security provider is unreachable or its
 //! session layer is incomplete, the guard logs a warning and **accepts** the
-//! connection. This prevents a hard dependency on security provider availability
-//! during the Phase 3 rollout window.
+//! connection. This prevents a hard dependency on `BearDog` availability during
+//! the Phase 2 rollout window.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -46,9 +46,11 @@ pub enum BtspMode {
 impl BtspMode {
     /// `true` when the handshake is required on incoming connections.
     #[must_use]
+    // `dead_code` is not always emitted for this `pub` API; `#[expect(dead_code)]` would be
+    // unfulfilled on normal lib builds.
     #[allow(
         dead_code,
-        reason = "pub API used in tests and future guard_connection evolution"
+        reason = "public API used in tests and future guard_connection evolution"
     )]
     pub const fn requires_handshake(&self) -> bool {
         matches!(self, Self::Production { .. })
@@ -110,10 +112,6 @@ impl BtspOutcome {
 
     /// The session ID from a successful Phase 2 authentication, if any.
     #[must_use]
-    #[cfg_attr(
-        not(unix),
-        allow(dead_code, reason = "session_id used in Unix accept loop only")
-    )]
     pub fn session_id(&self) -> Option<&str> {
         match self {
             Self::Authenticated { session_id } => Some(session_id),
@@ -124,17 +122,26 @@ impl BtspOutcome {
 
 /// First byte that indicates plain JSON-RPC (no BTSP handshake expected).
 ///
-/// Per ecosystem `ProtocolDetector` convention: a leading `{` means the peer
-/// is sending newline-delimited JSON-RPC directly (e.g. ecosystem capability.call
+/// Per bearDog `ProtocolDetector` convention: a leading `{` means the peer
+/// is sending newline-delimited JSON-RPC directly (e.g. biomeOS capability.call
 /// forwarding). Any other leading byte triggers BTSP handshake.
 const PLAIN_JSONRPC_MARKER: u8 = b'{';
+
+/// `true` when a newline‑terminated first line is a JSON BTSP `ClientHello`
+/// (wateringHole JSON‑line form), as opposed to plain JSON‑RPC 2.0.
+#[must_use]
+pub(crate) fn line_looks_like_btsp_client_hello(line: &str) -> bool {
+    line.contains("\"protocol\"") && line.contains("\"btsp\"")
+}
 
 /// BTSP decision from a peeked first byte — the core protocol detection logic.
 ///
 /// Call sites peek the stream using transport-appropriate methods
 /// (`TcpStream::peek`, `BufReader::fill_buf`) and pass the result here.
 ///
-/// - `Some(b'{')` → plain JSON-RPC (biomeOS compatibility), BTSP skipped
+/// - `Some(b'{')` → **ambiguous** — the caller should read the first line and
+///   use [`guard_from_first_line_after_brace`]; or treat as plain JSON for
+///   legacy callers that only have the first byte
 /// - `Some(_)` → non-JSON first byte, BTSP handshake required
 /// - `None` → peek failed/timed out, accept in degraded mode
 pub async fn guard_from_first_byte(first_byte: Option<u8>) -> BtspOutcome {
@@ -145,7 +152,7 @@ pub async fn guard_from_first_byte(first_byte: Option<u8>) -> BtspOutcome {
 
     match first_byte {
         Some(PLAIN_JSONRPC_MARKER) => {
-            tracing::debug!("first byte is '{{' — plain JSON-RPC, BTSP skipped");
+            tracing::debug!("first byte is '{{' (no first line) — plain JSON-RPC, BTSP skipped");
             BtspOutcome::DevMode
         }
         Some(b) => {
@@ -160,6 +167,211 @@ pub async fn guard_from_first_byte(first_byte: Option<u8>) -> BtspOutcome {
             }
         }
     }
+}
+
+/// After the first byte was `{` and the full first line was read, decide BTSP vs plain JSON.
+///
+/// If the line contains both `"protocol"` and `"btsp"`, the peer is using JSON-line BTSP
+/// `ClientHello` and we run the same handshake path as a non-`{` first byte. Otherwise
+/// the line is treated as the start of JSON-RPC and BTSP is skipped.
+pub async fn guard_from_first_line_after_brace(first_line: &str) -> BtspOutcome {
+    let mode = btsp_mode();
+    if matches!(mode, BtspMode::Development) {
+        return BtspOutcome::DevMode;
+    }
+
+    if line_looks_like_btsp_client_hello(first_line) {
+        tracing::debug!("first line is JSON BTSP ClientHello — BTSP handshake path");
+        guard_connection_inner().await
+    } else {
+        tracing::debug!("first line is plain JSON-RPC, BTSP skipped");
+        BtspOutcome::DevMode
+    }
+}
+
+/// Full JSON-line BTSP handshake relay on the client's stream.
+///
+/// Performs the complete 4-step handshake: reads the already-consumed ClientHello,
+/// relays through BearDog `btsp.session.create` / `btsp.session.verify`, and
+/// writes ServerHello + HandshakeComplete back to the client. Returns `Ok(session_id)`
+/// on success or `Err` on failure (caller should close the connection).
+#[cfg(unix)]
+pub async fn relay_json_line_handshake<W, R>(
+    client_hello_line: &str,
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<String, BtspSessionError>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let mode = btsp_mode();
+    let family_id = match mode {
+        BtspMode::Development => {
+            return Err(BtspSessionError::Protocol("dev mode, no BTSP".into()))
+        }
+        BtspMode::Production { family_id } => family_id.clone(),
+    };
+
+    let Some(security_sock) = discover_security_socket(&family_id) else {
+        return Err(BtspSessionError::Protocol(
+            "security provider not discoverable".into(),
+        ));
+    };
+
+    let client_hello: serde_json::Value =
+        serde_json::from_str(client_hello_line.trim())?;
+    let client_ephemeral_pub = client_hello
+        .get("client_ephemeral_pub")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            BtspSessionError::Protocol("ClientHello missing client_ephemeral_pub".into())
+        })?;
+
+    let raw_seed = std::env::var("FAMILY_SEED")
+        .or_else(|_| std::env::var("BEARDOG_FAMILY_SEED"))
+        .unwrap_or_default();
+    let family_seed = b64_encode(raw_seed.as_bytes());
+
+    let create_result = security_rpc(
+        &security_sock,
+        "btsp.session.create",
+        serde_json::json!({
+            "family_seed": family_seed,
+        }),
+    )
+    .await?;
+
+    let session_id = create_result
+        .get("session_id")
+        .or_else(|| create_result.get("session_token"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            BtspSessionError::Protocol("missing session_id in create response".into())
+        })?
+        .to_string();
+
+    let server_ephemeral_pub = create_result
+        .get("server_ephemeral_pub")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let challenge_b64 = create_result
+        .get("challenge")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            BtspSessionError::Protocol("missing challenge in create response".into())
+        })?;
+
+    let server_hello = serde_json::json!({
+        "version": 1,
+        "server_ephemeral_pub": server_ephemeral_pub,
+        "challenge": challenge_b64,
+    });
+    let mut sh_line = serde_json::to_string(&server_hello)?;
+    sh_line.push('\n');
+    writer.write_all(sh_line.as_bytes()).await.map_err(|e| {
+        BtspSessionError::Protocol(format!("write ServerHello: {e}"))
+    })?;
+    writer.flush().await.map_err(|e| {
+        BtspSessionError::Protocol(format!("flush ServerHello: {e}"))
+    })?;
+
+    let mut cr_line = String::new();
+    reader.read_line(&mut cr_line).await.map_err(|e| {
+        BtspSessionError::Protocol(format!("read ChallengeResponse: {e}"))
+    })?;
+    let cr: serde_json::Value =
+        serde_json::from_str(cr_line.trim()).map_err(|e| {
+            BtspSessionError::Protocol(format!("parse ChallengeResponse: {e}"))
+        })?;
+    let hmac_response = cr
+        .get("response")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let verify_result = security_rpc(
+        &security_sock,
+        "btsp.session.verify",
+        serde_json::json!({
+            "session_token": session_id,
+            "response": hmac_response,
+            "client_ephemeral_pub": client_ephemeral_pub,
+            "server_ephemeral_pub": server_ephemeral_pub,
+            "challenge": challenge_b64,
+        }),
+    )
+    .await?;
+
+    let verified = verify_result
+        .get("verified")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !verified {
+        let err = serde_json::json!({
+            "error": "handshake_failed",
+            "reason": "family_verification",
+        });
+        let mut err_line = serde_json::to_string(&err)?;
+        err_line.push('\n');
+        let _ = writer.write_all(err_line.as_bytes()).await;
+        return Err(BtspSessionError::Protocol("verification failed".into()));
+    }
+
+    let complete = serde_json::json!({
+        "cipher": "BTSP_NULL",
+        "session_id": session_id,
+    });
+    let mut cmp_line = serde_json::to_string(&complete)?;
+    cmp_line.push('\n');
+    writer.write_all(cmp_line.as_bytes()).await.map_err(|e| {
+        BtspSessionError::Protocol(format!("write HandshakeComplete: {e}"))
+    })?;
+    writer.flush().await.map_err(|e| {
+        BtspSessionError::Protocol(format!("flush HandshakeComplete: {e}"))
+    })?;
+
+    tracing::info!(session_id, "BTSP JSON-line handshake complete");
+    Ok(session_id)
+}
+
+#[cfg(unix)]
+async fn security_rpc(
+    security_sock: &std::path::Path,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, BtspSessionError> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let stream = tokio::net::UnixStream::connect(security_sock).await?;
+    let (reader, mut writer) = stream.into_split();
+
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": params,
+        "id": 1
+    });
+    let mut line = serde_json::to_string(&request)?;
+    line.push('\n');
+    writer.write_all(line.as_bytes()).await?;
+    writer.shutdown().await?;
+
+    let mut lines = BufReader::new(reader).lines();
+    let response_line = lines
+        .next_line()
+        .await?
+        .ok_or_else(|| BtspSessionError::Protocol("no response from provider".into()))?;
+    let response: serde_json::Value = serde_json::from_str(&response_line)?;
+    if let Some(error) = response.get("error") {
+        return Err(BtspSessionError::Protocol(format!("{method}: {error}")));
+    }
+    response
+        .get("result")
+        .cloned()
+        .ok_or_else(|| BtspSessionError::Protocol(format!("{method}: missing result")))
 }
 
 /// Out-of-band BTSP guard — legacy API for accept loops without stream access.
@@ -217,19 +429,26 @@ async fn guard_connection_inner() -> BtspOutcome {
 
 /// Resolve the shared ecosystem socket directory.
 fn resolve_socket_dir() -> PathBuf {
-    config::discovery_dir().unwrap_or_else(|_| config::socket_base_dir())
+    config::discovery_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join(config::ecosystem_namespace()))
 }
 
 /// Discover the security-domain socket for BTSP handshake delegation.
 ///
 /// Resolution chain (first match wins):
 /// 1. `$BTSP_PROVIDER_SOCKET` — explicit from composition launcher
-/// 2. `{sock_dir}/{SECURITY_DOMAIN}-{family_id}.sock` — convention scan
-/// 3. `{sock_dir}/{SECURITY_DOMAIN}.sock` — unscoped fallback
-/// 4. Discovery files in `{sock_dir}/*.json` advertising `btsp.session.create`
-pub fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
+/// 2. `$BEARDOG_SOCKET` — composition launcher alias
+/// 3. `{sock_dir}/{SECURITY_DOMAIN}-{family_id}.sock` — convention scan
+/// 4. `{sock_dir}/{SECURITY_DOMAIN}.sock` — unscoped fallback
+/// 5. Discovery files in `{sock_dir}/*.json` advertising `btsp.session.create`
+fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
     if let Some(path) = config::btsp_provider_socket().filter(|p| p.exists()) {
         tracing::debug!(path = %path.display(), "BTSP provider from $BTSP_PROVIDER_SOCKET");
+        return Some(path);
+    }
+
+    if let Some(path) = config::beardog_socket().filter(|p| p.exists()) {
+        tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET");
         return Some(path);
     }
 
@@ -248,31 +467,8 @@ pub fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
     discover_by_capability(&sock_dir, "btsp.session.create")
 }
 
-/// Directory-based security socket discovery (steps 3-5 of the resolution chain).
-///
-/// Extracted for testability: takes an explicit directory rather than reading
-/// from env/config. Production code calls this via [`discover_security_socket`].
-#[cfg(test)]
-fn discover_security_socket_in_dir(sock_dir: &std::path::Path, family_id: &str) -> Option<PathBuf> {
-    let scoped = sock_dir.join(format!("{SECURITY_DOMAIN}-{family_id}.sock"));
-    if scoped.exists() {
-        return Some(scoped);
-    }
-
-    let unscoped = sock_dir.join(format!("{SECURITY_DOMAIN}.sock"));
-    if unscoped.exists() {
-        return Some(unscoped);
-    }
-
-    discover_by_capability(sock_dir, "btsp.session.create")
-}
-
 /// Scan discovery files for a primal advertising a specific method.
-///
-/// Searches `sock_dir` for `.json` files whose `methods` array includes
-/// `method`, then returns the Unix socket path from `transports.unix`.
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {
+fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {
     let entries = std::fs::read_dir(sock_dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -286,11 +482,7 @@ pub(crate) fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -
 }
 
 /// Check a single discovery file for a primal advertising a given method.
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn check_discovery_file_for_method(
-    path: &std::path::Path,
-    method: &str,
-) -> Option<PathBuf> {
+fn check_discovery_file_for_method(path: &std::path::Path, method: &str) -> Option<PathBuf> {
     let content = std::fs::read_to_string(path).ok()?;
     let info: serde_json::Value = serde_json::from_str(&content).ok()?;
     let methods = info.get("methods")?.as_array()?;
@@ -325,7 +517,7 @@ async fn create_btsp_session(
 ) -> Result<(String, Option<[u8; 32]>), BtspSessionError> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    let stream = crate::local_transport::connect_local(security_sock).await?;
+    let stream = tokio::net::UnixStream::connect(security_sock).await?;
     let (reader, mut writer) = stream.into_split();
 
     let request = serde_json::json!({
@@ -393,9 +585,33 @@ async fn create_btsp_session(
     ))
 }
 
+fn b64_encode(input: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        out.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
 /// Errors from the BTSP session creation RPC.
 #[derive(Debug, thiserror::Error)]
-enum BtspSessionError {
+pub enum BtspSessionError {
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("JSON: {0}")]
@@ -405,5 +621,104 @@ enum BtspSessionError {
 }
 
 #[cfg(test)]
-#[path = "btsp/tests_btsp.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn development_mode_allows_all() {
+        assert!(!BtspMode::Development.requires_handshake());
+    }
+
+    #[test]
+    fn production_requires_handshake() {
+        let mode = BtspMode::Production {
+            family_id: "any".into(),
+        };
+        assert!(mode.requires_handshake());
+    }
+
+    #[test]
+    fn btsp_mode_resolves_without_panic() {
+        let mode = btsp_mode();
+        match mode {
+            BtspMode::Development => {}
+            BtspMode::Production { family_id } => {
+                assert!(!family_id.is_empty());
+                assert_ne!(family_id, "default");
+            }
+        }
+    }
+
+    #[test]
+    fn outcome_dev_mode_accepts() {
+        assert!(BtspOutcome::DevMode.should_accept());
+    }
+
+    #[test]
+    fn outcome_authenticated_accepts() {
+        let o = BtspOutcome::Authenticated {
+            session_id: "s-1".into(),
+        };
+        assert!(o.should_accept());
+    }
+
+    #[test]
+    fn outcome_degraded_accepts() {
+        let o = BtspOutcome::Degraded {
+            reason: "provider offline".into(),
+        };
+        assert!(o.should_accept());
+    }
+
+    #[test]
+    fn outcome_rejected_refuses() {
+        let o = BtspOutcome::Rejected {
+            reason: "bad proof".into(),
+        };
+        assert!(!o.should_accept());
+    }
+
+    #[test]
+    fn line_looks_like_btsp_client_hello_examples() {
+        assert!(line_looks_like_btsp_client_hello(
+            r#"{"protocol":"btsp","ver":1}"#
+        ));
+        assert!(!line_looks_like_btsp_client_hello(
+            r#"{"jsonrpc":"2.0","method":"health.liveness"}"#
+        ));
+        assert!(!line_looks_like_btsp_client_hello(
+            r#"{"foo":"btsp"}"# // "protocol" missing
+        ));
+    }
+
+    #[test]
+    #[ignore = "machine-dependent: a real $XDG_RUNTIME_DIR/biomeos/crypto*.sock or discovery .json can make this fail"]
+    fn discover_returns_none_when_no_socket() {
+        assert!(discover_security_socket("nonexistent-test-family").is_none());
+    }
+
+    #[tokio::test]
+    async fn guard_connection_dev_mode() {
+        if btsp_mode().requires_handshake() {
+            return;
+        }
+        let outcome = guard_connection().await;
+        assert!(matches!(outcome, BtspOutcome::DevMode));
+    }
+
+    #[tokio::test]
+    async fn guard_from_first_byte_json_marker_skips_btsp() {
+        let outcome = guard_from_first_byte(Some(b'{')).await;
+        assert!(outcome.should_accept());
+    }
+
+    #[tokio::test]
+    async fn guard_from_first_byte_none_degrades() {
+        if !btsp_mode().requires_handshake() {
+            return;
+        }
+        let outcome = guard_from_first_byte(None).await;
+        assert!(outcome.should_accept());
+        assert!(matches!(outcome, BtspOutcome::Degraded { .. }));
+    }
+}

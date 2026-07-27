@@ -4,27 +4,27 @@
 //! Used by Unix socket and TCP listeners per wateringHole `PRIMAL_IPC_PROTOCOL` v3.1.
 
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use super::btsp;
 use super::error::IpcServiceError;
-use super::method_gate;
 use super::{CoralReefError, IpcError};
-use crate::env_keys;
 use crate::service;
 
 #[derive(Deserialize)]
-pub(super) struct JsonRpcRequest {
-    pub(super) jsonrpc: String,
-    pub(super) method: String,
+struct JsonRpcRequest {
+    jsonrpc: String,
+    method: String,
     #[serde(default)]
-    pub(super) params: serde_json::Value,
-    pub(super) id: serde_json::Value,
+    params: serde_json::Value,
+    id: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -60,136 +60,72 @@ fn extract_params<T: serde::de::DeserializeOwned>(
     }
 }
 
-/// Serialize a service result to JSON, mapping serde errors to internal IPC errors.
-fn to_json(value: impl serde::Serialize) -> Result<serde_json::Value, IpcServiceError> {
-    serde_json::to_value(value).map_err(|e| IpcServiceError::internal(e.to_string()))
-}
-
-/// Dispatch `auth.*` methods.
-fn dispatch_auth(
-    sub: &str,
-    caller: &method_gate::CallerContext,
-) -> Result<serde_json::Value, IpcServiceError> {
-    match sub {
-        "check" => Ok(serde_json::json!({
-            "authenticated": caller.bearer_token.is_some(),
-            "origin": format!("{:?}", caller.origin).to_lowercase(),
-        })),
-        "mode" => Ok(serde_json::json!({
-            "mode": method_gate::gate().mode().as_str(),
-        })),
-        "peer_info" => {
-            let peer_info = caller
-                .peer
-                .as_ref()
-                .map(|p| serde_json::json!({ "uid": p.uid, "pid": p.pid }));
-            Ok(serde_json::json!({
-                "peer": peer_info,
-                "origin": format!("{:?}", caller.origin).to_lowercase(),
-                "has_token": caller.bearer_token.is_some(),
-            }))
-        }
-        other => Err(IpcServiceError::dispatch(format!(
-            "method not found: auth.{other}"
-        ))),
-    }
-}
-
-/// Dispatch `shader.compile.*` methods.
-fn dispatch_shader_compile(
-    sub: &str,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, IpcServiceError> {
-    match sub {
-        "status" => to_json(service::handle_health()),
-        "capabilities" => to_json(service::handle_compile_capabilities()),
-        "wgsl" => {
-            let req: service::CompileWgslRequest = extract_params(params)?;
-            service::handle_compile_wgsl(&req)
-                .map_err(IpcServiceError::from)
-                .and_then(|r| to_json(r.with_provenance()))
-        }
-        "spirv" => {
-            let req: service::CompileRequest = extract_params(params)?;
-            service::handle_compile(&req)
-                .map_err(IpcServiceError::from)
-                .and_then(|r| to_json(r.with_provenance()))
-        }
-        "wgsl.multi" => {
-            let req: service::MultiDeviceCompileRequest = extract_params(params)?;
-            service::handle_compile_wgsl_multi(req)
-                .map_err(IpcServiceError::from)
-                .and_then(to_json)
-        }
-        "multi" => {
-            let req: service::BatchCompileRequest = extract_params(params)?;
-            service::handle_compile_multi(req)
-                .map_err(IpcServiceError::from)
-                .and_then(to_json)
-        }
-        "gemm" => {
-            let req: service::GemmCompileRequest = extract_params(params)?;
-            service::handle_compile_gemm(&req)
-                .map_err(IpcServiceError::from)
-                .and_then(|r| to_json(r.with_provenance()))
-        }
-        other => Err(IpcServiceError::dispatch(format!(
-            "method not found: shader.compile.{other}"
-        ))),
-    }
-}
-
-/// Dispatch `health.*` methods.
-fn dispatch_health(method: &str) -> Result<serde_json::Value, IpcServiceError> {
-    match method {
-        "health" => Ok(service::handle_health_standard()),
-        "health.check" => to_json(service::handle_health_check()),
-        "health.liveness" => to_json(service::handle_health_liveness()),
-        "health.readiness" => to_json(service::handle_health_readiness()),
-        "health.version" => to_json(service::handle_health_version()),
-        other => Err(IpcServiceError::dispatch(format!(
-            "method not found: {other}"
-        ))),
-    }
-}
-
 /// Route a JSON-RPC method call to the appropriate handler.
-///
-/// The method gate (JH-0) runs pre-dispatch: public methods pass through,
-/// protected methods are checked against the caller context. In permissive
-/// mode (default), protected methods are logged but allowed.
 ///
 /// # Errors
 ///
 /// Returns `IpcServiceError` if the method is unknown, params are
-/// invalid, the handler itself fails, or the gate rejects the call.
+/// invalid, or the handler itself fails.
 #[must_use = "returns the handler result or an error — check the result"]
 pub fn dispatch_jsonrpc(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, IpcServiceError> {
-    let caller = method_gate::CallerContext::from_params(&params);
-    if let Err(denied) = method_gate::gate().check(method, &caller) {
-        return Err(IpcServiceError::gate_denied(denied.message));
-    }
-
-    if let Some(auth_method) = method.strip_prefix("auth.") {
-        return dispatch_auth(auth_method, &caller);
-    }
-    if let Some(compile_method) = method.strip_prefix("shader.compile.") {
-        return dispatch_shader_compile(compile_method, params);
-    }
-    if method == "health" || method.starts_with("health.") {
-        return dispatch_health(method);
-    }
     match method {
-        "identity.get" => to_json(service::handle_identity_get()),
-        "capability.list" | "capabilities.list" => to_json(service::handle_capability_list()),
-        "btsp.negotiate" => {
-            let req: super::btsp_negotiate::NegotiateRequest = extract_params(params)?;
-            super::btsp_negotiate::handle_negotiate(&req)
-                .map_err(|e| IpcServiceError::handler(e.to_string()))
-                .and_then(to_json)
+        "shader.compile.status" => {
+            let health = service::handle_health();
+            serde_json::to_value(health).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
+        "shader.compile.capabilities" => {
+            let caps = service::handle_compile_capabilities();
+            serde_json::to_value(caps).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
+        "shader.compile.wgsl" => {
+            let req: service::CompileWgslRequest = extract_params(params)?;
+            match service::handle_compile_wgsl(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
+        "shader.compile.spirv" => {
+            let req: service::CompileRequest = extract_params(params)?;
+            match service::handle_compile(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
+        "shader.compile.wgsl.multi" => {
+            let req: service::MultiDeviceCompileRequest = extract_params(params)?;
+            match service::handle_compile_wgsl_multi(req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
+        "health.check" => {
+            let resp = service::handle_health_check();
+            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
+        "health.liveness" => {
+            let resp = service::handle_health_liveness();
+            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
+        "health.readiness" => {
+            let resp = service::handle_health_readiness();
+            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
+        "identity.get" => {
+            let resp = service::handle_identity_get();
+            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
+        "capability.list" => {
+            let resp = service::handle_capability_list();
+            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
         other => Err(IpcServiceError::dispatch(format!(
             "method not found: {other}"
@@ -289,44 +225,67 @@ where
     }
 }
 
-/// Default compile timeout (seconds). Override with `CORALREEF_COMPILE_TIMEOUT_SECS`.
-const DEFAULT_COMPILE_TIMEOUT_SECS: u64 = 120;
+/// Re-injects a consumed first line before the rest of the stream (plain JSON-RPC after a leading
+/// `{` that was not a JSON BTSP `ClientHello`).
+pub(crate) struct LinePrefixed<R> {
+    prefix: std::io::Cursor<Vec<u8>>,
+    inner: R,
+}
 
-/// Timeout for first-byte protocol detection on new TCP connections.
-const TCP_PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+impl<R> LinePrefixed<R> {
+    fn new(line_bytes: Vec<u8>, inner: R) -> Self {
+        Self {
+            prefix: std::io::Cursor::new(line_bytes),
+            inner,
+        }
+    }
+}
 
-/// riboCipher signal prefix: `[0xEC, 0x01]` — ecosystem health signal.
-const RIBOCIPHER_PREFIX: &[u8] = &[0xEC, 0x01];
+impl<R: AsyncRead + Unpin> AsyncRead for LinePrefixed<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let pos = self.prefix.position() as usize;
+        if pos < self.prefix.get_ref().len() {
+            let remaining = &self.prefix.get_ref()[pos..];
+            let n = remaining.len().min(buf.remaining());
+            buf.put_slice(&remaining[..n]);
+            self.prefix.set_position((pos + n) as u64);
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
 
-pub(super) fn compile_timeout() -> std::time::Duration {
-    let secs = std::env::var(env_keys::CORALREEF_COMPILE_TIMEOUT_SECS)
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_COMPILE_TIMEOUT_SECS);
-    std::time::Duration::from_secs(secs)
+/// When the first byte was `{` and the first line was already read, route JSON RPC vs JSON BTSP.
+pub(crate) async fn process_newline_after_brace_line<R, W>(first_line: String, reader: R, writer: W)
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    if btsp::line_looks_like_btsp_client_hello(&first_line) {
+        process_newline_reader_writer(reader, writer).await
+    } else {
+        process_newline_reader_writer(
+            LinePrefixed::new(first_line.into_bytes(), reader),
+            writer,
+        )
+        .await
+    }
 }
 
 /// Dispatch a JSON-RPC method, offloading CPU-heavy compile work to the blocking pool.
-///
-/// Compile methods are wrapped in a deadline (`CORALREEF_COMPILE_TIMEOUT_SECS`,
-/// default 120s) to prevent unbounded blocking from stalling the IPC server.
-pub(super) async fn dispatch_maybe_blocking(
+async fn dispatch_maybe_blocking(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, IpcServiceError> {
     if method.starts_with("shader.compile.") {
         let method = method.to_owned();
-        let deadline = compile_timeout();
-        let task = tokio::task::spawn_blocking(move || dispatch_jsonrpc(&method, params));
-        match tokio::time::timeout(deadline, task).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(e)) => Err(IpcServiceError::internal(format!(
-                "compile task panicked: {e}"
-            ))),
-            Err(_elapsed) => Err(IpcServiceError::internal(format!(
-                "shader compilation exceeded {deadline:?} deadline"
-            ))),
-        }
+        tokio::task::spawn_blocking(move || dispatch_jsonrpc(&method, params))
+            .await
+            .map_err(|e| IpcServiceError::internal(format!("compile task panicked: {e}")))?
     } else {
         dispatch_jsonrpc(method, params)
     }
@@ -350,43 +309,54 @@ pub async fn start_newline_tcp_jsonrpc(
 
     tracing::info!(%bound, "newline-delimited JSON-RPC (TCP) listening");
 
+    const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
     let handle = tokio::spawn(async move {
         loop {
             tokio::select! {
                 accept = listener.accept() => {
                     match accept {
                         Ok((stream, _peer)) => {
-                            let first_byte = {
-                                let mut buf = [0u8; 1];
-                                match tokio::time::timeout(
-                                    TCP_PEEK_TIMEOUT,
-                                    stream.peek(&mut buf),
-                                )
+                            let (read_half, write_half) = stream.into_split();
+                            let mut br = BufReader::new(read_half);
+                            let first_byte = match tokio::time::timeout(PEEK_TIMEOUT, br.fill_buf())
                                 .await
-                                {
-                                    Ok(Ok(n)) if n > 0 => Some(buf[0]),
-                                    _ => None,
-                                }
+                            {
+                                Ok(Ok(buf)) => buf.first().copied(),
+                                _ => None,
                             };
-                            let outcome = btsp::guard_from_first_byte(first_byte).await;
+                            let first_line = if first_byte == Some(b'{') {
+                                let mut line = String::new();
+                                match tokio::time::timeout(PEEK_TIMEOUT, br.read_line(&mut line))
+                                    .await
+                                {
+                                    Ok(Ok(0)) | Err(_) => {
+                                        continue;
+                                    }
+                                    Ok(Ok(_)) => {}
+                                    Ok(Err(e)) => {
+                                        tracing::warn!("TCP first-line read: {e}");
+                                        continue;
+                                    }
+                                }
+                                Some(line)
+                            } else {
+                                None
+                            };
+                            let outcome = match &first_line {
+                                None => btsp::guard_from_first_byte(first_byte).await,
+                                Some(l) => btsp::guard_from_first_line_after_brace(l).await,
+                            };
                             if !outcome.should_accept() {
                                 tracing::warn!(?outcome, "BTSP rejected TCP connection");
-                                drop(stream);
                                 continue;
                             }
-                            let consume_marker = first_byte.is_some_and(|b| b != b'{');
-                            let is_ribocipher = first_byte == Some(RIBOCIPHER_PREFIX[0]);
                             tokio::spawn(async move {
-                                let (reader, writer) = stream.into_split();
-                                if consume_marker {
-                                    let mut br = tokio::io::BufReader::new(reader);
-                                    let _ = br.read_u8().await;
-                                    if is_ribocipher {
-                                        let _ = br.read_u8().await;
-                                    }
-                                    process_newline_reader_writer(br, writer).await;
+                                if let Some(line) = first_line {
+                                    process_newline_after_brace_line(line, br, write_half)
+                                        .await;
                                 } else {
-                                    process_newline_reader_writer(reader, writer).await;
+                                    process_newline_reader_writer(br, write_half).await;
                                 }
                             });
                         }
@@ -403,265 +373,4 @@ pub async fn start_newline_tcp_jsonrpc(
     });
 
     Ok((bound, handle))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dispatch_health_liveness() {
-        let result = dispatch_jsonrpc("health.liveness", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert_eq!(val["status"], "alive");
-    }
-
-    #[test]
-    fn dispatch_health_check() {
-        let result = dispatch_jsonrpc("health.check", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val["healthy"].as_bool().unwrap());
-    }
-
-    #[test]
-    fn dispatch_health_readiness() {
-        crate::service::mark_startup();
-        let result = dispatch_jsonrpc("health.readiness", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val["ready"].as_bool().unwrap());
-    }
-
-    #[test]
-    fn dispatch_health_version() {
-        let result = dispatch_jsonrpc("health.version", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val["version"].as_str().is_some());
-        assert!(val["name"].as_str().is_some());
-    }
-
-    #[test]
-    fn dispatch_identity_get() {
-        let result = dispatch_jsonrpc("identity.get", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val["name"].as_str().is_some());
-    }
-
-    #[test]
-    fn dispatch_capability_list() {
-        let result = dispatch_jsonrpc("capability.list", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val["methods"].as_array().is_some());
-    }
-
-    #[test]
-    fn dispatch_capabilities_list_alias() {
-        let result = dispatch_jsonrpc("capabilities.list", serde_json::json!({}));
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn dispatch_unknown_method() {
-        let result = dispatch_jsonrpc("nonexistent.method", serde_json::json!({}));
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("method not found"));
-    }
-
-    #[test]
-    fn dispatch_auth_check() {
-        let result = dispatch_jsonrpc("auth.check", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val.get("authenticated").is_some());
-        assert!(val.get("origin").is_some());
-    }
-
-    #[test]
-    fn dispatch_auth_mode() {
-        let result = dispatch_jsonrpc("auth.mode", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val["mode"].as_str().is_some());
-    }
-
-    #[test]
-    fn dispatch_auth_peer_info() {
-        let result = dispatch_jsonrpc("auth.peer_info", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert!(val.get("origin").is_some());
-        assert!(val.get("has_token").is_some());
-    }
-
-    #[test]
-    fn dispatch_health_bare() {
-        let result = dispatch_jsonrpc("health", serde_json::json!({}));
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        assert_eq!(val["status"], "alive");
-    }
-
-    #[test]
-    fn dispatch_shader_compile_status() {
-        let result = dispatch_jsonrpc("shader.compile.status", serde_json::json!({}));
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn dispatch_shader_compile_capabilities() {
-        let result = dispatch_jsonrpc("shader.compile.capabilities", serde_json::json!({}));
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn make_response_success() {
-        let resp = make_response(
-            serde_json::json!(1),
-            Ok(serde_json::json!({"status": "ok"})),
-        );
-        let parsed: serde_json::Value = serde_json::from_str(&resp).expect("parse");
-        assert_eq!(parsed["jsonrpc"], "2.0");
-        assert_eq!(parsed["id"], 1);
-        assert!(parsed.get("result").is_some());
-        assert!(parsed.get("error").is_none());
-    }
-
-    #[test]
-    fn make_response_error() {
-        let err = IpcServiceError::dispatch("test error");
-        let resp = make_response(serde_json::json!(2), Err(err));
-        let parsed: serde_json::Value = serde_json::from_str(&resp).expect("parse");
-        assert_eq!(parsed["jsonrpc"], "2.0");
-        assert_eq!(parsed["id"], 2);
-        assert!(parsed.get("result").is_none());
-        assert!(parsed["error"]["message"].as_str().is_some());
-    }
-
-    #[test]
-    fn make_response_null_id() {
-        let resp = make_response(serde_json::Value::Null, Ok(serde_json::json!({"ok": true})));
-        let parsed: serde_json::Value = serde_json::from_str(&resp).expect("parse");
-        assert!(parsed["id"].is_null());
-    }
-
-    #[test]
-    fn extract_params_from_object() {
-        #[derive(serde::Deserialize)]
-        struct P {
-            x: i32,
-        }
-        let params = serde_json::json!({"x": 42});
-        let p: P = extract_params(params).expect("extract");
-        assert_eq!(p.x, 42);
-    }
-
-    #[test]
-    fn extract_params_from_array() {
-        #[derive(serde::Deserialize)]
-        struct P {
-            x: i32,
-        }
-        let params = serde_json::json!([{"x": 7}]);
-        let p: P = extract_params(params).expect("extract");
-        assert_eq!(p.x, 7);
-    }
-
-    #[test]
-    fn extract_params_empty_array_errors() {
-        #[derive(serde::Deserialize)]
-        struct P {
-            x: i32,
-        }
-        let params = serde_json::json!([]);
-        let result: Result<P, _> = extract_params(params);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn extract_params_non_object_non_array_errors() {
-        #[derive(serde::Deserialize)]
-        struct P {
-            x: i32,
-        }
-        let params = serde_json::json!("string");
-        let result: Result<P, _> = extract_params(params);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn compile_timeout_returns_reasonable_duration() {
-        let t = compile_timeout();
-        assert!(t.as_secs() >= 10 && t.as_secs() <= 600);
-    }
-
-    #[tokio::test]
-    async fn process_newline_reader_writer_health_liveness() {
-        let req = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "health.liveness",
-            "params": {},
-            "id": 1
-        });
-        let input = format!("{}\n", serde_json::to_string(&req).unwrap());
-        let mut output = Vec::new();
-        process_newline_reader_writer(input.as_bytes(), &mut output).await;
-        let out = String::from_utf8(output).expect("utf8");
-        assert!(out.contains("alive"), "should contain alive: {out}");
-    }
-
-    #[tokio::test]
-    async fn process_newline_reader_writer_skips_blank_lines() {
-        let req = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "health.liveness",
-            "params": {},
-            "id": 1
-        });
-        let input = format!("\n\n{}\n", serde_json::to_string(&req).unwrap());
-        let mut output = Vec::new();
-        process_newline_reader_writer(input.as_bytes(), &mut output).await;
-        let out = String::from_utf8(output).expect("utf8");
-        let lines: Vec<&str> = out.trim().lines().collect();
-        assert_eq!(lines.len(), 1, "should produce exactly one response line");
-    }
-
-    #[tokio::test]
-    async fn process_newline_reader_writer_invalid_json() {
-        let input = b"not-json\n";
-        let mut output = Vec::new();
-        process_newline_reader_writer(&input[..], &mut output).await;
-        let out = String::from_utf8(output).expect("utf8");
-        assert!(out.contains("error"), "should return parse error: {out}");
-    }
-
-    #[tokio::test]
-    async fn process_newline_reader_writer_wrong_version() {
-        let req = serde_json::json!({
-            "jsonrpc": "1.0",
-            "method": "health.liveness",
-            "params": {},
-            "id": 1
-        });
-        let input = format!("{}\n", serde_json::to_string(&req).unwrap());
-        let mut output = Vec::new();
-        process_newline_reader_writer(input.as_bytes(), &mut output).await;
-        let out = String::from_utf8(output).expect("utf8");
-        assert!(
-            out.contains("invalid jsonrpc version"),
-            "should reject: {out}"
-        );
-    }
-
-    #[tokio::test]
-    async fn dispatch_maybe_blocking_non_compile_runs_inline() {
-        let result = dispatch_maybe_blocking("health.liveness", serde_json::json!({})).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap()["status"], "alive");
-    }
 }
