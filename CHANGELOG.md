@@ -10,6 +10,12 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 155b: Deep Debt — Test Extraction & File Size (2026-07-27)
+
+#### Changed
+- `amd/encoding.rs`: extracted 362-line test module to `encoding_tests.rs` (795 → 436 LOC)
+- `ir/op_misc/mod.rs`: extracted 237-line test module to `op_misc_tests.rs` (747 → 513 LOC)
+
 ### Wave 152: Deep Debt — Deduplication & File Size + Doc Refresh (2026-07-26)
 
 #### Added
