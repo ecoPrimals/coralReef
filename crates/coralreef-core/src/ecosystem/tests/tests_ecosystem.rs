@@ -266,10 +266,9 @@ fn primal_announce_payload_has_required_fields() {
     assert_eq!(latency["gpu"], 50);
 
     assert!(
-        params["socket"]
-            .as_str()
-            .expect("socket string")
-            .ends_with(".sock")
+        Path::new(params["socket"].as_str().expect("socket string"))
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("sock"))
     );
     assert!(params["pid"].as_u64().is_some(), "pid must be present");
 }
@@ -302,22 +301,31 @@ fn discover_ecosystem_scans_tempdir_with_registry() {
 
 #[test]
 fn cost_and_latency_constants_are_positive() {
-    assert!(COST_COMPILE > 0.0);
-    assert!(COST_SHADER_COMPILE > 0.0);
-    assert!(COST_GPU_DISPATCH > 0.0);
-    assert!(LATENCY_COMPILE_MS > 0);
-    assert!(LATENCY_SHADER_COMPILE_MS > 0);
-    assert!(LATENCY_GPU_DISPATCH_MS > 0);
+    let cost_compile = COST_COMPILE;
+    let cost_shader_compile = COST_SHADER_COMPILE;
+    let cost_gpu_dispatch = COST_GPU_DISPATCH;
+    let latency_compile_ms = LATENCY_COMPILE_MS;
+    let latency_shader_compile_ms = LATENCY_SHADER_COMPILE_MS;
+    let latency_gpu_dispatch_ms = LATENCY_GPU_DISPATCH_MS;
+    assert!(cost_compile > 0.0);
+    assert!(cost_shader_compile > 0.0);
+    assert!(cost_gpu_dispatch > 0.0);
+    assert!(latency_compile_ms > 0);
+    assert!(latency_shader_compile_ms > 0);
+    assert!(latency_gpu_dispatch_ms > 0);
 }
 
 #[test]
 fn cost_ordering_reflects_complexity() {
+    let cost_compile = COST_COMPILE;
+    let cost_shader_compile = COST_SHADER_COMPILE;
+    let cost_gpu_dispatch = COST_GPU_DISPATCH;
     assert!(
-        COST_COMPILE < COST_SHADER_COMPILE,
+        cost_compile < cost_shader_compile,
         "shader compile should cost more than basic compile"
     );
     assert!(
-        COST_SHADER_COMPILE < COST_GPU_DISPATCH,
+        cost_shader_compile < cost_gpu_dispatch,
         "GPU dispatch should cost the most"
     );
 }

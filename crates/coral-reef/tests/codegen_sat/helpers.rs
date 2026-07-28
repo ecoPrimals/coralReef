@@ -31,9 +31,9 @@ pub fn compile_fixture_all_nv(wgsl: &str) {
         let result = std::panic::catch_unwind(|| compile_for(wgsl, nv));
         match result {
             Ok(Ok(bin)) => assert!(!bin.is_empty(), "{nv}: empty binary"),
-            Ok(Err(coral_reef::CompileError::NotImplemented(_))) if nv == NvArch::Sm120 => {}
+            Ok(Err(coral_reef::CompileError::NotImplemented(_))) | Err(_)
+                if nv == NvArch::Sm120 => {}
             Ok(Err(e)) => panic!("{nv}: {e}"),
-            Err(_) if nv == NvArch::Sm120 => {}
             Err(payload) => std::panic::resume_unwind(payload),
         }
     }

@@ -28,9 +28,6 @@ pub(crate) fn wgsl_to_spirv(source: &str) -> Vec<u32> {
     naga::back::spv::write_vec(&module, &info, &naga::back::spv::Options::default(), None).unwrap()
 }
 
-/// SPH header size: 32 words = 128 bytes (SPHV4).
-pub(crate) const SPH_HEADER_BYTES: usize = 32 * 4;
-
 /// Assert that a compile result either succeeded or returned `NotImplemented`.
 pub(crate) fn assert_ok_or_not_implemented(result: &Result<Vec<u8>, CompileError>, context: &str) {
     assert!(

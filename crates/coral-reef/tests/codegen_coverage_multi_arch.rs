@@ -311,9 +311,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             let result = std::panic::catch_unwind(|| coral_reef::compile_wgsl(wgsl, &o));
             match result {
                 Ok(Ok(bin)) => assert!(!bin.is_empty(), "{nv} opt={opt}: empty binary"),
-                Ok(Err(coral_reef::CompileError::NotImplemented(_))) if nv == NvArch::Sm120 => {}
+                Ok(Err(coral_reef::CompileError::NotImplemented(_))) | Err(_)
+                    if nv == NvArch::Sm120 => {}
                 Ok(Err(e)) => panic!("{nv} opt={opt}: {e}"),
-                Err(_) if nv == NvArch::Sm120 => {}
                 Err(payload) => std::panic::resume_unwind(payload),
             }
         }

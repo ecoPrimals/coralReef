@@ -20,7 +20,7 @@ fn compile_wgsl_raw_sm(wgsl: &str, sm: u8) {
 }
 
 /// `textureLoad` in compute — SM120+ PTX emitter fully supports texture compute;
-/// SM35-SM89 native codegen lacks IR-level ImageLoad translation (prologue passes through).
+/// SM35-SM89 native codegen lacks IR-level `ImageLoad` translation (prologue passes through).
 #[test]
 fn deep_texture_load_try_each_nv() {
     let wgsl = r"

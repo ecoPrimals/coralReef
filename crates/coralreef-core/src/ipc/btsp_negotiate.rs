@@ -537,6 +537,7 @@ mod tests {
         assert!(sessions.contains_key("sess-a"));
         assert!(sessions.contains_key("sess-b"));
         assert!(sessions["sess-b"].handshake_key.is_some());
+        drop(sessions);
     }
 
     // ─── SessionKeys crypto tests ──────────────────────────────────────

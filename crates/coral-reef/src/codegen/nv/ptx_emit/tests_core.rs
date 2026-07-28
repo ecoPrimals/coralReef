@@ -469,7 +469,7 @@ fn main() {
     let lines: Vec<&str> = ptx.lines().collect();
     let has_break_bra = lines
         .iter()
-        .any(|l| l.trim().starts_with("bra $L") || l.trim().starts_with("@"));
+        .any(|l| l.trim().starts_with("bra $L") || l.trim().starts_with('@'));
     assert!(
         has_break_bra,
         "break should emit bra to label, not standalone ret:\n{ptx}"

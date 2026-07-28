@@ -519,7 +519,7 @@ async fn test_unix_jsonrpc_empty_line_skipped() {
 /// Verify the full BTSP Phase 3 encrypted transport path is reachable:
 /// `handle_connection` → negotiate → `process_encrypted_frames`.
 ///
-/// This test bypasses the accept loop to inject a valid session_id directly,
+/// This test bypasses the accept loop to inject a valid `session_id` directly,
 /// simulating a production connection where Phase 2 has completed.
 #[cfg(unix)]
 #[tokio::test]

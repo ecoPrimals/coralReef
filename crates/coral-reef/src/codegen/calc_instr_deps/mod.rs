@@ -176,7 +176,7 @@ mod tests {
         deps.add_signal(wr);
         deps.add_barrier(0, 1);
         assert!(
-            deps.get_instr_waits(0, 1).len() >= 1,
+            !deps.get_instr_waits(0, 1).is_empty(),
             "barrier should wait on at least one dep"
         );
     }

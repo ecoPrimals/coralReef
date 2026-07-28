@@ -70,6 +70,9 @@ pub const FAMILY_SEED: &str = "FAMILY_SEED";
 /// Security-domain provider socket path (preferred).
 pub const BTSP_PROVIDER_SOCKET: &str = "BTSP_PROVIDER_SOCKET";
 
+/// Composition launcher alias for the security-domain provider socket.
+pub const BEARDOG_SOCKET: &str = "BEARDOG_SOCKET";
+
 /// Ecosystem discovery relay socket path from the composition launcher.
 pub const DISCOVERY_SOCKET: &str = "DISCOVERY_SOCKET";
 

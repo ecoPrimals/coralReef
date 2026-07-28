@@ -18,6 +18,8 @@ use super::error::IpcServiceError;
 use super::{CoralReefError, IpcError};
 use crate::service;
 
+pub use crate::config::compile_timeout;
+
 #[derive(Deserialize)]
 struct JsonRpcRequest {
     jsonrpc: String,
@@ -123,10 +125,58 @@ pub fn dispatch_jsonrpc(
             let resp = service::handle_identity_get();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
-        "capability.list" => {
+        "capability.list" | "capabilities.list" => {
             let resp = service::handle_capability_list();
             serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
         }
+        "shader.compile.multi" => {
+            let req: service::BatchCompileRequest = extract_params(params)?;
+            match service::handle_compile_multi(req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
+        "shader.compile.gemm" => {
+            let req: service::GemmCompileRequest = extract_params(params)?;
+            match service::handle_compile_gemm(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
+        "health.version" => {
+            let resp = service::handle_health_version();
+            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+        }
+        "btsp.negotiate" => {
+            let req: super::btsp_negotiate::NegotiateRequest = extract_params(params)?;
+            match super::btsp_negotiate::handle_negotiate(&req) {
+                Ok(resp) => {
+                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
+                }
+                Err(e) => Err(IpcServiceError::handler(e.to_string())),
+            }
+        }
+        "auth.check" => {
+            let gate = super::method_gate::gate();
+            Ok(serde_json::json!({
+                "mode": gate.mode().as_str(),
+                "authenticated": false,
+            }))
+        }
+        "auth.mode" => {
+            let gate = super::method_gate::gate();
+            Ok(serde_json::json!({
+                "mode": gate.mode().as_str(),
+            }))
+        }
+        "auth.peer_info" => Ok(serde_json::json!({
+            "origin": "loopback",
+            "peer": serde_json::Value::Null,
+        })),
         other => Err(IpcServiceError::dispatch(format!(
             "method not found: {other}"
         ))),
@@ -227,13 +277,13 @@ where
 
 /// Re-injects a consumed first line before the rest of the stream (plain JSON-RPC after a leading
 /// `{` that was not a JSON BTSP `ClientHello`).
-pub(crate) struct LinePrefixed<R> {
+pub struct LinePrefixed<R> {
     prefix: std::io::Cursor<Vec<u8>>,
     inner: R,
 }
 
 impl<R> LinePrefixed<R> {
-    fn new(line_bytes: Vec<u8>, inner: R) -> Self {
+    const fn new(line_bytes: Vec<u8>, inner: R) -> Self {
         Self {
             prefix: std::io::Cursor::new(line_bytes),
             inner,
@@ -247,7 +297,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for LinePrefixed<R> {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        let pos = self.prefix.position() as usize;
+        let pos = usize::try_from(self.prefix.position())
+            .expect("in-memory prefix cursor position fits in usize");
         if pos < self.prefix.get_ref().len() {
             let remaining = &self.prefix.get_ref()[pos..];
             let n = remaining.len().min(buf.remaining());
@@ -260,19 +311,16 @@ impl<R: AsyncRead + Unpin> AsyncRead for LinePrefixed<R> {
 }
 
 /// When the first byte was `{` and the first line was already read, route JSON RPC vs JSON BTSP.
-pub(crate) async fn process_newline_after_brace_line<R, W>(first_line: String, reader: R, writer: W)
+pub async fn process_newline_after_brace_line<R, W>(first_line: String, reader: R, writer: W)
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
     if btsp::line_looks_like_btsp_client_hello(&first_line) {
-        process_newline_reader_writer(reader, writer).await
+        process_newline_reader_writer(reader, writer).await;
     } else {
-        process_newline_reader_writer(
-            LinePrefixed::new(first_line.into_bytes(), reader),
-            writer,
-        )
-        .await
+        process_newline_reader_writer(LinePrefixed::new(first_line.into_bytes(), reader), writer)
+            .await;
     }
 }
 
@@ -309,9 +357,8 @@ pub async fn start_newline_tcp_jsonrpc(
 
     tracing::info!(%bound, "newline-delimited JSON-RPC (TCP) listening");
 
-    const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
     let handle = tokio::spawn(async move {
+        const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
         loop {
             tokio::select! {
                 accept = listener.accept() => {

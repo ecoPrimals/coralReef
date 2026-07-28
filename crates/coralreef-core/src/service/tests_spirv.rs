@@ -100,7 +100,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let resp = handle_compile_wgsl(&req).expect("compile should succeed");
 
-    assert!(resp.binary.len() > 0, "native binary must be non-empty");
+    assert!(!resp.binary.is_empty(), "native binary must be non-empty");
     assert_eq!(
         resp.status.as_deref(),
         Some("success"),
@@ -129,10 +129,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     assert!(!prov.compiler_version.is_empty());
     assert!(!prov.gate_of_compilation.is_empty());
 
-    let spirv_words: Vec<u32> = spirv
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
-        .collect();
+    let spirv_word_count = spirv.chunks_exact(4).count();
     let module = naga::front::spv::parse_u8_slice(&spirv, &naga::front::spv::Options::default())
         .expect("emitted SPIR-V must be parseable");
     let mut validator = naga::valid::Validator::new(
@@ -152,7 +149,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         naga::ShaderStage::Compute,
         "entry point must be compute"
     );
-    assert!(spirv_words.len() > 20, "non-trivial SPIR-V module");
+    assert!(spirv_word_count > 20, "non-trivial SPIR-V module");
 }
 
 #[test]

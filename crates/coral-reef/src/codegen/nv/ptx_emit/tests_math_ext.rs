@@ -92,7 +92,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 #[test]
 fn ptx_texture_load() {
-    let wgsl = r#"
+    let wgsl = r"
 @group(0) @binding(0) var my_tex: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> out: array<f32>;
 
@@ -101,7 +101,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let texel = textureLoad(my_tex, vec2<u32>(gid.x, 0u), 0);
     out[gid.x] = texel.x;
 }
-"#;
+";
     let result = emit_compute_ptx(wgsl, 120);
     assert!(result.is_ok(), "texture load: {result:?}");
     let compiled = result.unwrap();
@@ -114,7 +114,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 #[test]
 fn ptx_image_query_num_layers() {
-    let wgsl = r#"
+    let wgsl = r"
 @group(0) @binding(0) var my_img: texture_storage_2d_array<rgba8unorm, read_write>;
 @group(0) @binding(1) var<storage, read_write> out: array<u32>;
 
@@ -123,7 +123,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let layers = textureNumLayers(my_img);
     out[gid.x] = layers;
 }
-"#;
+";
     let result = emit_compute_ptx(wgsl, 120);
     assert!(result.is_ok(), "NumLayers: {result:?}");
     let compiled = result.unwrap();
@@ -155,7 +155,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let compiled = result.unwrap();
     let ptx = String::from_utf8_lossy(&compiled.binary);
     assert!(
-        ptx.contains("@") || ptx.contains("bra"),
+        ptx.contains('@') || ptx.contains("bra"),
         "branching should produce conditional or branch: {ptx:.600}"
     );
 }

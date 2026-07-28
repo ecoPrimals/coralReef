@@ -19,6 +19,11 @@
 //! The signing call is best-effort: failures degrade to unsigned provenance
 //! with a tracing warning.
 
+#![allow(
+    dead_code,
+    reason = "artifact signing path used by CompileResponse::with_provenance and integration tests"
+)]
+
 use crate::config;
 #[cfg(unix)]
 use crate::ipc::{btsp, btsp_client};

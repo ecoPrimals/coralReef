@@ -76,6 +76,10 @@ mod inner {
     /// Per wateringHole `PRIMAL_IPC_PROTOCOL` v3.0:
     /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
     #[must_use]
+    #[allow(
+        dead_code,
+        reason = "pub API used by integration tests and Unix embedders"
+    )]
     pub fn unix_socket_path_for_base(runtime_dir: Option<PathBuf>) -> PathBuf {
         let base = runtime_dir.unwrap_or_else(std::env::temp_dir);
         base.join(crate::config::ecosystem_namespace())
@@ -84,11 +88,11 @@ mod inner {
 
     /// Default socket path per wateringHole standard.
     ///
-    /// `$XDG_RUNTIME_DIR/biomeos/<primal>-<family_id>.sock`
-    /// Falls back to `$TMPDIR/biomeos/<primal>-<family_id>.sock` if XDG is unset.
+    /// Delegates to [`crate::config::default_socket_path`] for canonical 4-tier
+    /// resolution (`$BIOMEOS_SOCKET_DIR` > `$XDG_RUNTIME_DIR` > `/run/{ns}` > `$TMPDIR`).
     #[must_use]
     pub fn default_unix_socket_path() -> PathBuf {
-        unix_socket_path_for_base(std::env::var("XDG_RUNTIME_DIR").ok().map(PathBuf::from))
+        crate::config::default_socket_path()
     }
 
     /// Start a Unix socket JSON-RPC server.
@@ -142,7 +146,7 @@ mod inner {
                                     )
                                     .await
                                     {
-                                        Ok(Ok(0)) | Ok(Err(_)) | Err(_) => continue,
+                                        Ok(Ok(0) | Err(_)) | Err(_) => continue,
                                         Ok(Ok(_)) => {}
                                     }
                                     if btsp::line_looks_like_btsp_client_hello(&first_line) {
@@ -202,8 +206,194 @@ mod inner {
     }
 }
 
-#[cfg(all(unix, test))]
-pub use super::newline_jsonrpc::make_response;
+/// Handle a single connection with optional BTSP session context.
+///
+/// When `session_id` is `Some`, the handler recognises `btsp.negotiate` requests
+/// and, upon successful negotiation to `chacha20-poly1305`, switches to encrypted
+/// framing for the remainder of the connection.
+///
+/// Without a `session_id` (or after negotiation returns `"null"`), the handler
+/// falls through to plain newline-delimited JSON-RPC.
+#[cfg(unix)]
+#[allow(
+    dead_code,
+    reason = "pub API for tests and e2e Phase 3 encrypted transport"
+)]
+pub async fn handle_connection<R, W>(reader: R, mut writer: W, session_id: Option<String>)
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use super::btsp_negotiate;
+    use super::newline_jsonrpc::{dispatch_jsonrpc, make_response};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let mut lines = reader.lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(trimmed);
+        let Ok(req_val) = parsed else {
+            let resp = make_response(
+                serde_json::Value::Null,
+                Err(super::error::IpcServiceError::transport("parse error")),
+            );
+            if writer.write_all(resp.as_bytes()).await.is_err()
+                || writer.write_all(b"\n").await.is_err()
+            {
+                break;
+            }
+            let _ = writer.flush().await;
+            continue;
+        };
+
+        let method = req_val
+            .get("method")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let id = req_val
+            .get("id")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let params = req_val
+            .get("params")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+
+        if method == "btsp.negotiate" {
+            if let Ok(neg_req) =
+                serde_json::from_value::<btsp_negotiate::NegotiateRequest>(params.clone())
+            {
+                match btsp_negotiate::handle_negotiate(&neg_req) {
+                    Ok(neg_resp) => {
+                        let result =
+                            serde_json::to_value(&neg_resp).unwrap_or(serde_json::Value::Null);
+                        let resp = make_response(id, Ok(result));
+                        if writer.write_all(resp.as_bytes()).await.is_err()
+                            || writer.write_all(b"\n").await.is_err()
+                        {
+                            break;
+                        }
+                        let _ = writer.flush().await;
+
+                        if neg_resp.cipher == "chacha20-poly1305" {
+                            let sid = session_id.as_deref().unwrap_or(&neg_req.session_id);
+                            if let Some(keys) = btsp_negotiate::take_negotiated_keys(sid) {
+                                process_encrypted_frames(&mut lines, &mut writer, keys).await;
+                                return;
+                            }
+                        }
+                        continue;
+                    }
+                    Err(e) => {
+                        let resp = make_response(
+                            id,
+                            Err(super::error::IpcServiceError::handler(e.to_string())),
+                        );
+                        if writer.write_all(resp.as_bytes()).await.is_err()
+                            || writer.write_all(b"\n").await.is_err()
+                        {
+                            break;
+                        }
+                        let _ = writer.flush().await;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let result = dispatch_jsonrpc(method, params);
+        let resp = make_response(id, result);
+        if writer.write_all(resp.as_bytes()).await.is_err()
+            || writer.write_all(b"\n").await.is_err()
+        {
+            break;
+        }
+        let _ = writer.flush().await;
+    }
+}
+
+/// Read encrypted frames, dispatch JSON-RPC, write encrypted responses.
+#[cfg(unix)]
+#[allow(
+    dead_code,
+    reason = "pub API for tests and e2e Phase 3 encrypted transport"
+)]
+async fn process_encrypted_frames<R, W>(
+    lines: &mut tokio::io::Lines<R>,
+    writer: &mut W,
+    keys: super::btsp_negotiate::SessionKeys,
+) where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use super::newline_jsonrpc::{dispatch_jsonrpc, make_response};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let raw_reader = lines.get_mut();
+    while let Ok(len) = tokio::io::AsyncReadExt::read_u32(raw_reader).await {
+        let frame_len = len as usize;
+        if frame_len == 0 || frame_len > 16 * 1024 * 1024 {
+            break;
+        }
+        let mut frame = vec![0u8; frame_len];
+        if raw_reader.read_exact(&mut frame).await.is_err() {
+            break;
+        }
+        let plaintext = match keys.decrypt(&frame) {
+            Ok(pt) => pt,
+            Err(e) => {
+                tracing::warn!(error = %e, "encrypted frame decrypt failed");
+                break;
+            }
+        };
+        let Ok(req_str) = std::str::from_utf8(&plaintext) else {
+            break;
+        };
+        let Ok(req_val) = serde_json::from_str::<serde_json::Value>(req_str) else {
+            break;
+        };
+        let method = req_val
+            .get("method")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let id = req_val
+            .get("id")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let params = req_val
+            .get("params")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+
+        let result = dispatch_jsonrpc(method, params);
+        let resp = make_response(id, result);
+
+        match keys.encrypt(resp.as_bytes()) {
+            Ok(encrypted) => {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "JSON-RPC responses are well under 4 GiB"
+                )]
+                let len_bytes = (encrypted.len() as u32).to_be_bytes();
+                if writer.write_all(&len_bytes).await.is_err()
+                    || writer.write_all(&encrypted).await.is_err()
+                {
+                    break;
+                }
+                let _ = writer.flush().await;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "encrypted frame encrypt failed");
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]

@@ -19,6 +19,11 @@
 //!
 //! Per `wateringHole/METHOD_GATE_STANDARD.md` v1.0.
 
+#![allow(
+    dead_code,
+    reason = "JH-0 method gate ships in Phase 3; wired from dispatch once auth.verify_ionic lands"
+)]
+
 use std::sync::OnceLock;
 
 use crate::env_keys;

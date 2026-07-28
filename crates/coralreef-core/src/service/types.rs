@@ -240,6 +240,10 @@ impl CompileResponse {
     ///
     /// Not used in the tarpc path (intra-gate, already trusted).
     #[must_use]
+    #[allow(
+        dead_code,
+        reason = "provenance attachment for cross-gate JSON-RPC compile responses"
+    )]
     pub fn with_provenance(mut self) -> Self {
         self.provenance = Some(super::provenance::build_provenance(&self.binary));
         self

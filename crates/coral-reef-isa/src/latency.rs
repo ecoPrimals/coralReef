@@ -72,7 +72,9 @@ mod tests {
 
     #[test]
     fn test_ialu_throughput_highest() {
-        assert!(InstrLatency::IALU.throughput > InstrLatency::DEFAULT.throughput);
+        let ialu = InstrLatency::IALU.throughput;
+        let default = InstrLatency::DEFAULT.throughput;
+        assert!(ialu > default);
     }
 
     #[test]

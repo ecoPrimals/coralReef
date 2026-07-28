@@ -28,7 +28,7 @@ version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 publish = false
-repository = "https://github.com/ecoPrimals/coralReef"
+repository = "https://git.primals.eco/ecoPrimals/coralReef"
 authors = ["ecoPrimals Project"]
 rust-version = "1.85"
 

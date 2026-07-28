@@ -28,6 +28,11 @@
 //!     │   (stream authenticated — send application RPC)   │
 //! ```
 
+#![allow(
+    dead_code,
+    reason = "BTSP client outbound handshake API used by provenance signing and integration tests"
+)]
+
 use std::path::Path;
 
 /// Result of a successful BTSP client handshake.

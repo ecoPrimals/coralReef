@@ -4,11 +4,36 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 152
+**Current status**: Phase 10 — Sprint 14 / Wave 155f
 
 ---
 
 ## [Unreleased]
+
+### Wave 155f: strandGate Deep Debt Execution (2026-07-28)
+
+#### Fixed
+- 10 compile errors in `coralreef-core` (missing `config::beardog_socket()`, missing `config::compile_timeout()`, private visibility on `btsp::discover_security_socket` and `btsp::discover_by_capability`, missing `unix_jsonrpc::handle_connection`)
+- `default_unix_socket_path()` now delegates to canonical 4-tier `socket_base_dir()` resolution (`BIOMEOS_SOCKET_DIR` > `XDG_RUNTIME_DIR` > `/run/{ns}` > `$TMPDIR`)
+- 4 previously failing integration tests (`unix_jsonrpc_default_socket_path_env`) now pass
+- Clippy `assertions_on_constants` in `coral-reef-isa/latency.rs`
+- Formatting drift across workspace
+- ~50 clippy pedantic/nursery violations across both crates (infallible casts, doc backticks, redundant closures, `div_ceil`, needless collect, dead code annotations)
+
+#### Added
+- `config::beardog_socket()` — composition launcher alias for security-domain provider
+- `config::compile_timeout()` — env-configurable compile deadline (`CORALREEF_COMPILE_TIMEOUT_SECS`)
+- `unix_jsonrpc::handle_connection()` — BTSP Phase 3 encrypted transport handler with ChaCha20-Poly1305 AEAD frame loop
+- 7 new JSON-RPC dispatch routes: `shader.compile.multi`, `shader.compile.gemm`, `health.version`, `btsp.negotiate`, `auth.check`, `auth.mode`, `auth.peer_info`
+- `capabilities.list` alias for `capability.list`
+- `BEARDOG_SOCKET` env key in `env_keys.rs`
+
+#### Changed
+- Repository URL updated from GitHub to Forgejo (`git.primals.eco`)
+- `btsp::discover_security_socket` and `btsp::discover_by_capability` visibility: `fn` → `pub(crate) fn`
+- `newline_jsonrpc` re-exports `config::compile_timeout` for tarpc transport
+- Test count: 3527 passed, 0 failed, 6 ignored (was 3665+4 failing)
+- Clippy pedantic+nursery: zero warnings across all targets
 
 ### Wave 155b: Deep Debt — Test Extraction & File Size (2026-07-27)
 

@@ -283,6 +283,18 @@ pub fn discovery_dir() -> std::io::Result<PathBuf> {
     Ok(socket_base_dir().join(ecosystem_namespace()))
 }
 
+/// Default compile deadline for CPU-heavy shader compilation over IPC.
+pub const DEFAULT_COMPILE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Resolve the compile timeout (env-configurable via `$CORALREEF_COMPILE_TIMEOUT_SECS`).
+#[must_use]
+pub fn compile_timeout() -> Duration {
+    parse_duration_env(
+        env_keys::CORALREEF_COMPILE_TIMEOUT_SECS,
+        DEFAULT_COMPILE_TIMEOUT,
+    )
+}
+
 /// Resolve the security-domain provider socket path.
 ///
 /// The composition launcher sets `$BTSP_PROVIDER_SOCKET` to the concrete
@@ -290,6 +302,15 @@ pub fn discovery_dir() -> std::io::Result<PathBuf> {
 #[must_use]
 pub fn btsp_provider_socket() -> Option<PathBuf> {
     non_empty_env_path(env_keys::BTSP_PROVIDER_SOCKET)
+}
+
+/// Resolve the `$BEARDOG_SOCKET` composition launcher alias.
+///
+/// Older launchers use this instead of `$BTSP_PROVIDER_SOCKET`. Returns
+/// `None` when unset or empty.
+#[must_use]
+pub fn beardog_socket() -> Option<PathBuf> {
+    non_empty_env_path(env_keys::BEARDOG_SOCKET)
 }
 
 /// Resolve the ecosystem discovery relay socket path.
@@ -442,9 +463,22 @@ mod tests {
     }
 
     #[test]
+    fn compile_timeout_is_reasonable() {
+        let t = compile_timeout();
+        assert!(t.as_secs() >= 10 && t.as_secs() <= 600);
+    }
+
+    #[test]
     fn btsp_provider_socket_returns_none_when_unset() {
         if std::env::var("BTSP_PROVIDER_SOCKET").is_err() {
             assert!(btsp_provider_socket().is_none());
+        }
+    }
+
+    #[test]
+    fn beardog_socket_returns_none_when_unset() {
+        if std::env::var("BEARDOG_SOCKET").is_err() {
+            assert!(beardog_socket().is_none());
         }
     }
 

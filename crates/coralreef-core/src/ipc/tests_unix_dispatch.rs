@@ -516,14 +516,13 @@ fn dispatch_capabilities_list_plural_alias() {
     let val = result.unwrap();
     assert!(val["methods"].is_array());
     assert!(val["capabilities"].is_array());
-    let methods: Vec<String> = val["methods"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|v| v.as_str().map(ToOwned::to_owned))
-        .collect();
     assert!(
-        methods.contains(&"capabilities.list".to_owned()),
+        val["methods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .any(|method| method == "capabilities.list"),
         "capabilities.list must be in methods list"
     );
 }

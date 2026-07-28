@@ -112,6 +112,10 @@ impl BtspOutcome {
 
     /// The session ID from a successful Phase 2 authentication, if any.
     #[must_use]
+    #[allow(
+        dead_code,
+        reason = "public API for Phase 3 encrypted transport session binding"
+    )]
     pub fn session_id(&self) -> Option<&str> {
         match self {
             Self::Authenticated { session_id } => Some(session_id),
@@ -130,6 +134,10 @@ const PLAIN_JSONRPC_MARKER: u8 = b'{';
 /// `true` when a newline‑terminated first line is a JSON BTSP `ClientHello`
 /// (wateringHole JSON‑line form), as opposed to plain JSON‑RPC 2.0.
 #[must_use]
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helper shared by ipc submodules and service/provenance"
+)]
 pub(crate) fn line_looks_like_btsp_client_hello(line: &str) -> bool {
     line.contains("\"protocol\"") && line.contains("\"btsp\"")
 }
@@ -191,10 +199,15 @@ pub async fn guard_from_first_line_after_brace(first_line: &str) -> BtspOutcome 
 
 /// Full JSON-line BTSP handshake relay on the client's stream.
 ///
-/// Performs the complete 4-step handshake: reads the already-consumed ClientHello,
-/// relays through BearDog `btsp.session.create` / `btsp.session.verify`, and
-/// writes ServerHello + HandshakeComplete back to the client. Returns `Ok(session_id)`
+/// Performs the complete 4-step handshake: reads the already-consumed `ClientHello`,
+/// relays through `BearDog` `btsp.session.create` / `btsp.session.verify`, and
+/// writes `ServerHello` + `HandshakeComplete` back to the client. Returns `Ok(session_id)`
 /// on success or `Err` on failure (caller should close the connection).
+///
+/// # Errors
+///
+/// Returns an error when BTSP is disabled, the security provider is unreachable,
+/// handshake messages are malformed, or family verification fails.
 #[cfg(unix)]
 pub async fn relay_json_line_handshake<W, R>(
     client_hello_line: &str,
@@ -210,7 +223,7 @@ where
     let mode = btsp_mode();
     let family_id = match mode {
         BtspMode::Development => {
-            return Err(BtspSessionError::Protocol("dev mode, no BTSP".into()))
+            return Err(BtspSessionError::Protocol("dev mode, no BTSP".into()));
         }
         BtspMode::Production { family_id } => family_id.clone(),
     };
@@ -221,8 +234,7 @@ where
         ));
     };
 
-    let client_hello: serde_json::Value =
-        serde_json::from_str(client_hello_line.trim())?;
+    let client_hello: serde_json::Value = serde_json::from_str(client_hello_line.trim())?;
     let client_ephemeral_pub = client_hello
         .get("client_ephemeral_pub")
         .and_then(|v| v.as_str())
@@ -248,9 +260,7 @@ where
         .get("session_id")
         .or_else(|| create_result.get("session_token"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            BtspSessionError::Protocol("missing session_id in create response".into())
-        })?
+        .ok_or_else(|| BtspSessionError::Protocol("missing session_id in create response".into()))?
         .to_string();
 
     let server_ephemeral_pub = create_result
@@ -261,9 +271,7 @@ where
     let challenge_b64 = create_result
         .get("challenge")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            BtspSessionError::Protocol("missing challenge in create response".into())
-        })?;
+        .ok_or_else(|| BtspSessionError::Protocol("missing challenge in create response".into()))?;
 
     let server_hello = serde_json::json!({
         "version": 1,
@@ -272,25 +280,23 @@ where
     });
     let mut sh_line = serde_json::to_string(&server_hello)?;
     sh_line.push('\n');
-    writer.write_all(sh_line.as_bytes()).await.map_err(|e| {
-        BtspSessionError::Protocol(format!("write ServerHello: {e}"))
-    })?;
-    writer.flush().await.map_err(|e| {
-        BtspSessionError::Protocol(format!("flush ServerHello: {e}"))
-    })?;
+    writer
+        .write_all(sh_line.as_bytes())
+        .await
+        .map_err(|e| BtspSessionError::Protocol(format!("write ServerHello: {e}")))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| BtspSessionError::Protocol(format!("flush ServerHello: {e}")))?;
 
     let mut cr_line = String::new();
-    reader.read_line(&mut cr_line).await.map_err(|e| {
-        BtspSessionError::Protocol(format!("read ChallengeResponse: {e}"))
-    })?;
-    let cr: serde_json::Value =
-        serde_json::from_str(cr_line.trim()).map_err(|e| {
-            BtspSessionError::Protocol(format!("parse ChallengeResponse: {e}"))
-        })?;
-    let hmac_response = cr
-        .get("response")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    reader
+        .read_line(&mut cr_line)
+        .await
+        .map_err(|e| BtspSessionError::Protocol(format!("read ChallengeResponse: {e}")))?;
+    let cr: serde_json::Value = serde_json::from_str(cr_line.trim())
+        .map_err(|e| BtspSessionError::Protocol(format!("parse ChallengeResponse: {e}")))?;
+    let hmac_response = cr.get("response").and_then(|v| v.as_str()).unwrap_or("");
 
     let verify_result = security_rpc(
         &security_sock,
@@ -307,7 +313,7 @@ where
 
     let verified = verify_result
         .get("verified")
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     if !verified {
         let err = serde_json::json!({
@@ -326,12 +332,14 @@ where
     });
     let mut cmp_line = serde_json::to_string(&complete)?;
     cmp_line.push('\n');
-    writer.write_all(cmp_line.as_bytes()).await.map_err(|e| {
-        BtspSessionError::Protocol(format!("write HandshakeComplete: {e}"))
-    })?;
-    writer.flush().await.map_err(|e| {
-        BtspSessionError::Protocol(format!("flush HandshakeComplete: {e}"))
-    })?;
+    writer
+        .write_all(cmp_line.as_bytes())
+        .await
+        .map_err(|e| BtspSessionError::Protocol(format!("write HandshakeComplete: {e}")))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| BtspSessionError::Protocol(format!("flush HandshakeComplete: {e}")))?;
 
     tracing::info!(session_id, "BTSP JSON-line handshake complete");
     Ok(session_id)
@@ -441,7 +449,11 @@ fn resolve_socket_dir() -> PathBuf {
 /// 3. `{sock_dir}/{SECURITY_DOMAIN}-{family_id}.sock` — convention scan
 /// 4. `{sock_dir}/{SECURITY_DOMAIN}.sock` — unscoped fallback
 /// 5. Discovery files in `{sock_dir}/*.json` advertising `btsp.session.create`
-fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible discovery helper shared by btsp handshake and service/provenance"
+)]
+pub(crate) fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
     if let Some(path) = config::btsp_provider_socket().filter(|p| p.exists()) {
         tracing::debug!(path = %path.display(), "BTSP provider from $BTSP_PROVIDER_SOCKET");
         return Some(path);
@@ -468,7 +480,11 @@ fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
 }
 
 /// Scan discovery files for a primal advertising a specific method.
-fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible discovery helper shared by btsp handshake and service/provenance"
+)]
+pub(crate) fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {
     let entries = std::fs::read_dir(sock_dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -587,11 +603,11 @@ async fn create_btsp_session(
 
 fn b64_encode(input: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let b0 = u32::from(chunk[0]);
+        let b1 = u32::from(chunk.get(1).copied().unwrap_or(0));
+        let b2 = u32::from(chunk.get(2).copied().unwrap_or(0));
         let triple = (b0 << 16) | (b1 << 8) | b2;
         out.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
         out.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
@@ -612,10 +628,13 @@ fn b64_encode(input: &[u8]) -> String {
 /// Errors from the BTSP session creation RPC.
 #[derive(Debug, thiserror::Error)]
 pub enum BtspSessionError {
+    /// I/O failure while reading or writing handshake bytes.
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
+    /// JSON parse or serialize failure on handshake messages.
     #[error("JSON: {0}")]
     Json(#[from] serde_json::Error),
+    /// BTSP protocol violation or handshake rejection.
     #[error("{0}")]
     Protocol(String),
 }

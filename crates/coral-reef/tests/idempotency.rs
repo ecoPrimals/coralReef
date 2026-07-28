@@ -3,7 +3,7 @@
 //! compiler across all input languages and output backends.
 //!
 //! Three categories:
-//! 1. **WGSL roundtrip**: WGSL → naga::Module → WGSL text → naga::Module → compile
+//! 1. **WGSL roundtrip**: WGSL → `naga::Module` → WGSL text → `naga::Module` → compile
 //! 2. **SPIR-V roundtrip**: WGSL → compile vs WGSL → SPIR-V → compile (same binary)
 //! 3. **Multi-backend determinism**: compile(x) == compile(x) for all backends
 
@@ -11,7 +11,7 @@ use coral_reef::{AmdArch, CompileOptions, GpuTarget, NvArch, compile, compile_wg
 
 const TRIVIAL_COMPUTE: &str = "@compute @workgroup_size(1) fn main() {}";
 
-const ALU_COMPUTE: &str = r#"
+const ALU_COMPUTE: &str = r"
 @group(0) @binding(0) var<storage, read_write> buf: array<f32>;
 
 @compute @workgroup_size(64)
@@ -19,9 +19,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
     buf[i] = buf[i] * 2.0 + 1.0;
 }
-"#;
+";
 
-const SHARED_MEM_COMPUTE: &str = r#"
+const SHARED_MEM_COMPUTE: &str = r"
 var<workgroup> tile: array<f32, 256>;
 
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
@@ -32,9 +32,9 @@ fn main(@builtin(local_invocation_index) lid: u32) {
     workgroupBarrier();
     out[lid] = tile[255u - lid];
 }
-"#;
+";
 
-const CONTROL_FLOW_COMPUTE: &str = r#"
+const CONTROL_FLOW_COMPUTE: &str = r"
 @group(0) @binding(0) var<storage, read_write> buf: array<f32>;
 
 @compute @workgroup_size(32)
@@ -50,7 +50,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     buf[i] = acc;
 }
-"#;
+";
 
 fn opts_for(target: GpuTarget) -> CompileOptions {
     CompileOptions {

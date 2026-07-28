@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 152.
+**Current position**: Phase 10 — Sprint 14 / Wave 155f.
 
-**Last completed**: Wave 152 — deep debt deduplication (`require_math_arg()`, test helper consolidation, dataflow.rs 768→293). Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction. Wave 145 — deep debt (BEARDOG excised, provenance error visibility, main.rs dedup). Wave 144 — `local_transport` client-side. Wave 143 — file splits, namespace-agnostic paths.
+**Last completed**: Wave 155f — strandGate deep debt execution (compile fixes, full JSON-RPC dispatch, capability-based discovery, BTSP Phase 3 encrypted transport, socket resolution unification, clippy pedantic+nursery clean). Wave 152 — deep debt deduplication. Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction.
 
-**Tests**: 3669 total (3665 passing, 4 ignored). 84% line coverage. Zero clippy warnings. Zero unsafe.
+**Tests**: 3527 total (3527 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
-**Last updated**: July 26, 2026.
+**Last updated**: July 28, 2026.
 
 **Next focus**: Coverage push toward 90% (compiler backends are main gap). ironGate deployment validation (gnu binary, RTX 5070 sm_120 compile E2E). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 

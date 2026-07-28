@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: July 26, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 152 (deep debt deduplication: `require_math_arg()` helper, test consolidation, dataflow.rs 768→293 LOC; BTSP client handshake. 3669 tests, 84% line coverage, zero clippy warnings, zero unsafe.)
+**Last updated**: July 28, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 155f (strandGate deep debt: compile fixes, full JSON-RPC dispatch (18 served methods), capability-based discovery, BTSP Phase 3 encrypted transport, socket resolution unification, clippy pedantic+nursery clean. 3527 tests, zero unsafe, zero clippy warnings.)
 
 ---
 
@@ -22,7 +22,7 @@
 | coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to compute-dispatch provider |
 | coralGpu | — | *Excised Sprint 9* — dispatch delegated to compute-dispatch provider |
 | Code structure | A+ | All files under 1000 LOC. Smart refactoring: ecosystem.rs → directory module (343 LOC + extracted tests), btsp.rs test extraction (797→416 LOC), service 828→146 (Iter 76). Excised hardware crates removed Sprint 9. |
-| Tests | A+ | 3669 total (3665 passing, 4 ignored), IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery NotImplemented coverage, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening, SPIR-V version targeting, provenance hash determinism, mesh registration payload validation, SPIR-V e2e compile→provenance→validation, **TransportEndpoint injection tests (19)**, **capabilities.list dispatch**, **socket cleanup paths**, **ecosystem discovery capability-domain tests** |
+| Tests | A+ | 3527 total (3527 passing, 6 ignored), IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery NotImplemented coverage, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening, SPIR-V version targeting, provenance hash determinism, mesh registration payload validation, SPIR-V e2e compile→provenance→validation, **TransportEndpoint injection tests (19)**, **capabilities.list dispatch**, **socket cleanup paths**, **ecosystem discovery capability-domain tests** |
 | Error handling | A+ | Typed errors via `thiserror` (`CompileError`, `EcosystemError`, `IpcError`, `TarpcCompileError`); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
