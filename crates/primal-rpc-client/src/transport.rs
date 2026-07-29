@@ -18,6 +18,7 @@ async fn connect_local(path: &std::path::Path) -> std::io::Result<tokio::net::Un
 
 /// Connect to a local socket path (non-Unix stub).
 #[cfg(not(unix))]
+#[allow(clippy::unused_async, reason = "signature parity with Unix variant")]
 async fn connect_local(path: &std::path::Path) -> std::io::Result<tokio::net::TcpStream> {
     let _ = path;
     Err(std::io::Error::new(

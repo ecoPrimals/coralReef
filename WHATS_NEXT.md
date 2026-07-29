@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Sprint 14 / Wave 155i.
 
-**Last completed**: Wave 155i — strandGate Tower+Compute LIVE validation (all 18 JSON-RPC methods live-validated, BTSP Phase 2→3 chain verified with bearDog, RTX 3090 sm_86 WGSL+GEMM compilation confirmed, capability-domain symlinks active). Wave 155f — strandGate deep debt execution (compile fixes, full JSON-RPC dispatch, BTSP Phase 3 encrypted transport, socket resolution unification, clippy pedantic+nursery clean). Wave 152 — deep debt deduplication. Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction.
+**Last completed**: Wave 155i — NODE ATOMIC VALIDATED on strandGate. Windows cross-compilation fixed (zero errors/warnings on `x86_64-pc-windows-gnu`). Non-Unix platform stubs evolved with proper `Unsupported` error returns, doc comments, and clippy compliance. All 18 JSON-RPC methods live-validated, BTSP Phase 2→3 chain verified with bearDog, RTX 3090 sm_86 WGSL+GEMM compilation confirmed. Deep debt execution: PTX macros (463 `.expect()` purged), clone density reduction, capability-based abstraction. Wave 155f — strandGate deep debt execution. Wave 152 — deep debt deduplication. Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction.
 
 **Tests**: 3,527 total (3,527 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: July 29, 2026.
 
-**Next focus**: Await glibc depot rebuild from sporeGate (gnu binary for Vulkan ICD compute workloads on RTX 3090). BTSP Phase 3 production validation with real key material once glibc binary deployed. Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
+**Next focus**: Deploy to westGate or blueGate alongside existing Nest Atomic (first NUCLEUS gate). Await glibc depot rebuild from sporeGate (musl can't dlopen Vulkan). BTSP Phase 3 production validation with real key material. Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
 ---
 

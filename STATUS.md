@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: July 29, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 155i (strandGate Tower+Compute LIVE. All 18 JSON-RPC methods validated live on strandGate hardware. BTSP Phase 2→3 chain verified with live bearDog (null cipher fallback — challenge-response path ready for production key material). RTX 3090 (sm_86) WGSL + GEMM compilation confirmed. Awaiting glibc depot rebuild from sporeGate for Vulkan ICD compute workloads. 3,527 tests, zero unsafe, zero clippy warnings.)
+**Version**: 0.2.0 — Sprint 14 / Wave 155i (NODE ATOMIC VALIDATED on strandGate. All 18 JSON-RPC methods live-validated. BTSP Phase 2→3 chain verified with live bearDog. RTX 3090 (sm_86) WGSL + GEMM compilation confirmed. Windows cross-compilation clean (`cargo check --target x86_64-pc-windows-gnu`, zero warnings). Awaiting glibc depot rebuild for Vulkan ICD compute workloads. 3,527 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
 
 ---
 

@@ -57,6 +57,10 @@ pub enum EcosystemError {
 ///
 /// Invokes the registry primal’s methods over JSON-RPC; coralReef does not expose
 /// these methods. If no registry is discovered, logs at debug and returns immediately.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "desc is moved into tokio::spawn on Unix; by-value signature required"
+)]
 pub fn spawn_registration(desc: SelfDescription) {
     #[cfg(unix)]
     {

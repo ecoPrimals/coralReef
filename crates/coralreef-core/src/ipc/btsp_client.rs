@@ -30,7 +30,8 @@
 
 #![allow(
     dead_code,
-    reason = "BTSP client outbound handshake API used by provenance signing and integration tests"
+    clippy::duplicated_attributes,
+    reason = "BTSP client outbound handshake API used by provenance signing and integration tests; parent module also cfg-gates dead_code for non-Unix"
 )]
 
 use std::path::Path;

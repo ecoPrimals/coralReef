@@ -70,6 +70,10 @@ fn crypto_sign_socket() -> Option<&'static PathBuf> {
 /// Uses `std::os::unix::net::UnixStream` for synchronous I/O — the signing
 /// call is a single request/response exchange that completes in microseconds
 /// on a local socket.
+#[allow(
+    clippy::missing_const_for_fn,
+    reason = "Unix variant performs I/O; consistent signature required"
+)]
 fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
     #[cfg(not(unix))]
     {

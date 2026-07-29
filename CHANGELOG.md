@@ -10,7 +10,19 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Wave 155i: strandGate Live Validation + Deep Debt Execution (2026-07-29)
+### Wave 155i: strandGate Live Validation + Deep Debt Execution + Windows Readiness (2026-07-29)
+
+#### Fixed (Windows cross-compilation)
+- `ipc/mod.rs` re-exports of `default_unix_socket_path`, `start_unix_jsonrpc_server`, `unix_socket_path_for_base` now platform-gated with non-Unix stubs returning `Unsupported`
+- `ipc/btsp.rs` `use crate::env_keys` cfg-gated to `#[cfg(unix)]` (only used in Unix-gated functions)
+- `ipc/btsp.rs` `b64_encode()` cfg-gated to `#[cfg(unix)]`
+- `primal-rpc-client/transport.rs` non-Unix `connect_local` — `unused_async` allowed with reason
+- `local_transport.rs` non-Unix `connect_local` — `unused_async` allowed with reason
+- `ipc/btsp_client.rs` — `duplicated_attributes` allowed (parent module also gates `dead_code`)
+- `ecosystem/mod.rs` `spawn_registration` — `needless_pass_by_value` allowed (ownership needed on Unix)
+- `service/provenance.rs` `try_sign` — `missing_const_for_fn` allowed (Unix variant does I/O)
+- `cargo check --target x86_64-pc-windows-gnu --all-features` now passes with zero errors/warnings
+- `cargo clippy --target x86_64-pc-windows-gnu --all-features -- -D warnings` now passes
 
 #### Validated
 - All 18 JSON-RPC dispatch methods live-validated against running coralReef instance on strandGate (TCP :45071)

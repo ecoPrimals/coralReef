@@ -35,6 +35,7 @@ pub async fn connect_local(path: &Path) -> std::io::Result<tokio::net::UnixStrea
 ///
 /// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
 #[cfg(not(unix))]
+#[allow(clippy::unused_async, reason = "signature parity with Unix variant")]
 pub async fn connect_local(path: &Path) -> std::io::Result<tokio::net::TcpStream> {
     let _ = path;
     Err(unsupported("local socket connections"))

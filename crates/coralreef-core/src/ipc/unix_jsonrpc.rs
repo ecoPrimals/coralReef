@@ -398,3 +398,40 @@ async fn process_encrypted_frames<R, W>(
 pub use inner::unix_socket_path_for_base;
 #[cfg(unix)]
 pub use inner::{default_unix_socket_path, start_unix_jsonrpc_server};
+
+/// Returns a fallback socket path on non-Unix platforms.
+///
+/// On Windows, this returns a nominal path since UDS is unavailable.
+/// The server bind will fail with `Unsupported` if actually invoked.
+#[cfg(not(unix))]
+#[must_use]
+pub fn default_unix_socket_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("coralreef-core.sock")
+}
+
+/// Non-Unix stub: returns `Unsupported` since UDS is unavailable.
+///
+/// # Errors
+///
+/// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
+#[cfg(not(unix))]
+pub async fn start_unix_jsonrpc_server(
+    _path: &std::path::Path,
+    _shutdown: tokio::sync::watch::Receiver<()>,
+) -> Result<(std::path::PathBuf, tokio::task::JoinHandle<()>), std::io::Error> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Unix domain sockets are not available on this platform",
+    ))
+}
+
+/// Non-Unix stub: computes a nominal socket path for the given base.
+#[cfg(not(unix))]
+#[must_use]
+#[allow(
+    dead_code,
+    reason = "pub API parity with Unix; used by integration tests"
+)]
+pub fn unix_socket_path_for_base(base: &std::path::Path, _family_id: &str) -> std::path::PathBuf {
+    base.join("coralreef-core.sock")
+}

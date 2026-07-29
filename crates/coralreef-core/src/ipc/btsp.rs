@@ -24,6 +24,7 @@ use std::sync::OnceLock;
 
 use super::btsp_negotiate::register_session;
 use crate::config;
+#[cfg(unix)]
 use crate::env_keys;
 
 /// Domain stem for security capability discovery.
@@ -593,6 +594,7 @@ async fn create_btsp_session(
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::unused_async, reason = "signature parity with Unix variant")]
 async fn create_btsp_session(
     _security_sock: &std::path::Path,
     _family_id: &str,
@@ -602,6 +604,7 @@ async fn create_btsp_session(
     ))
 }
 
+#[cfg(unix)]
 fn b64_encode(input: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
