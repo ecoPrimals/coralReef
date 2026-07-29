@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 155f.
+**Current position**: Phase 10 — Sprint 14 / Wave 155i.
 
-**Last completed**: Wave 155f — strandGate deep debt execution (compile fixes, full JSON-RPC dispatch, capability-based discovery, BTSP Phase 3 encrypted transport, socket resolution unification, clippy pedantic+nursery clean). Wave 152 — deep debt deduplication. Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction.
+**Last completed**: Wave 155i — strandGate Tower+Compute LIVE validation (all 18 JSON-RPC methods live-validated, BTSP Phase 2→3 chain verified with bearDog, RTX 3090 sm_86 WGSL+GEMM compilation confirmed, capability-domain symlinks active). Wave 155f — strandGate deep debt execution (compile fixes, full JSON-RPC dispatch, BTSP Phase 3 encrypted transport, socket resolution unification, clippy pedantic+nursery clean). Wave 152 — deep debt deduplication. Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction.
 
-**Tests**: 3527 total (3527 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,527 total (3,527 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
-**Last updated**: July 28, 2026.
+**Last updated**: July 29, 2026.
 
-**Next focus**: Coverage push toward 90% (compiler backends are main gap). ironGate deployment validation (gnu binary, RTX 5070 sm_120 compile E2E). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
+**Next focus**: Await glibc depot rebuild from sporeGate (gnu binary for Vulkan ICD compute workloads on RTX 3090). BTSP Phase 3 production validation with real key material once glibc binary deployed. Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
 ---
 
@@ -31,14 +31,14 @@
 11. ~~**Texture query routing**~~ — **DONE** (Wave 61). `txq.num_mip_levels`, `txq.width/height/depth`, `txq.array_size` via texture bindings.
 12. ~~**DH-1 /tmp cleanup**~~ — **DONE** (Wave 61). 3-tier socket: `BIOMEOS_SOCKET_DIR` → `XDG_RUNTIME_DIR/biomeos` → `/run/biomeos`.
 13. ~~**Module refactor**~~ — **DONE** (Wave 61). `math.rs` split, test module extraction, all files < 1000 LOC.
-14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 146; compiler backends are main gap)
+14. ~~Coverage push toward 90%~~ — **IN PROGRESS** (84% line coverage as of Wave 155i; compiler backends are main gap)
 15. ~~`naga::Module` ingest path hardening~~ — **DONE** (Wave 68). Multi-entry-point selection, compute-stage enforcement, improved error messages.
 
 ### Gate Deployment Readiness (ironGate)
 
-coralReef is assigned to ironGate (Node Atomic: compute trio). Deployment after NUCLEUS enrollment.
+coralReef is deployed on strandGate (Compute Trio: coralReef + barraCuda + toadStool). Tower+Compute LIVE.
 
-**Readiness status**: READY
+**Deployment status**: LIVE on strandGate (musl-static). Awaiting glibc depot rebuild for Vulkan ICD workloads on RTX 3090.
 - `CORALREEF_TCP_BIND` env override for LAN-accessible bind ✓
 - `primal.announce` with capabilities, methods, cost_hints, latency_estimates ✓
 - `capability.register` sends transport addresses after bind ✓
@@ -692,7 +692,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3669 tests (3665 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 152.
+3,527 tests (3,527 passing, 6 ignored), zero failures. ~84% workspace coverage. Wave 155i.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.

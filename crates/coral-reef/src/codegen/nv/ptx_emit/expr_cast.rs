@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -32,26 +30,24 @@ impl PtxEmitter<'_> {
             let mut results = Vec::with_capacity(components.len());
             for c in components {
                 let dst = self.alloc_for_scalar(dst_scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    cvt.{dst_ts}.{src_ts} {}, {};",
                     dst.fmt_operand(),
                     c.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 results.push(dst);
             }
             return Ok(PtxVal::Vec(results));
         }
 
         let dst = self.alloc_for_scalar(dst_scalar);
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    cvt.{dst_ts}.{src_ts} {}, {};",
             dst.fmt_operand(),
             val.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         Ok(dst)
     }
 
@@ -60,13 +56,12 @@ impl PtxEmitter<'_> {
             PtxVal::Pred(_) => Ok(val.clone()),
             PtxVal::R32(_) => {
                 let p = self.alloc_pred();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    setp.ne.u32 {}, {}, 0;",
                     p.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(p)
             }
             _ => Err(CompileError::NotImplemented(

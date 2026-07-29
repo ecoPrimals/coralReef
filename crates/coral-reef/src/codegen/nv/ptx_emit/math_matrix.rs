@@ -5,8 +5,6 @@
 //! conversions, while these are linear algebra primitives requiring
 //! multi-instruction sequences (cofactor expansion, adjugate).
 
-use std::fmt::Write;
-
 use super::PtxEmitter;
 use super::types::PtxVal;
 use crate::error::CompileError;
@@ -79,54 +77,50 @@ impl PtxEmitter<'_> {
 
     pub(super) fn emit_fmul(&mut self, a: &PtxVal, b: &PtxVal) -> PtxVal {
         let dst = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    mul.f32 {}, {}, {};",
             dst.fmt_operand(),
             a.fmt_operand(),
             b.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         dst
     }
 
     pub(super) fn emit_fsub(&mut self, a: &PtxVal, b: &PtxVal) -> PtxVal {
         let dst = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    sub.f32 {}, {}, {};",
             dst.fmt_operand(),
             a.fmt_operand(),
             b.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         dst
     }
 
     pub(super) fn emit_fadd(&mut self, a: &PtxVal, b: &PtxVal) -> PtxVal {
         let dst = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    add.f32 {}, {}, {};",
             dst.fmt_operand(),
             a.fmt_operand(),
             b.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         dst
     }
 
     pub(super) fn emit_fma_f32(&mut self, a: &PtxVal, b: &PtxVal, c: &PtxVal) -> PtxVal {
         let dst = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    fma.rn.f32 {}, {}, {}, {};",
             dst.fmt_operand(),
             a.fmt_operand(),
             b.fmt_operand(),
             c.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         dst
     }
 
@@ -213,30 +207,27 @@ impl PtxEmitter<'_> {
 
         let det = self.emit_det2x2(cols)?;
         let rcp = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    rcp.approx.f32 {}, {};",
             rcp.fmt_operand(),
             det.fmt_operand(),
-        )
-        .expect("write to String");
+        );
 
         let neg_b = self.alloc_r32();
         let neg_c = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    neg.f32 {}, {};",
             neg_b.fmt_operand(),
             b.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    neg.f32 {}, {};",
             neg_c.fmt_operand(),
             c.fmt_operand(),
-        )
-        .expect("write to String");
+        );
 
         let r00 = self.emit_fmul(&d, &rcp);
         let r01 = self.emit_fmul(&neg_b, &rcp);
@@ -255,13 +246,12 @@ impl PtxEmitter<'_> {
     fn emit_inverse3x3(&mut self, cols: &[PtxVal]) -> Result<PtxVal, CompileError> {
         let det = self.emit_det3x3(cols)?;
         let rcp = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    rcp.approx.f32 {}, {};",
             rcp.fmt_operand(),
             det.fmt_operand(),
-        )
-        .expect("write to String");
+        );
 
         let mut result_cols: Vec<PtxVal> = Vec::with_capacity(3);
         for col in 0..3_usize {
@@ -302,13 +292,12 @@ impl PtxEmitter<'_> {
             Ok(det_minor)
         } else {
             let neg = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    neg.f32 {}, {};",
                 neg.fmt_operand(),
                 det_minor.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             Ok(neg)
         }
     }
@@ -320,13 +309,12 @@ impl PtxEmitter<'_> {
     fn emit_inverse4x4(&mut self, cols: &[PtxVal]) -> Result<PtxVal, CompileError> {
         let det = self.emit_det4x4(cols)?;
         let rcp = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    rcp.approx.f32 {}, {};",
             rcp.fmt_operand(),
             det.fmt_operand(),
-        )
-        .expect("write to String");
+        );
 
         let mut result_cols: Vec<PtxVal> = Vec::with_capacity(4);
         for col in 0..4_usize {
@@ -367,13 +355,12 @@ impl PtxEmitter<'_> {
             Ok(det_minor)
         } else {
             let neg = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    neg.f32 {}, {};",
                 neg.fmt_operand(),
                 det_minor.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             Ok(neg)
         }
     }

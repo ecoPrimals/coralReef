@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -35,22 +33,20 @@ impl PtxEmitter<'_> {
                 let end_label = self.alloc_label();
 
                 if reject.is_empty() {
-                    writeln!(self.body, "    @!{} bra $L{end_label};", pred.fmt_operand())
-                        .expect("write to String");
+                    writeln_ptx!(self.body, "    @!{} bra $L{end_label};", pred.fmt_operand());
                     self.emit_block(accept)?;
                 } else {
                     let then_label = self.alloc_label();
                     let else_label = self.alloc_label();
-                    writeln!(self.body, "    @{} bra $L{then_label};", pred.fmt_operand())
-                        .expect("write to String");
-                    writeln!(self.body, "    bra $L{else_label};").expect("write to String");
-                    writeln!(self.body, "$L{then_label}:").expect("write to String");
+                    writeln_ptx!(self.body, "    @{} bra $L{then_label};", pred.fmt_operand());
+                    writeln_ptx!(self.body, "    bra $L{else_label};");
+                    writeln_ptx!(self.body, "$L{then_label}:");
                     self.emit_block(accept)?;
-                    writeln!(self.body, "    bra $L{end_label};").expect("write to String");
-                    writeln!(self.body, "$L{else_label}:").expect("write to String");
+                    writeln_ptx!(self.body, "    bra $L{end_label};");
+                    writeln_ptx!(self.body, "$L{else_label}:");
                     self.emit_block(reject)?;
                 }
-                writeln!(self.body, "$L{end_label}:").expect("write to String");
+                writeln_ptx!(self.body, "$L{end_label}:");
                 Ok(())
             }
             naga::Statement::Loop {
@@ -65,18 +61,17 @@ impl PtxEmitter<'_> {
                 self.loop_break_label.push(format!("$L{end_label}"));
                 self.loop_continue_label.push(format!("$L{cont_label}"));
 
-                writeln!(self.body, "$L{loop_label}:").expect("write to String");
+                writeln_ptx!(self.body, "$L{loop_label}:");
                 self.emit_block(body)?;
-                writeln!(self.body, "$L{cont_label}:").expect("write to String");
+                writeln_ptx!(self.body, "$L{cont_label}:");
                 self.emit_block(continuing)?;
                 if let Some(break_cond) = break_if {
                     let cond = self.eval_expr(break_cond)?;
                     let pred = self.ensure_pred(&cond)?;
-                    writeln!(self.body, "    @{} bra $L{end_label};", pred.fmt_operand())
-                        .expect("write to String");
+                    writeln_ptx!(self.body, "    @{} bra $L{end_label};", pred.fmt_operand());
                 }
-                writeln!(self.body, "    bra $L{loop_label};").expect("write to String");
-                writeln!(self.body, "$L{end_label}:").expect("write to String");
+                writeln_ptx!(self.body, "    bra $L{loop_label};");
+                writeln_ptx!(self.body, "$L{end_label}:");
 
                 self.loop_break_label.pop();
                 self.loop_continue_label.pop();
@@ -89,30 +84,30 @@ impl PtxEmitter<'_> {
                         self.inline_return_val = Some(val);
                     }
                 } else {
-                    writeln!(self.body, "    membar.sys;").expect("write to String");
-                    writeln!(self.body, "    ret;").expect("write to String");
+                    writeln_ptx!(self.body, "    membar.sys;");
+                    writeln_ptx!(self.body, "    ret;");
                 }
                 Ok(())
             }
             naga::Statement::ControlBarrier(_) => {
                 self.barrier_count += 1;
-                writeln!(self.body, "    bar.sync 0;").expect("write to String");
+                writeln_ptx!(self.body, "    bar.sync 0;");
                 Ok(())
             }
             naga::Statement::Block(ref block) => self.emit_block(block),
             naga::Statement::Break => {
                 if let Some(label) = self.loop_break_label.last() {
-                    writeln!(self.body, "    bra {label};").expect("write to String");
+                    writeln_ptx!(self.body, "    bra {label};");
                 } else {
                     tracing::warn!("Break outside loop — emitting membar+ret as kernel exit");
-                    writeln!(self.body, "    membar.sys;").expect("write to String");
-                    writeln!(self.body, "    ret;").expect("write to String");
+                    writeln_ptx!(self.body, "    membar.sys;");
+                    writeln_ptx!(self.body, "    ret;");
                 }
                 Ok(())
             }
             naga::Statement::Continue => {
                 if let Some(label) = self.loop_continue_label.last() {
-                    writeln!(self.body, "    bra {label};").expect("write to String");
+                    writeln_ptx!(self.body, "    bra {label};");
                 } else {
                     tracing::warn!("Continue outside loop — no-op fallback");
                 }
@@ -141,17 +136,15 @@ impl PtxEmitter<'_> {
 
                 for &(lbl, val) in &case_labels {
                     let pred = self.alloc_pred();
-                    writeln!(
+                    writeln_ptx!(
                         self.body,
                         "    setp.eq.s32 {}, {}, {val};",
                         pred.fmt_operand(),
                         sel.fmt_operand(),
-                    )
-                    .expect("write to String");
-                    writeln!(self.body, "    @{} bra $L{lbl};", pred.fmt_operand())
-                        .expect("write to String");
+                    );
+                    writeln_ptx!(self.body, "    @{} bra $L{lbl};", pred.fmt_operand());
                 }
-                writeln!(self.body, "    bra $L{default_lbl};").expect("write to String");
+                writeln_ptx!(self.body, "    bra $L{default_lbl};");
 
                 let mut label_iter = case_labels.iter().map(|(lbl, _)| *lbl);
                 let mut default_iter = default_label.into_iter();
@@ -160,21 +153,21 @@ impl PtxEmitter<'_> {
                         naga::SwitchValue::Default => default_iter.next().unwrap_or(end_label),
                         _ => label_iter.next().unwrap_or(end_label),
                     };
-                    writeln!(self.body, "$L{lbl}:").expect("write to String");
+                    writeln_ptx!(self.body, "$L{lbl}:");
                     self.emit_block(&case.body)?;
                     if case.fall_through {
                         // fall through to next case
                     } else {
-                        writeln!(self.body, "    bra $L{end_label};").expect("write to String");
+                        writeln_ptx!(self.body, "    bra $L{end_label};");
                     }
                 }
 
-                writeln!(self.body, "$L{end_label}:").expect("write to String");
+                writeln_ptx!(self.body, "$L{end_label}:");
                 Ok(())
             }
             naga::Statement::Kill => {
-                writeln!(self.body, "    membar.sys;").expect("write to String");
-                writeln!(self.body, "    exit;").expect("write to String");
+                writeln_ptx!(self.body, "    membar.sys;");
+                writeln_ptx!(self.body, "    exit;");
                 Ok(())
             }
             naga::Statement::SubgroupBallot { result, predicate } => {
@@ -197,7 +190,7 @@ impl PtxEmitter<'_> {
                 } else {
                     "cta"
                 };
-                writeln!(self.body, "    membar.{scope};").expect("write to String");
+                writeln_ptx!(self.body, "    membar.{scope};");
                 Ok(())
             }
             naga::Statement::Atomic {
@@ -255,44 +248,40 @@ impl PtxEmitter<'_> {
         match fun {
             naga::AtomicFunction::Exchange { compare: Some(cmp) } => {
                 let cmp_val = self.eval_expr(*cmp)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    atom.{space}.cas.{type_suffix} {}, [{}], {}, {};",
                     dst.fmt_operand(),
                     addr.fmt_operand(),
                     cmp_val.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::AtomicFunction::Subtract => {
                 let neg = self.alloc_for_scalar(val_scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    neg.{type_suffix} {}, {};",
                     neg.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    atom.{space}.add.{type_suffix} {}, [{}], {};",
                     dst.fmt_operand(),
                     addr.fmt_operand(),
                     neg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             _ => {
                 let op = Self::ptx_atom_op(fun);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    atom.{space}.{op}.{type_suffix} {}, [{}], {};",
                     dst.fmt_operand(),
                     addr.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
         }
 
@@ -368,23 +357,21 @@ impl PtxEmitter<'_> {
         match fun {
             naga::AtomicFunction::Exchange { compare: Some(cmp) } => {
                 let cmp_val = self.eval_expr(*cmp)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    sured.b.{dim_suffix}.cas.{type_suffix}.zero {}, [_surf{surf_idx}, {coord_str}], {}, {};",
                     dst.fmt_operand(),
                     cmp_val.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             _ => {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    sured.b.{dim_suffix}.{op}.{type_suffix}.zero {}, [_surf{surf_idx}, {coord_str}], {};",
                     dst.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
         }
 
@@ -396,20 +383,19 @@ impl PtxEmitter<'_> {
         pointer: naga::Handle<naga::Expression>,
         result: naga::Handle<naga::Expression>,
     ) -> Result<(), CompileError> {
-        writeln!(self.body, "    bar.sync 0;").expect("write to String");
+        writeln_ptx!(self.body, "    bar.sync 0;");
         self.barrier_count += 1;
 
         let (addr, _mem_space) = self.eval_pointer(pointer)?;
         let dst = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    ld.shared.u32 {}, [{}];",
             dst.fmt_operand(),
             addr.fmt_operand(),
-        )
-        .expect("write to String");
+        );
 
-        writeln!(self.body, "    bar.sync 0;").expect("write to String");
+        writeln_ptx!(self.body, "    bar.sync 0;");
         self.barrier_count += 1;
 
         self.values.insert(result, dst);
@@ -460,43 +446,39 @@ impl PtxEmitter<'_> {
                 for (i, comp) in components.iter().enumerate() {
                     let offset = i as u32 * u32::from(val_scalar.width);
                     if offset == 0 {
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    st.{space_prefix}.{} [{}], {};",
                             Self::ptx_mem_suffix(val_scalar),
                             addr.fmt_operand(),
                             comp.fmt_operand(),
-                        )
-                        .expect("write to String");
+                        );
                     } else {
                         let off_reg = self.alloc_rd64();
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    add.u64 {}, {}, {offset};",
                             off_reg.fmt_operand(),
                             addr.fmt_operand(),
-                        )
-                        .expect("write to String");
-                        writeln!(
+                        );
+                        writeln_ptx!(
                             self.body,
                             "    st.{space_prefix}.{} [{}], {};",
                             Self::ptx_mem_suffix(val_scalar),
                             off_reg.fmt_operand(),
                             comp.fmt_operand(),
-                        )
-                        .expect("write to String");
+                        );
                     }
                 }
             }
             _ => {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    st.{space_prefix}.{} [{}], {};",
                     Self::ptx_mem_suffix(val_scalar),
                     addr.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
         }
         Ok(())
@@ -504,13 +486,12 @@ impl PtxEmitter<'_> {
 
     pub(super) fn emit_mov(&mut self, dst: &PtxVal, src: &PtxVal, scalar: naga::Scalar) {
         let suffix = if scalar.width == 8 { "u64" } else { "u32" };
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    mov.{suffix} {}, {};",
             dst.fmt_operand(),
             src.fmt_operand(),
-        )
-        .expect("write to String");
+        );
     }
 
     fn emit_image_store(
@@ -557,11 +538,10 @@ impl PtxEmitter<'_> {
             _ => format!("{{{}}}", val.fmt_operand()),
         };
 
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    sust.b.{dim_suffix}.{type_suffix}.zero [_surf{surf_idx}, {coord_str}], {val_str};",
-        )
-        .expect("write to String");
+        );
         Ok(())
     }
 

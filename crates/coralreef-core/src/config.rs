@@ -304,12 +304,17 @@ pub fn btsp_provider_socket() -> Option<PathBuf> {
     non_empty_env_path(env_keys::BTSP_PROVIDER_SOCKET)
 }
 
-/// Resolve the `$BEARDOG_SOCKET` composition launcher alias.
+/// Resolve the `$BEARDOG_SOCKET` composition launcher legacy alias.
 ///
-/// Older launchers use this instead of `$BTSP_PROVIDER_SOCKET`. Returns
-/// `None` when unset or empty.
+/// Older launchers set `$BEARDOG_SOCKET` instead of the capability-based
+/// `$BTSP_PROVIDER_SOCKET`. This function is the backward-compatible
+/// fallback in the security-provider resolution chain.
+///
+/// **Prefer** [`btsp_provider_socket()`] for new code.
+///
+/// Returns `None` when unset or empty.
 #[must_use]
-pub fn beardog_socket() -> Option<PathBuf> {
+pub fn security_provider_legacy_socket() -> Option<PathBuf> {
     non_empty_env_path(env_keys::BEARDOG_SOCKET)
 }
 
@@ -476,9 +481,9 @@ mod tests {
     }
 
     #[test]
-    fn beardog_socket_returns_none_when_unset() {
+    fn security_provider_legacy_socket_returns_none_when_unset() {
         if std::env::var("BEARDOG_SOCKET").is_err() {
-            assert!(beardog_socket().is_none());
+            assert!(security_provider_legacy_socket().is_none());
         }
     }
 

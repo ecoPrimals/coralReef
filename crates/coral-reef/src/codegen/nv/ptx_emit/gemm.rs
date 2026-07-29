@@ -7,8 +7,6 @@
 //!
 //! Uses warp-level MMA tiles (16×8×16 for f16, 16×8×8 for TF32).
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 use crate::gemm::{GemmPrecision, GemmShape};
 
@@ -33,95 +31,86 @@ pub fn emit_gemm_ptx(
 
     let mut ptx = String::with_capacity(4096);
 
-    writeln!(ptx, ".version 8.7").expect("write to String");
-    writeln!(ptx, ".target sm_{sm}").expect("write to String");
-    writeln!(ptx, ".address_size 64").expect("write to String");
-    writeln!(ptx).expect("write to String");
+    writeln_ptx!(ptx, ".version 8.7");
+    writeln_ptx!(ptx, ".target sm_{sm}");
+    writeln_ptx!(ptx, ".address_size 64");
+    writeln_ptx!(ptx);
 
-    writeln!(
+    writeln_ptx!(
         ptx,
         "// GEMM: C[{m}x{n}] = A[{m}x{k}] * B[{k}x{n}] + C[{m}x{n}]",
         m = shape.m,
         n = shape.n,
         k = shape.k
-    )
-    .expect("write to String");
-    writeln!(
+    );
+    writeln_ptx!(
         ptx,
         "// Precision: {src_type} inputs, {acc_type} accumulate"
-    )
-    .expect("write to String");
-    writeln!(ptx, "// MMA tile: {mma_shape}, K iterations: {k_iters}").expect("write to String");
-    writeln!(ptx).expect("write to String");
+    );
+    writeln_ptx!(ptx, "// MMA tile: {mma_shape}, K iterations: {k_iters}");
+    writeln_ptx!(ptx);
 
-    writeln!(ptx, ".visible .entry gemm_kernel(").expect("write to String");
-    writeln!(ptx, "    .param .u64 param_A,").expect("write to String");
-    writeln!(ptx, "    .param .u64 param_B,").expect("write to String");
-    writeln!(ptx, "    .param .u64 param_C").expect("write to String");
-    writeln!(ptx, ")").expect("write to String");
-    writeln!(ptx, "{{").expect("write to String");
+    writeln_ptx!(ptx, ".visible .entry gemm_kernel(");
+    writeln_ptx!(ptx, "    .param .u64 param_A,");
+    writeln_ptx!(ptx, "    .param .u64 param_B,");
+    writeln_ptx!(ptx, "    .param .u64 param_C");
+    writeln_ptx!(ptx, ")");
+    writeln_ptx!(ptx, "{{");
 
-    writeln!(ptx, "    .reg .b64 %rd<8>;").expect("write to String");
-    writeln!(ptx, "    .reg .b32 %r<32>;").expect("write to String");
-    writeln!(ptx, "    .reg .pred %p<4>;").expect("write to String");
-    writeln!(ptx).expect("write to String");
+    writeln_ptx!(ptx, "    .reg .b64 %rd<8>;");
+    writeln_ptx!(ptx, "    .reg .b32 %r<32>;");
+    writeln_ptx!(ptx, "    .reg .pred %p<4>;");
+    writeln_ptx!(ptx);
 
-    writeln!(ptx, "    // Load matrix pointers").expect("write to String");
-    writeln!(ptx, "    ld.param.u64 %rd0, [param_A];").expect("write to String");
-    writeln!(ptx, "    ld.param.u64 %rd1, [param_B];").expect("write to String");
-    writeln!(ptx, "    ld.param.u64 %rd2, [param_C];").expect("write to String");
-    writeln!(ptx).expect("write to String");
+    writeln_ptx!(ptx, "    // Load matrix pointers");
+    writeln_ptx!(ptx, "    ld.param.u64 %rd0, [param_A];");
+    writeln_ptx!(ptx, "    ld.param.u64 %rd1, [param_B];");
+    writeln_ptx!(ptx, "    ld.param.u64 %rd2, [param_C];");
+    writeln_ptx!(ptx);
 
-    writeln!(ptx, "    // Zero accumulator registers (4 x {acc_type})").expect("write to String");
+    writeln_ptx!(ptx, "    // Zero accumulator registers (4 x {acc_type})");
     for i in 0..4u32 {
-        writeln!(ptx, "    mov.b32 %r{i}, 0;").expect("write to String");
+        writeln_ptx!(ptx, "    mov.b32 %r{i}, 0;");
     }
-    writeln!(ptx).expect("write to String");
+    writeln_ptx!(ptx);
 
-    writeln!(
+    writeln_ptx!(
         ptx,
         "    // K-loop: {k_iters} iterations of mma.sync.aligned.{mma_shape}"
-    )
-    .expect("write to String");
+    );
     for iter in 0..k_iters {
         let a_offset = iter * tile_k * 2;
         let b_offset = iter * tile_k * 2;
 
-        writeln!(ptx, "    // --- K iteration {iter} ---").expect("write to String");
-        writeln!(ptx, "    // Load A fragment (4 x f16 packed as 2 x b32)")
-            .expect("write to String");
-        writeln!(ptx, "    ld.global.v2.b32 {{%r4, %r5}}, [%rd0+{a_offset}];")
-            .expect("write to String");
-        writeln!(
+        writeln_ptx!(ptx, "    // --- K iteration {iter} ---");
+        writeln_ptx!(ptx, "    // Load A fragment (4 x f16 packed as 2 x b32)");
+        writeln_ptx!(ptx, "    ld.global.v2.b32 {{%r4, %r5}}, [%rd0+{a_offset}];");
+        writeln_ptx!(
             ptx,
             "    ld.global.v2.b32 {{%r6, %r7}}, [%rd0+{off}];",
             off = a_offset + 8
-        )
-        .expect("write to String");
+        );
 
-        writeln!(ptx, "    // Load B fragment (2 x f16 packed as 1 x b32)")
-            .expect("write to String");
-        writeln!(ptx, "    ld.global.v2.b32 {{%r8, %r9}}, [%rd1+{b_offset}];")
-            .expect("write to String");
+        writeln_ptx!(ptx, "    // Load B fragment (2 x f16 packed as 1 x b32)");
+        writeln_ptx!(ptx, "    ld.global.v2.b32 {{%r8, %r9}}, [%rd1+{b_offset}];");
 
-        writeln!(
+        writeln_ptx!(
             ptx,
             "    mma.sync.aligned.{mma_shape}.row.col.{dst_type}.{src_type}.{src_type}.{acc_type}"
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             ptx,
             "        {{%r0, %r1, %r2, %r3}}, {{%r4, %r5, %r6, %r7}}, {{%r8, %r9}}, {{%r0, %r1, %r2, %r3}};"
-        ).expect("write to String");
+        );
     }
 
-    writeln!(ptx).expect("write to String");
-    writeln!(ptx, "    // Store C fragment").expect("write to String");
-    writeln!(ptx, "    st.global.v4.b32 [%rd2], {{%r0, %r1, %r2, %r3}};").expect("write to String");
-    writeln!(ptx).expect("write to String");
-    writeln!(ptx, "    membar.sys;").expect("write to String");
-    writeln!(ptx, "    ret;").expect("write to String");
-    writeln!(ptx, "}}").expect("write to String");
+    writeln_ptx!(ptx);
+    writeln_ptx!(ptx, "    // Store C fragment");
+    writeln_ptx!(ptx, "    st.global.v4.b32 [%rd2], {{%r0, %r1, %r2, %r3}};");
+    writeln_ptx!(ptx);
+    writeln_ptx!(ptx, "    membar.sys;");
+    writeln_ptx!(ptx, "    ret;");
+    writeln_ptx!(ptx, "}}");
 
     Ok(ptx)
 }

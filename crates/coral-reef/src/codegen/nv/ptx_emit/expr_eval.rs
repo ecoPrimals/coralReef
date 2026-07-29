@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -61,15 +59,13 @@ impl PtxEmitter<'_> {
                 } else if let Some(sv) = self.shared_var(gv) {
                     let offset = sv.offset;
                     let addr = self.alloc_rd64();
-                    writeln!(self.body, "    mov.u64 {}, _shared;", addr.fmt_operand())
-                        .expect("write to String");
+                    writeln_ptx!(self.body, "    mov.u64 {}, _shared;", addr.fmt_operand());
                     if offset > 0 {
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    add.u64 {0}, {0}, {offset};",
                             addr.fmt_operand()
-                        )
-                        .expect("write to String");
+                        );
                     }
                     Ok(addr)
                 } else {
@@ -98,15 +94,14 @@ impl PtxEmitter<'_> {
                 let rej = self.eval_expr(reject)?;
                 let pred = self.ensure_pred(&cond)?;
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    selp.b32 {}, {}, {}, {};",
                     dst.fmt_operand(),
                     acc.fmt_operand(),
                     rej.fmt_operand(),
                     pred.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             naga::Expression::Compose {
@@ -126,13 +121,12 @@ impl PtxEmitter<'_> {
                 components.push(val.clone());
                 for _ in 1..n {
                     let copy = self.alloc_r32();
-                    writeln!(
+                    writeln_ptx!(
                         self.body,
                         "    mov.u32 {}, {};",
                         copy.fmt_operand(),
                         val.fmt_operand(),
-                    )
-                    .expect("write to String");
+                    );
                     components.push(copy);
                 }
                 Ok(PtxVal::Vec(components))

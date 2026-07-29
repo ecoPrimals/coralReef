@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! PTX subgroup/warp operations — ballot, collective, gather, scan.
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -21,12 +19,11 @@ impl PtxEmitter<'_> {
             "1".to_string()
         };
         let dst = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    vote.sync.ballot.b32 {}, {pred_op}, 0xFFFFFFFF;",
             dst.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         self.values.insert(result, dst);
         Ok(())
     }
@@ -57,13 +54,12 @@ impl PtxEmitter<'_> {
                     naga::SubgroupOperation::Mul => None,
                 };
                 if let Some(op_str) = reduce_op {
-                    writeln!(
+                    writeln_ptx!(
                         self.body,
                         "    redux.sync.{op_str}.{type_suffix} {}, {}, 0xFFFFFFFF;",
                         dst.fmt_operand(),
                         val.fmt_operand(),
-                    )
-                    .expect("write to String");
+                    );
                 } else {
                     let scan_op = Self::scan_op_str(op, val_scalar)?;
                     self.emit_warp_scan(&val, &dst, type_suffix, scan_op, false, op, val_scalar);
@@ -98,88 +94,80 @@ impl PtxEmitter<'_> {
 
         match mode {
             naga::GatherMode::BroadcastFirst => {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shfl.sync.idx.b32 {}, {}, 0, 0x1f1f, 0xFFFFFFFF;",
                     dst.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::GatherMode::Broadcast(idx_h) => {
                 let idx = self.eval_expr(idx_h)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shfl.sync.idx.b32 {}, {}, {}, 0x1f1f, 0xFFFFFFFF;",
                     dst.fmt_operand(),
                     val.fmt_operand(),
                     idx.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::GatherMode::ShuffleDown(offset_h) => {
                 let offset = self.eval_expr(offset_h)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shfl.sync.down.b32 {}, {}, {}, 0x1f, 0xFFFFFFFF;",
                     dst.fmt_operand(),
                     val.fmt_operand(),
                     offset.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::GatherMode::ShuffleUp(offset_h) => {
                 let offset = self.eval_expr(offset_h)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shfl.sync.up.b32 {}, {}, {}, 0, 0xFFFFFFFF;",
                     dst.fmt_operand(),
                     val.fmt_operand(),
                     offset.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::GatherMode::ShuffleXor(mask_h) => {
                 let mask = self.eval_expr(mask_h)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shfl.sync.bfly.b32 {}, {}, {}, 0x1f, 0xFFFFFFFF;",
                     dst.fmt_operand(),
                     val.fmt_operand(),
                     mask.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::GatherMode::Shuffle(idx_h) => {
                 let idx = self.eval_expr(idx_h)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shfl.sync.idx.b32 {}, {}, {}, 0x1f1f, 0xFFFFFFFF;",
                     dst.fmt_operand(),
                     val.fmt_operand(),
                     idx.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::GatherMode::QuadBroadcast(idx_h) => {
                 let idx = self.eval_expr(idx_h)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shfl.sync.idx.b32 {}, {}, {}, 0x0003, 0xFFFFFFFF;",
                     dst.fmt_operand(),
                     val.fmt_operand(),
                     idx.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::GatherMode::QuadSwap(_direction) => {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shfl.sync.bfly.b32 {}, {}, 1, 0x03, 0xFFFFFFFF;",
                     dst.fmt_operand(),
                     val.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
         }
 
@@ -256,52 +244,47 @@ impl PtxEmitter<'_> {
         let tmp = self.alloc_for_scalar(scalar);
         let pred = self.alloc_pred();
 
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    mov.{type_suffix} {}, {};",
             dst.fmt_operand(),
             val.fmt_operand(),
-        )
-        .expect("write to String");
+        );
 
         for offset in [1u32, 2, 4, 8, 16] {
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    shfl.sync.up.b32 {}|{}, {}, {offset}, 0, 0xFFFFFFFF;",
                 tmp.fmt_operand(),
                 pred.fmt_operand(),
                 dst.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    @{} {scan_op}.{type_suffix} {}, {}, {};",
                 pred.fmt_operand(),
                 dst.fmt_operand(),
                 dst.fmt_operand(),
                 tmp.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         }
 
         if exclusive {
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    shfl.sync.up.b32 {}|{}, {}, 1, 0, 0xFFFFFFFF;",
                 tmp.fmt_operand(),
                 pred.fmt_operand(),
                 dst.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             let identity = Self::scan_identity(op, scalar);
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    selp.{type_suffix} {}, {}, {identity}, {};",
                 dst.fmt_operand(),
                 tmp.fmt_operand(),
                 pred.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         }
     }
 }

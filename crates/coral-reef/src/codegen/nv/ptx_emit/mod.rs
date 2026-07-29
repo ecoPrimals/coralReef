@@ -21,6 +21,8 @@
 //! | `num_workgroups`        | `%nctaid`                     |
 //! | `local_invocation_index`| `tid.x + tid.y*ntid.x + ...` |
 
+#[macro_use]
+mod macros;
 mod builtins;
 mod emitter;
 mod expr_arith;

@@ -16,21 +16,21 @@ pub(super) fn translate(
     arg_handle: Handle<naga::Expression>,
 ) -> Result<Option<SSARef>, CompileError> {
     let result = match fun {
-        naga::MathFunction::Exp2 => Some(translate_exp2(ft, a.clone(), arg_handle)?),
-        naga::MathFunction::Log2 => Some(translate_log2(ft, a.clone(), arg_handle)?),
-        naga::MathFunction::Exp => Some(translate_exp(ft, a.clone(), arg_handle)?),
-        naga::MathFunction::Log => Some(translate_log(ft, a.clone(), arg_handle)?),
+        naga::MathFunction::Exp2 => Some(translate_exp2(ft, a, arg_handle)?),
+        naga::MathFunction::Log2 => Some(translate_log2(ft, a, arg_handle)?),
+        naga::MathFunction::Exp => Some(translate_exp(ft, a, arg_handle)?),
+        naga::MathFunction::Log => Some(translate_log(ft, a, arg_handle)?),
         naga::MathFunction::Pow => {
             let b =
                 b.ok_or_else(|| CompileError::InvalidInput("Pow requires two arguments".into()))?;
-            Some(translate_pow(ft, a.clone(), b.clone(), arg_handle)?)
+            Some(translate_pow(ft, a, b, arg_handle)?)
         }
-        naga::MathFunction::Tanh => Some(translate_tanh(ft, a.clone(), arg_handle)?),
-        naga::MathFunction::Asinh => Some(translate_asinh(ft, a.clone())?),
-        naga::MathFunction::Acosh => Some(translate_acosh(ft, a.clone())?),
-        naga::MathFunction::Atanh => Some(translate_atanh(ft, a.clone())?),
-        naga::MathFunction::Sinh => Some(translate_sinh(ft, a.clone())?),
-        naga::MathFunction::Cosh => Some(translate_cosh(ft, a.clone())?),
+        naga::MathFunction::Tanh => Some(translate_tanh(ft, a, arg_handle)?),
+        naga::MathFunction::Asinh => Some(translate_asinh(ft, a)?),
+        naga::MathFunction::Acosh => Some(translate_acosh(ft, a)?),
+        naga::MathFunction::Atanh => Some(translate_atanh(ft, a)?),
+        naga::MathFunction::Sinh => Some(translate_sinh(ft, a)?),
+        naga::MathFunction::Cosh => Some(translate_cosh(ft, a)?),
         _ => None,
     };
     Ok(result)
@@ -38,7 +38,7 @@ pub(super) fn translate(
 
 fn translate_exp2(
     ft: &mut FuncTranslator<'_, '_>,
-    a: SSARef,
+    a: &SSARef,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<SSARef, CompileError> {
     let is_f64 = ft.is_f64_expr(arg_handle);
@@ -46,7 +46,7 @@ fn translate_exp2(
         let dst = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpF64Exp2 {
             dst: dst.clone().into(),
-            src: Src::from(a),
+            src: Src::from(a.clone()),
         }));
         Ok(dst)
     } else {
@@ -62,7 +62,7 @@ fn translate_exp2(
 
 fn translate_log2(
     ft: &mut FuncTranslator<'_, '_>,
-    a: SSARef,
+    a: &SSARef,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<SSARef, CompileError> {
     let is_f64 = ft.is_f64_expr(arg_handle);
@@ -70,7 +70,7 @@ fn translate_log2(
         let dst = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpF64Log2 {
             dst: dst.clone().into(),
-            src: Src::from(a),
+            src: Src::from(a.clone()),
         }));
         Ok(dst)
     } else {
@@ -86,7 +86,7 @@ fn translate_log2(
 
 fn translate_exp(
     ft: &mut FuncTranslator<'_, '_>,
-    a: SSARef,
+    a: &SSARef,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<SSARef, CompileError> {
     let is_f64 = ft.is_f64_expr(arg_handle);
@@ -108,7 +108,7 @@ fn translate_exp(
         let scaled = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpDMul {
             dst: scaled.clone().into(),
-            srcs: [Src::from(a), Src::from(scale)],
+            srcs: [Src::from(a.clone()), Src::from(scale)],
             rnd_mode: FRndMode::NearestEven,
         }));
         let dst = ft.alloc_ssa_vec(RegFile::GPR, 2);
@@ -140,7 +140,7 @@ fn translate_exp(
 
 fn translate_log(
     ft: &mut FuncTranslator<'_, '_>,
-    a: SSARef,
+    a: &SSARef,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<SSARef, CompileError> {
     let is_f64 = ft.is_f64_expr(arg_handle);
@@ -162,7 +162,7 @@ fn translate_log(
         let log2_val = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpF64Log2 {
             dst: log2_val.clone().into(),
-            src: Src::from(a),
+            src: Src::from(a.clone()),
         }));
         let dst = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpDMul {
@@ -194,8 +194,8 @@ fn translate_log(
 
 fn translate_pow(
     ft: &mut FuncTranslator<'_, '_>,
-    a: SSARef,
-    b: SSARef,
+    a: &SSARef,
+    b: &SSARef,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<SSARef, CompileError> {
     let is_f64 = ft.is_f64_expr(arg_handle);
@@ -203,12 +203,12 @@ fn translate_pow(
         let log_x = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpF64Log2 {
             dst: log_x.clone().into(),
-            src: Src::from(a),
+            src: Src::from(a.clone()),
         }));
         let y_log_x = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpDMul {
             dst: y_log_x.clone().into(),
-            srcs: [Src::from(b), Src::from(log_x)],
+            srcs: [Src::from(b.clone()), Src::from(log_x)],
             rnd_mode: FRndMode::NearestEven,
         }));
         let dst = ft.alloc_ssa_vec(RegFile::GPR, 2);
@@ -245,20 +245,21 @@ fn translate_pow(
 
 fn translate_tanh(
     ft: &mut FuncTranslator<'_, '_>,
-    a: SSARef,
+    a: &SSARef,
     arg_handle: Handle<naga::Expression>,
 ) -> Result<SSARef, CompileError> {
     let is_f64 = ft.is_f64_expr(arg_handle);
     if is_f64 {
+        let a_src = Src::from(a.clone());
         let sin_val = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpF64Sin {
             dst: sin_val.clone().into(),
-            src: Src::from(a.clone()),
+            src: a_src.clone(),
         }));
         let cos_val = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpF64Cos {
             dst: cos_val.clone().into(),
-            src: Src::from(a),
+            src: a_src,
         }));
         let rcp_cos = ft.alloc_ssa_vec(RegFile::GPR, 2);
         ft.push_instr(Instr::new(OpF64Rcp {
@@ -335,7 +336,7 @@ fn translate_tanh(
     }
 }
 
-fn translate_asinh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, CompileError> {
+fn translate_asinh(ft: &mut FuncTranslator<'_, '_>, a: &SSARef) -> Result<SSARef, CompileError> {
     // asinh(x) = ln(x + sqrt(x*x + 1)) = log2(x + sqrt(x*x + 1)) * ln(2)
     let x2 = ft.alloc_ssa(RegFile::GPR);
     ft.push_instr(Instr::new(OpFMul {
@@ -394,7 +395,7 @@ fn translate_asinh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef,
     Ok(dst.into())
 }
 
-fn translate_acosh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, CompileError> {
+fn translate_acosh(ft: &mut FuncTranslator<'_, '_>, a: &SSARef) -> Result<SSARef, CompileError> {
     // acosh(x) = ln(x + sqrt(x*x - 1))
     let x2 = ft.alloc_ssa(RegFile::GPR);
     ft.push_instr(Instr::new(OpFMul {
@@ -453,7 +454,7 @@ fn translate_acosh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef,
     Ok(dst.into())
 }
 
-fn translate_atanh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, CompileError> {
+fn translate_atanh(ft: &mut FuncTranslator<'_, '_>, a: &SSARef) -> Result<SSARef, CompileError> {
     // atanh(x) = 0.5 * ln((1+x)/(1-x))
     let one: f32 = 1.0;
     let half: f32 = 0.5;
@@ -516,7 +517,7 @@ fn translate_atanh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef,
     Ok(dst.into())
 }
 
-fn translate_sinh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, CompileError> {
+fn translate_sinh(ft: &mut FuncTranslator<'_, '_>, a: &SSARef) -> Result<SSARef, CompileError> {
     // sinh(x) = (exp(x) - exp(-x)) / 2
     let log2_e: f32 = std::f32::consts::LOG2_E;
     let half: f32 = 0.5;
@@ -570,7 +571,7 @@ fn translate_sinh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, 
     Ok(dst.into())
 }
 
-fn translate_cosh(ft: &mut FuncTranslator<'_, '_>, a: SSARef) -> Result<SSARef, CompileError> {
+fn translate_cosh(ft: &mut FuncTranslator<'_, '_>, a: &SSARef) -> Result<SSARef, CompileError> {
     // cosh(x) = (exp(x) + exp(-x)) / 2
     let log2_e: f32 = std::f32::consts::LOG2_E;
     let half: f32 = 0.5;

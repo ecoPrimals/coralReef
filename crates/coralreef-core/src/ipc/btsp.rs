@@ -24,6 +24,7 @@ use std::sync::OnceLock;
 
 use super::btsp_negotiate::register_session;
 use crate::config;
+use crate::env_keys;
 
 /// Domain stem for security capability discovery.
 ///
@@ -242,8 +243,8 @@ where
             BtspSessionError::Protocol("ClientHello missing client_ephemeral_pub".into())
         })?;
 
-    let raw_seed = std::env::var("FAMILY_SEED")
-        .or_else(|_| std::env::var("BEARDOG_FAMILY_SEED"))
+    let raw_seed = std::env::var(env_keys::FAMILY_SEED)
+        .or_else(|_| std::env::var(env_keys::BTSP_FAMILY_SEED))
         .unwrap_or_default();
     let family_seed = b64_encode(raw_seed.as_bytes());
 
@@ -459,8 +460,8 @@ pub(crate) fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
         return Some(path);
     }
 
-    if let Some(path) = config::beardog_socket().filter(|p| p.exists()) {
-        tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET");
+    if let Some(path) = config::security_provider_legacy_socket().filter(|p| p.exists()) {
+        tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET (legacy alias)");
         return Some(path);
     }
 

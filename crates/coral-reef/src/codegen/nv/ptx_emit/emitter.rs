@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -383,21 +381,21 @@ impl<'a> PtxEmitter<'a> {
 
     fn write_surface_decls(&self, out: &mut String) {
         for (i, surf) in self.surfaces.iter().enumerate() {
-            writeln!(out, ".global .surfref _surf{i};").expect("write to String");
+            writeln_ptx!(out, ".global .surfref _surf{i};");
             let _ = surf;
         }
         if !self.surfaces.is_empty() {
-            writeln!(out).expect("write to String");
+            writeln_ptx!(out);
         }
     }
 
     fn write_texture_decls(&self, out: &mut String) {
         for (i, tex) in self.textures.iter().enumerate() {
-            writeln!(out, ".global .texref _tex{i};").expect("write to String");
+            writeln_ptx!(out, ".global .texref _tex{i};");
             let _ = tex;
         }
         if !self.textures.is_empty() {
-            writeln!(out).expect("write to String");
+            writeln_ptx!(out);
         }
     }
 
@@ -446,31 +444,31 @@ impl<'a> PtxEmitter<'a> {
         self.precompute_builtins()?;
         self.load_buffer_params();
         self.emit_block(&self.func.body.clone())?;
-        writeln!(self.body, "    membar.sys;").expect("write to String");
-        writeln!(self.body, "    ret;").expect("write to String");
+        writeln_ptx!(self.body, "    membar.sys;");
+        writeln_ptx!(self.body, "    ret;");
 
         let mut out = String::with_capacity(512 + self.body.len());
         self.write_header(&mut out);
         self.write_surface_decls(&mut out);
         self.write_texture_decls(&mut out);
         self.write_params(&mut out);
-        writeln!(out, "{{").expect("write to String");
+        writeln_ptx!(out, "{{");
         self.write_reg_decls(&mut out);
         self.write_shared_decls(&mut out);
         out.push_str(&self.body);
-        writeln!(out, "}}").expect("write to String");
+        writeln_ptx!(out, "}}");
         Ok(out)
     }
 
     fn write_header(&self, out: &mut String) {
-        writeln!(out, ".version 8.7").expect("write to String");
-        writeln!(out, ".target sm_{}", self.sm).expect("write to String");
-        writeln!(out, ".address_size 64").expect("write to String");
-        writeln!(out).expect("write to String");
+        writeln_ptx!(out, ".version 8.7");
+        writeln_ptx!(out, ".target sm_{}", self.sm);
+        writeln_ptx!(out, ".address_size 64");
+        writeln_ptx!(out);
     }
 
     fn write_params(&self, out: &mut String) {
-        writeln!(out, ".visible .entry main_kernel(").expect("write to String");
+        writeln_ptx!(out, ".visible .entry main_kernel(");
         let param_count = self.bindings.len() * 2;
         for (i, binding) in self.bindings.iter().enumerate() {
             let idx = binding.binding;
@@ -479,32 +477,31 @@ impl<'a> PtxEmitter<'a> {
             } else {
                 ""
             };
-            writeln!(out, "    .param .u64 _buf{idx}_ptr,").expect("write to String");
-            writeln!(out, "    .param .u64 _buf{idx}_size{comma}").expect("write to String");
+            writeln_ptx!(out, "    .param .u64 _buf{idx}_ptr,");
+            writeln_ptx!(out, "    .param .u64 _buf{idx}_size{comma}");
         }
-        writeln!(out, ")").expect("write to String");
+        writeln_ptx!(out, ")");
     }
 
     fn write_reg_decls(&self, out: &mut String) {
         if self.r32_next > 0 {
-            writeln!(out, "    .reg .b32 %r<{}>;", self.r32_next).expect("write to String");
+            writeln_ptx!(out, "    .reg .b32 %r<{}>;", self.r32_next);
         }
         if self.rd64_next > 0 {
-            writeln!(out, "    .reg .b64 %rd<{}>;", self.rd64_next).expect("write to String");
+            writeln_ptx!(out, "    .reg .b64 %rd<{}>;", self.rd64_next);
         }
         if self.pred_next > 0 {
-            writeln!(out, "    .reg .pred %p<{}>;", self.pred_next).expect("write to String");
+            writeln_ptx!(out, "    .reg .pred %p<{}>;", self.pred_next);
         }
     }
 
     fn write_shared_decls(&self, out: &mut String) {
         if self.shared_mem_bytes > 0 {
-            writeln!(
+            writeln_ptx!(
                 out,
                 "    .shared .align 4 .b8 _shared[{}];",
                 self.shared_mem_bytes
-            )
-            .expect("write to String");
+            );
         }
     }
 
@@ -533,16 +530,13 @@ impl<'a> PtxEmitter<'a> {
     pub(super) fn zero_val(&mut self, val: &PtxVal) {
         match val {
             PtxVal::R32(_) => {
-                writeln!(self.body, "    mov.u32 {}, 0;", val.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.u32 {}, 0;", val.fmt_operand());
             }
             PtxVal::Rd64(_) => {
-                writeln!(self.body, "    mov.u64 {}, 0;", val.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.u64 {}, 0;", val.fmt_operand());
             }
             PtxVal::Pred(_) => {
-                writeln!(self.body, "    setp.eq.u32 {}, 0, 0;", val.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    setp.eq.u32 {}, 0, 0;", val.fmt_operand());
             }
             PtxVal::Vec(v) => {
                 for c in v {

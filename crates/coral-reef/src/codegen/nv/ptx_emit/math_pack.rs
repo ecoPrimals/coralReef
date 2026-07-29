@@ -46,57 +46,51 @@ impl PtxEmitter<'_> {
     fn emit_pack4x8_unorm(&mut self, arg: PtxVal) -> Result<PtxVal, CompileError> {
         let components = self.extract_vec_components(&arg, 4);
         let dst = self.alloc_r32();
-        writeln!(self.body, "    mov.u32 {}, 0;", dst.fmt_operand()).expect("write to String");
+        writeln_ptx!(self.body, "    mov.u32 {}, 0;", dst.fmt_operand());
         for (i, comp) in components.iter().enumerate() {
             let clamped = self.alloc_r32();
             let scaled = self.alloc_r32();
             let byte = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    max.f32 {}, {}, 0f00000000;",
                 clamped.fmt_operand(),
                 comp.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    min.f32 {}, {}, 0f3F800000;",
                 clamped.fmt_operand(),
                 clamped.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    mul.f32 {}, {}, 0f437F0000;",
                 scaled.fmt_operand(),
                 clamped.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    cvt.rni.u32.f32 {}, {};",
                 byte.fmt_operand(),
                 scaled.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             if i > 0 {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shl.b32 {}, {}, {};",
                     byte.fmt_operand(),
                     byte.fmt_operand(),
                     i * 8,
-                )
-                .expect("write to String");
+                );
             }
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    or.b32 {}, {}, {};",
                 dst.fmt_operand(),
                 dst.fmt_operand(),
                 byte.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         }
         Ok(dst)
     }
@@ -105,68 +99,61 @@ impl PtxEmitter<'_> {
     fn emit_pack4x8_snorm(&mut self, arg: PtxVal) -> Result<PtxVal, CompileError> {
         let components = self.extract_vec_components(&arg, 4);
         let dst = self.alloc_r32();
-        writeln!(self.body, "    mov.u32 {}, 0;", dst.fmt_operand()).expect("write to String");
+        writeln_ptx!(self.body, "    mov.u32 {}, 0;", dst.fmt_operand());
         for (i, comp) in components.iter().enumerate() {
             let clamped = self.alloc_r32();
             let scaled = self.alloc_r32();
             let byte_s = self.alloc_r32();
             let byte_u = self.alloc_r32();
             // clamp to [-1, 1]
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    max.f32 {}, {}, 0fBF800000;",
                 clamped.fmt_operand(),
                 comp.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    min.f32 {}, {}, 0f3F800000;",
                 clamped.fmt_operand(),
                 clamped.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             // scale by 127
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mul.f32 {}, {}, 0f42FE0000;",
                 scaled.fmt_operand(),
                 clamped.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    cvt.rni.s32.f32 {}, {};",
                 byte_s.fmt_operand(),
                 scaled.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             // mask to 8 bits
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    and.b32 {}, {}, 0xFF;",
                 byte_u.fmt_operand(),
                 byte_s.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             if i > 0 {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shl.b32 {}, {}, {};",
                     byte_u.fmt_operand(),
                     byte_u.fmt_operand(),
                     i * 8,
-                )
-                .expect("write to String");
+                );
             }
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    or.b32 {}, {}, {};",
                 dst.fmt_operand(),
                 dst.fmt_operand(),
                 byte_u.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         }
         Ok(dst)
     }
@@ -178,42 +165,38 @@ impl PtxEmitter<'_> {
             let byte = self.alloc_r32();
             let shifted = if i > 0 {
                 let s = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shr.u32 {}, {}, {};",
                     s.fmt_operand(),
                     arg.fmt_operand(),
                     i * 8,
-                )
-                .expect("write to String");
+                );
                 s
             } else {
                 arg.clone()
             };
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    and.b32 {}, {}, 0xFF;",
                 byte.fmt_operand(),
                 shifted.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             let f = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    cvt.rn.f32.u32 {}, {};",
                 f.fmt_operand(),
                 byte.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             let scaled = self.alloc_r32();
             // 1.0/255.0 = 0x3B808081
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mul.f32 {}, {}, 0f3B808081;",
                 scaled.fmt_operand(),
                 f.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             components.push(scaled);
         }
         Ok(PtxVal::Vec(components))
@@ -226,60 +209,54 @@ impl PtxEmitter<'_> {
             let byte = self.alloc_r32();
             let shifted = if i > 0 {
                 let s = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shr.u32 {}, {}, {};",
                     s.fmt_operand(),
                     arg.fmt_operand(),
                     i * 8,
-                )
-                .expect("write to String");
+                );
                 s
             } else {
                 arg.clone()
             };
             // Extract byte and sign-extend from i8 to i32
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    and.b32 {}, {}, 0xFF;",
                 byte.fmt_operand(),
                 shifted.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             let sign_ext = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    cvt.s32.s8 {}, {};",
                 sign_ext.fmt_operand(),
                 byte.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             let f = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    cvt.rn.f32.s32 {}, {};",
                 f.fmt_operand(),
                 sign_ext.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             let scaled = self.alloc_r32();
             // max(val / 127.0, -1.0)
             // 1.0/127.0 = 0x3C010204
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mul.f32 {}, {}, 0f3C010204;",
                 scaled.fmt_operand(),
                 f.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             let clamped = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    max.f32 {}, {}, 0fBF800000;",
                 clamped.fmt_operand(),
                 scaled.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             components.push(clamped);
         }
         Ok(PtxVal::Vec(components))
@@ -293,44 +270,39 @@ impl PtxEmitter<'_> {
         let lo = self.alloc_r32();
         let hi = self.alloc_r32();
         // Convert f32 to f16 (as u16 in a u32 register)
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    cvt.rn.f16.f32 {}, {};",
             lo.fmt_operand(),
             components[0].fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    cvt.rn.f16.f32 {}, {};",
             hi.fmt_operand(),
             components[1].fmt_operand(),
-        )
-        .expect("write to String");
+        );
         // Pack: dst = (hi << 16) | (lo & 0xFFFF)
         let dst = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    and.b32 {}, {}, 0xFFFF;",
             lo.fmt_operand(),
             lo.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    shl.b32 {}, {}, 16;",
             hi.fmt_operand(),
             hi.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    or.b32 {}, {}, {};",
             dst.fmt_operand(),
             lo.fmt_operand(),
             hi.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         Ok(dst)
     }
 
@@ -338,36 +310,32 @@ impl PtxEmitter<'_> {
     fn emit_unpack2x16_float(&mut self, arg: PtxVal) -> Result<PtxVal, CompileError> {
         let lo_bits = self.alloc_r32();
         let hi_bits = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    and.b32 {}, {}, 0xFFFF;",
             lo_bits.fmt_operand(),
             arg.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    shr.u32 {}, {}, 16;",
             hi_bits.fmt_operand(),
             arg.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         let lo_f32 = self.alloc_r32();
         let hi_f32 = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    cvt.f32.f16 {}, {};",
             lo_f32.fmt_operand(),
             lo_bits.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    cvt.f32.f16 {}, {};",
             hi_f32.fmt_operand(),
             hi_bits.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         Ok(PtxVal::Vec(vec![lo_f32, hi_f32]))
     }
 
@@ -377,57 +345,51 @@ impl PtxEmitter<'_> {
     fn emit_pack2x16_unorm(&mut self, arg: PtxVal) -> Result<PtxVal, CompileError> {
         let components = self.extract_vec_components(&arg, 2);
         let dst = self.alloc_r32();
-        writeln!(self.body, "    mov.u32 {}, 0;", dst.fmt_operand()).expect("write to String");
+        writeln_ptx!(self.body, "    mov.u32 {}, 0;", dst.fmt_operand());
         for (i, comp) in components.iter().enumerate() {
             let clamped = self.alloc_r32();
             let scaled = self.alloc_r32();
             let half = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    max.f32 {}, {}, 0f00000000;",
                 clamped.fmt_operand(),
                 comp.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    min.f32 {}, {}, 0f3F800000;",
                 clamped.fmt_operand(),
                 clamped.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             // 65535.0 = 0x477FFF00
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mul.f32 {}, {}, 0f477FFF00;",
                 scaled.fmt_operand(),
                 clamped.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    cvt.rni.u32.f32 {}, {};",
                 half.fmt_operand(),
                 scaled.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             if i > 0 {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shl.b32 {}, {}, 16;",
                     half.fmt_operand(),
                     half.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    or.b32 {}, {}, {};",
                 dst.fmt_operand(),
                 dst.fmt_operand(),
                 half.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         }
         Ok(dst)
     }
@@ -436,65 +398,58 @@ impl PtxEmitter<'_> {
     fn emit_pack2x16_snorm(&mut self, arg: PtxVal) -> Result<PtxVal, CompileError> {
         let components = self.extract_vec_components(&arg, 2);
         let dst = self.alloc_r32();
-        writeln!(self.body, "    mov.u32 {}, 0;", dst.fmt_operand()).expect("write to String");
+        writeln_ptx!(self.body, "    mov.u32 {}, 0;", dst.fmt_operand());
         for (i, comp) in components.iter().enumerate() {
             let clamped = self.alloc_r32();
             let scaled = self.alloc_r32();
             let half_s = self.alloc_r32();
             let half_u = self.alloc_r32();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    max.f32 {}, {}, 0fBF800000;",
                 clamped.fmt_operand(),
                 comp.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    min.f32 {}, {}, 0f3F800000;",
                 clamped.fmt_operand(),
                 clamped.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             // 32767.0 = 0x46FFFE00
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mul.f32 {}, {}, 0f46FFFE00;",
                 scaled.fmt_operand(),
                 clamped.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    cvt.rni.s32.f32 {}, {};",
                 half_s.fmt_operand(),
                 scaled.fmt_operand(),
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    and.b32 {}, {}, 0xFFFF;",
                 half_u.fmt_operand(),
                 half_s.fmt_operand(),
-            )
-            .expect("write to String");
+            );
             if i > 0 {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    shl.b32 {}, {}, 16;",
                     half_u.fmt_operand(),
                     half_u.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    or.b32 {}, {}, {};",
                 dst.fmt_operand(),
                 dst.fmt_operand(),
                 half_u.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         }
         Ok(dst)
     }
@@ -503,53 +458,47 @@ impl PtxEmitter<'_> {
     fn emit_unpack2x16_unorm(&mut self, arg: PtxVal) -> Result<PtxVal, CompileError> {
         let lo = self.alloc_r32();
         let hi = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    and.b32 {}, {}, 0xFFFF;",
             lo.fmt_operand(),
             arg.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    shr.u32 {}, {}, 16;",
             hi.fmt_operand(),
             arg.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         let lo_f = self.alloc_r32();
         let hi_f = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    cvt.rn.f32.u32 {}, {};",
             lo_f.fmt_operand(),
             lo.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    cvt.rn.f32.u32 {}, {};",
             hi_f.fmt_operand(),
             hi.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         let lo_scaled = self.alloc_r32();
         let hi_scaled = self.alloc_r32();
         // 1.0/65535.0 = 0x37800080
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    mul.f32 {}, {}, 0f37800080;",
             lo_scaled.fmt_operand(),
             lo_f.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    mul.f32 {}, {}, 0f37800080;",
             hi_scaled.fmt_operand(),
             hi_f.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         Ok(PtxVal::Vec(vec![lo_scaled, hi_scaled]))
     }
 
@@ -557,85 +506,75 @@ impl PtxEmitter<'_> {
     fn emit_unpack2x16_snorm(&mut self, arg: PtxVal) -> Result<PtxVal, CompileError> {
         let lo = self.alloc_r32();
         let hi = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    and.b32 {}, {}, 0xFFFF;",
             lo.fmt_operand(),
             arg.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    shr.u32 {}, {}, 16;",
             hi.fmt_operand(),
             arg.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         let lo_ext = self.alloc_r32();
         let hi_ext = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    cvt.s32.s16 {}, {};",
             lo_ext.fmt_operand(),
             lo.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    cvt.s32.s16 {}, {};",
             hi_ext.fmt_operand(),
             hi.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         let lo_f = self.alloc_r32();
         let hi_f = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    cvt.rn.f32.s32 {}, {};",
             lo_f.fmt_operand(),
             lo_ext.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    cvt.rn.f32.s32 {}, {};",
             hi_f.fmt_operand(),
             hi_ext.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         let lo_scaled = self.alloc_r32();
         let hi_scaled = self.alloc_r32();
         // 1.0/32767.0 = 0x38000100
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    mul.f32 {}, {}, 0f38000100;",
             lo_scaled.fmt_operand(),
             lo_f.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    mul.f32 {}, {}, 0f38000100;",
             hi_scaled.fmt_operand(),
             hi_f.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         let lo_clamped = self.alloc_r32();
         let hi_clamped = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    max.f32 {}, {}, 0fBF800000;",
             lo_clamped.fmt_operand(),
             lo_scaled.fmt_operand(),
-        )
-        .expect("write to String");
-        writeln!(
+        );
+        writeln_ptx!(
             self.body,
             "    max.f32 {}, {}, 0fBF800000;",
             hi_clamped.fmt_operand(),
             hi_scaled.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         Ok(PtxVal::Vec(vec![lo_clamped, hi_clamped]))
     }
 
@@ -658,5 +597,3 @@ impl PtxEmitter<'_> {
         }
     }
 }
-
-use std::fmt::Write;

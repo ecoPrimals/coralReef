@@ -8,6 +8,18 @@ use super::ir::*;
 use coral_reef_stubs::fxhash::FxHashMap;
 use types::{CBufRule, ConvBoolToInt, CopyEntry, CopyPropEntry, PrmtEntry};
 
+fn copy_src_ref(reference: &SrcRef) -> SrcRef {
+    match reference {
+        SrcRef::Zero => SrcRef::Zero,
+        SrcRef::True => SrcRef::True,
+        SrcRef::False => SrcRef::False,
+        SrcRef::Imm32(v) => SrcRef::Imm32(*v),
+        SrcRef::CBuf(cb) => SrcRef::CBuf(cb.clone()),
+        SrcRef::SSA(ssa) => SrcRef::SSA(ssa.clone()),
+        SrcRef::Reg(reg) => SrcRef::Reg(*reg),
+    }
+}
+
 struct CopyPropPass<'a> {
     sm: &'a dyn ShaderModel,
     ssa_map: FxHashMap<SSAValue, CopyPropEntry>,
@@ -66,9 +78,16 @@ impl<'a> CopyPropPass<'a> {
                 self.add_copy(bi, dst[1], SrcType::F64, src);
             }
             SrcRef::CBuf(cb) => {
-                let lo32 = Src::from(SrcRef::CBuf(cb.clone()));
+                let CBufRef { buf, offset } = cb;
+                let lo32 = Src::from(SrcRef::CBuf(CBufRef {
+                    buf: buf.clone(),
+                    offset,
+                }));
                 let hi32 = Src {
-                    reference: SrcRef::CBuf(cb.offset(4)),
+                    reference: SrcRef::CBuf(CBufRef {
+                        buf,
+                        offset: offset + 4,
+                    }),
                     modifier: src.modifier,
                     swizzle: src.swizzle,
                 };
@@ -236,7 +255,7 @@ impl<'a> CopyPropPass<'a> {
                         return;
                     }
 
-                    src.reference = entry.src.reference.clone();
+                    src.reference = copy_src_ref(&entry.src.reference);
                     src.modifier = entry.src.modifier.modify(src.modifier);
                 }
                 CopyPropEntry::Prmt(entry) => {
@@ -308,7 +327,7 @@ impl<'a> CopyPropPass<'a> {
                         }
                     };
 
-                    src.reference = entry_src.reference.clone();
+                    src.reference = copy_src_ref(&entry_src.reference);
                     src.modifier = entry_src.modifier.modify(src.modifier);
                     src.swizzle = new_swizzle;
                 }
@@ -401,7 +420,10 @@ impl<'a> CopyPropPass<'a> {
                         if hi_cb.offset != lo_cb.offset + 4 {
                             return;
                         }
-                        SrcRef::CBuf(lo_cb.clone())
+                        SrcRef::CBuf(CBufRef {
+                            buf: lo_cb.buf.clone(),
+                            offset: lo_cb.offset,
+                        })
                     }
                     _ => return,
                 },

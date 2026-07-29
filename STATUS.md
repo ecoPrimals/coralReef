@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: July 28, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 155f (strandGate deep debt: compile fixes, full JSON-RPC dispatch (18 served methods), capability-based discovery, BTSP Phase 3 encrypted transport, socket resolution unification, clippy pedantic+nursery clean. 3527 tests, zero unsafe, zero clippy warnings.)
+**Last updated**: July 29, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 155i (strandGate Tower+Compute LIVE. All 18 JSON-RPC methods validated live on strandGate hardware. BTSP Phase 2→3 chain verified with live bearDog (null cipher fallback — challenge-response path ready for production key material). RTX 3090 (sm_86) WGSL + GEMM compilation confirmed. Awaiting glibc depot rebuild from sporeGate for Vulkan ICD compute workloads. 3,527 tests, zero unsafe, zero clippy warnings.)
 
 ---
 
@@ -41,7 +41,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 146** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 155i** |
 
 ### Post-101: Sprint 6 — Ecosystem Wave Sync: Phase D Markers, FECS Stability (May 12, 2026)
 

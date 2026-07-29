@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: July 26, 2026 (Sprint 14 / Wave 152: 3669 tests, 84% line coverage. Deep debt deduplication, BTSP client handshake, transport abstraction)
+**Last updated**: July 29, 2026 (Sprint 14 / Wave 155i: 3,527 tests, 84% line coverage. Deep debt deduplication, BTSP client handshake, transport abstraction)
 
 ---
 

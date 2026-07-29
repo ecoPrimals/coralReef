@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -20,15 +18,13 @@ impl PtxEmitter<'_> {
                     let sv = self.shared_var(gv);
                     let offset = sv.map_or(0, |s| s.offset);
                     let addr = self.alloc_rd64();
-                    writeln!(self.body, "    mov.u64 {}, _shared;", addr.fmt_operand())
-                        .expect("write to String");
+                    writeln_ptx!(self.body, "    mov.u64 {}, _shared;", addr.fmt_operand());
                     if offset > 0 {
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    add.u64 {0}, {0}, {offset};",
                             addr.fmt_operand()
-                        )
-                        .expect("write to String");
+                        );
                     }
                     return Ok((addr, MemSpaceKind::Shared));
                 }
@@ -54,13 +50,12 @@ impl PtxEmitter<'_> {
                     return Ok((base_addr, space));
                 }
                 let addr = self.alloc_rd64();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    add.u64 {}, {}, {offset};",
                     addr.fmt_operand(),
                     base_addr.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok((addr, space))
             }
             _ => {
@@ -118,57 +113,51 @@ impl PtxEmitter<'_> {
         let offset = self.alloc_rd64();
         let addr = self.alloc_rd64();
 
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    cvt.u64.u32 {}, {};",
             idx64.fmt_operand(),
             index.fmt_operand(),
-        )
-        .expect("write to String");
+        );
 
         if stride.is_power_of_two() && stride > 1 {
             let shift = stride.trailing_zeros();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    shl.b64 {}, {}, {shift};",
                 offset.fmt_operand(),
                 idx64.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         } else if stride == 1 {
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mov.u64 {}, {};",
                 offset.fmt_operand(),
                 idx64.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         } else {
             let stride_reg = self.alloc_rd64();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mov.u64 {}, {stride};",
                 stride_reg.fmt_operand()
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    mul.lo.u64 {}, {}, {};",
                 offset.fmt_operand(),
                 idx64.fmt_operand(),
                 stride_reg.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         }
 
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    add.u64 {}, {}, {};",
             addr.fmt_operand(),
             base.fmt_operand(),
             offset.fmt_operand(),
-        )
-        .expect("write to String");
+        );
 
         addr
     }

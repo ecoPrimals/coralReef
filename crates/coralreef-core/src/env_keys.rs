@@ -73,6 +73,9 @@ pub const BTSP_PROVIDER_SOCKET: &str = "BTSP_PROVIDER_SOCKET";
 /// Composition launcher alias for the security-domain provider socket.
 pub const BEARDOG_SOCKET: &str = "BEARDOG_SOCKET";
 
+/// Tier-1 crypto derivation input set by the composition launcher (BTSP-specific alias).
+pub const BTSP_FAMILY_SEED: &str = "BTSP_FAMILY_SEED";
+
 /// Ecosystem discovery relay socket path from the composition launcher.
 pub const DISCOVERY_SOCKET: &str = "DISCOVERY_SOCKET";
 

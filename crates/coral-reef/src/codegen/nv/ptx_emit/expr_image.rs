@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! PTX image/texture/surface evaluation — load, sample, query operations.
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -64,11 +62,10 @@ impl PtxEmitter<'_> {
             .collect::<Vec<_>>()
             .join(", ");
 
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    suld.b.{dim_suffix}.{type_suffix}.zero {{{dst_str}}}, [_surf{surf_idx}, {coord_str}];",
-        )
-        .expect("write to String");
+        );
 
         if comp_count == 1 {
             Ok(dst_components.into_iter().next().expect("component exists"))
@@ -112,11 +109,10 @@ impl PtxEmitter<'_> {
             dst[3].fmt_operand(),
         );
 
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    tld.b.{dim_suffix}.v4.s32.f32 {dst_str}, [_tex{tex_idx}, {coord_str}], {lod_str};",
-        )
-        .expect("write to String");
+        );
 
         Ok(PtxVal::Vec(dst.to_vec()))
     }
@@ -174,40 +170,36 @@ impl PtxEmitter<'_> {
 
         match level {
             naga::SampleLevel::Auto | naga::SampleLevel::Zero => {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    tex.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}];",
-                )
-                .expect("write to String");
+                );
             }
             naga::SampleLevel::Exact(lod_expr) => {
                 let lod = self.eval_expr(lod_expr)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    tex.level.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}], {lod_op};",
                     lod_op = lod.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::SampleLevel::Bias(bias_expr) => {
                 let bias = self.eval_expr(bias_expr)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    tex.level.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}], {bias_op};",
                     bias_op = bias.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::SampleLevel::Gradient { x, y } => {
                 let grad_x = self.eval_expr(x)?;
                 let grad_y = self.eval_expr(y)?;
                 let grad_x_str = self.format_tex_coord(&grad_x, None, dim);
                 let grad_y_str = self.format_tex_coord(&grad_y, None, dim);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    tex.grad.{dim_suffix}.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}], {grad_x_str}, {grad_y_str};",
-                )
-                .expect("write to String");
+                );
             }
         }
 
@@ -231,22 +223,20 @@ impl PtxEmitter<'_> {
 
         match level {
             naga::SampleLevel::Auto | naga::SampleLevel::Zero => {
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    tex.level.compare.{dim_suffix}.f32.f32 {dst_op}, [_tex{tex_idx}, {compare_coord}], 0.0;",
                     dst_op = dst.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::SampleLevel::Exact(lod_expr) => {
                 let lod = self.eval_expr(*lod_expr)?;
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    tex.level.compare.{dim_suffix}.f32.f32 {dst_op}, [_tex{tex_idx}, {compare_coord}], {lod_op};",
                     dst_op = dst.fmt_operand(),
                     lod_op = lod.fmt_operand(),
-                )
-                .expect("write to String");
+                );
             }
             naga::SampleLevel::Bias(_) | naga::SampleLevel::Gradient { .. } => {
                 return Err(CompileError::NotImplemented(
@@ -330,11 +320,10 @@ impl PtxEmitter<'_> {
             .collect::<Vec<_>>()
             .join(", ");
 
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    tld4.{comp_suffix}.2d.v4.{ret_type}.{ret_type} {{{dst_str}}}, [_tex{tex_idx}, {coord_str}];",
-        )
-        .expect("write to String");
+        );
 
         Ok(PtxVal::Vec(dst_components))
     }
@@ -362,39 +351,35 @@ impl PtxEmitter<'_> {
         match query {
             naga::ImageQuery::Size { .. } => {
                 let width = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    suq.width.b32 {}, [_surf{surf_idx}];",
                     width.fmt_operand()
-                )
-                .expect("write to String");
+                );
                 match dim {
                     ImageDim::D1 | ImageDim::A1d => Ok(width),
                     ImageDim::D2 | ImageDim::Cube | ImageDim::A2d | ImageDim::Acube => {
                         let height = self.alloc_r32();
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    suq.height.b32 {}, [_surf{surf_idx}];",
                             height.fmt_operand()
-                        )
-                        .expect("write to String");
+                        );
                         Ok(PtxVal::Vec(vec![width, height]))
                     }
                     ImageDim::D3 => {
                         let height = self.alloc_r32();
                         let depth = self.alloc_r32();
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    suq.height.b32 {}, [_surf{surf_idx}];",
                             height.fmt_operand()
-                        )
-                        .expect("write to String");
-                        writeln!(
+                        );
+                        writeln_ptx!(
                             self.body,
                             "    suq.depth.b32 {}, [_surf{surf_idx}];",
                             depth.fmt_operand()
-                        )
-                        .expect("write to String");
+                        );
                         Ok(PtxVal::Vec(vec![width, height, depth]))
                     }
                 }
@@ -404,12 +389,11 @@ impl PtxEmitter<'_> {
             )),
             naga::ImageQuery::NumLayers => {
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    suq.array_size.b32 {}, [_surf{surf_idx}];",
                     dst.fmt_operand()
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             naga::ImageQuery::NumSamples => Err(CompileError::NotImplemented(
@@ -427,61 +411,55 @@ impl PtxEmitter<'_> {
         match query {
             naga::ImageQuery::Size { .. } => {
                 let width = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    txq.width.b32 {}, [_tex{tex_idx}];",
                     width.fmt_operand()
-                )
-                .expect("write to String");
+                );
                 match dim {
                     ImageDim::D1 | ImageDim::A1d => Ok(width),
                     ImageDim::D2 | ImageDim::Cube | ImageDim::A2d | ImageDim::Acube => {
                         let height = self.alloc_r32();
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    txq.height.b32 {}, [_tex{tex_idx}];",
                             height.fmt_operand()
-                        )
-                        .expect("write to String");
+                        );
                         Ok(PtxVal::Vec(vec![width, height]))
                     }
                     ImageDim::D3 => {
                         let height = self.alloc_r32();
                         let depth = self.alloc_r32();
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    txq.height.b32 {}, [_tex{tex_idx}];",
                             height.fmt_operand()
-                        )
-                        .expect("write to String");
-                        writeln!(
+                        );
+                        writeln_ptx!(
                             self.body,
                             "    txq.depth.b32 {}, [_tex{tex_idx}];",
                             depth.fmt_operand()
-                        )
-                        .expect("write to String");
+                        );
                         Ok(PtxVal::Vec(vec![width, height, depth]))
                     }
                 }
             }
             naga::ImageQuery::NumLevels => {
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    txq.num_mip_levels.b32 {}, [_tex{tex_idx}];",
                     dst.fmt_operand()
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             naga::ImageQuery::NumLayers => {
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    txq.array_size.b32 {}, [_tex{tex_idx}];",
                     dst.fmt_operand()
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             naga::ImageQuery::NumSamples => Err(CompileError::NotImplemented(

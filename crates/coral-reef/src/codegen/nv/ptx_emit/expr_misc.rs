@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -12,57 +10,49 @@ impl PtxEmitter<'_> {
         match *lit {
             naga::Literal::U32(v) => {
                 let r = self.alloc_r32();
-                writeln!(self.body, "    mov.u32 {}, {v};", r.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.u32 {}, {v};", r.fmt_operand());
                 Ok(r)
             }
             naga::Literal::I32(v) => {
                 let r = self.alloc_r32();
                 let bits = v as u32;
-                writeln!(self.body, "    mov.u32 {}, {bits};", r.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.u32 {}, {bits};", r.fmt_operand());
                 Ok(r)
             }
             naga::Literal::F32(v) => {
                 let r = self.alloc_r32();
                 let bits = v.to_bits();
-                writeln!(self.body, "    mov.b32 {}, 0F{bits:08X};", r.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.b32 {}, 0F{bits:08X};", r.fmt_operand());
                 Ok(r)
             }
             naga::Literal::F64(v) => {
                 let r = self.alloc_rd64();
                 let bits = v.to_bits();
-                writeln!(self.body, "    mov.b64 {}, 0D{bits:016X};", r.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.b64 {}, 0D{bits:016X};", r.fmt_operand());
                 Ok(r)
             }
             naga::Literal::Bool(v) => {
                 let r = self.alloc_pred();
                 let val = u32::from(v);
                 let tmp = self.alloc_r32();
-                writeln!(self.body, "    mov.u32 {}, {val};", tmp.fmt_operand())
-                    .expect("write to String");
-                writeln!(
+                writeln_ptx!(self.body, "    mov.u32 {}, {val};", tmp.fmt_operand());
+                writeln_ptx!(
                     self.body,
                     "    setp.ne.u32 {}, {}, 0;",
                     r.fmt_operand(),
                     tmp.fmt_operand()
-                )
-                .expect("write to String");
+                );
                 Ok(r)
             }
             naga::Literal::U64(v) => {
                 let r = self.alloc_rd64();
-                writeln!(self.body, "    mov.u64 {}, {v};", r.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.u64 {}, {v};", r.fmt_operand());
                 Ok(r)
             }
             naga::Literal::I64(v) => {
                 let r = self.alloc_rd64();
                 let bits = v as u64;
-                writeln!(self.body, "    mov.u64 {}, {bits};", r.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.u64 {}, {bits};", r.fmt_operand());
                 Ok(r)
             }
             _ => Err(CompileError::NotImplemented(
@@ -91,8 +81,7 @@ impl PtxEmitter<'_> {
             }
             _ => {
                 let r = self.alloc_r32();
-                writeln!(self.body, "    mov.u32 {}, 0;", r.fmt_operand())
-                    .expect("write to String");
+                writeln_ptx!(self.body, "    mov.u32 {}, 0;", r.fmt_operand());
                 Ok(r)
             }
         }
@@ -164,14 +153,13 @@ impl PtxEmitter<'_> {
         match inner {
             naga::TypeInner::Scalar(s) => {
                 let dst = self.alloc_for_scalar(s);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    ld.{space}.{} {}, [{}];",
                     Self::ptx_mem_suffix(s),
                     dst.fmt_operand(),
                     addr.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             naga::TypeInner::Vector { size, scalar } => {
@@ -182,31 +170,28 @@ impl PtxEmitter<'_> {
                     let dst = self.alloc_for_scalar(s);
                     let offset = i as u32 * u32::from(s.width);
                     if offset == 0 {
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    ld.{space}.{} {}, [{}];",
                             Self::ptx_mem_suffix(s),
                             dst.fmt_operand(),
                             addr.fmt_operand(),
-                        )
-                        .expect("write to String");
+                        );
                     } else {
                         let off_addr = self.alloc_rd64();
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    add.u64 {}, {}, {offset};",
                             off_addr.fmt_operand(),
                             addr.fmt_operand(),
-                        )
-                        .expect("write to String");
-                        writeln!(
+                        );
+                        writeln_ptx!(
                             self.body,
                             "    ld.{space}.{} {}, [{}];",
                             Self::ptx_mem_suffix(s),
                             dst.fmt_operand(),
                             off_addr.fmt_operand(),
-                        )
-                        .expect("write to String");
+                        );
                     }
                     components.push(dst);
                 }
@@ -214,13 +199,12 @@ impl PtxEmitter<'_> {
             }
             _ => {
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    ld.{space}.u32 {}, [{}];",
                     dst.fmt_operand(),
                     addr.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
         }
@@ -241,31 +225,28 @@ impl PtxEmitter<'_> {
             if let PtxVal::Vec(ref components) = vec_val {
                 if components.len() <= 4 {
                     let result = self.alloc_r32();
-                    writeln!(
+                    writeln_ptx!(
                         self.body,
                         "    mov.u32 {}, {};",
                         result.fmt_operand(),
                         components[0].fmt_operand()
-                    )
-                    .expect("write to String");
+                    );
                     for (i, comp) in components.iter().enumerate().skip(1) {
                         let pred = self.alloc_pred();
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    setp.eq.u32 {}, {}, {};",
                             pred.fmt_operand(),
                             idx_val.fmt_operand(),
                             i,
-                        )
-                        .expect("write to String");
-                        writeln!(
+                        );
+                        writeln_ptx!(
                             self.body,
                             "    @{} mov.u32 {}, {};",
                             pred.fmt_operand(),
                             result.fmt_operand(),
                             comp.fmt_operand(),
-                        )
-                        .expect("write to String");
+                        );
                     }
                     return Ok(result);
                 }
@@ -327,57 +308,51 @@ impl PtxEmitter<'_> {
         let stride = self.bindings[binding_idx].element_stride;
         let idx = self.bindings[binding_idx].binding;
         let size_reg = self.alloc_rd64();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    ld.param.u64 {}, [_buf{idx}_size];",
             size_reg.fmt_operand()
-        )
-        .expect("write to String");
+        );
 
         let result_64 = self.alloc_rd64();
         if stride.is_power_of_two() && stride > 1 {
             let shift = stride.trailing_zeros();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    shr.u64 {}, {}, {shift};",
                 result_64.fmt_operand(),
                 size_reg.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         } else if stride == 1 {
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mov.u64 {}, {};",
                 result_64.fmt_operand(),
                 size_reg.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         } else {
             let stride_reg = self.alloc_rd64();
-            writeln!(
+            writeln_ptx!(
                 self.body,
                 "    mov.u64 {}, {stride};",
                 stride_reg.fmt_operand()
-            )
-            .expect("write to String");
-            writeln!(
+            );
+            writeln_ptx!(
                 self.body,
                 "    div.u64 {}, {}, {};",
                 result_64.fmt_operand(),
                 size_reg.fmt_operand(),
                 stride_reg.fmt_operand(),
-            )
-            .expect("write to String");
+            );
         }
 
         let result = self.alloc_r32();
-        writeln!(
+        writeln_ptx!(
             self.body,
             "    cvt.u32.u64 {}, {};",
             result.fmt_operand(),
             result_64.fmt_operand(),
-        )
-        .expect("write to String");
+        );
         Ok(result)
     }
 

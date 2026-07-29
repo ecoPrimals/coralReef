@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::fmt::Write as _;
-
 use crate::error::CompileError;
 
 use super::PtxEmitter;
@@ -24,39 +22,36 @@ impl PtxEmitter<'_> {
         match fun {
             MF::Abs => {
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    abs.{ts} {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Min => {
                 let rhs = super::require_math_arg(arg1, "min", 1)?;
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    min.{ts} {}, {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
                     rhs.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Max => {
                 let rhs = super::require_math_arg(arg1, "max", 1)?;
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    max.{ts} {}, {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
                     rhs.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Clamp => {
@@ -64,22 +59,20 @@ impl PtxEmitter<'_> {
                 let hi = super::require_math_arg(arg2, "clamp", 2)?;
                 let tmp = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    max.{ts} {}, {}, {};",
                     tmp.fmt_operand(),
                     arg.fmt_operand(),
                     lo.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    min.{ts} {}, {}, {};",
                     dst.fmt_operand(),
                     tmp.fmt_operand(),
                     hi.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Floor | MF::Ceil | MF::Round | MF::Trunc => {
@@ -91,208 +84,188 @@ impl PtxEmitter<'_> {
                     _ => crate::codegen::ice!("rounding mode matched Floor|Ceil|Round|Trunc above"),
                 };
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    cvt.{mode}.{ts}.{ts} {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Sqrt => {
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    sqrt.rn.{ts} {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::InverseSqrt => {
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    rsqrt.approx.{ts} {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Sin | MF::Cos => {
                 let op_name = if matches!(fun, MF::Sin) { "sin" } else { "cos" };
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    {op_name}.approx.{ts} {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Exp2 => {
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    ex2.approx.{ts} {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Log2 => {
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    lg2.approx.{ts} {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Fma => {
                 let mul_term = super::require_math_arg(arg1, "fma", 1)?;
                 let add_term = super::require_math_arg(arg2, "fma", 2)?;
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    fma.rn.{ts} {}, {}, {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
                     mul_term.fmt_operand(),
                     add_term.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Pow => {
                 let exp = super::require_math_arg(arg1, "pow", 1)?;
                 let lg = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    lg2.approx.{ts} {}, {};",
                     lg.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, {};",
                     lg.fmt_operand(),
                     lg.fmt_operand(),
                     exp.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    ex2.approx.{ts} {}, {};",
                     dst.fmt_operand(),
                     lg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Exp => {
                 // exp(x) = ex2(x * log2(e))
                 let tmp = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, 0f3FB8AA3B;",
                     tmp.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    ex2.approx.{ts} {}, {};",
                     dst.fmt_operand(),
                     tmp.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Log => {
                 // log(x) = lg2(x) * ln(2)
                 let tmp = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    lg2.approx.{ts} {}, {};",
                     tmp.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, 0f3F317218;",
                     dst.fmt_operand(),
                     tmp.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Sign => {
                 let dst = self.alloc_for_scalar(scalar);
                 let p_pos = self.alloc_pred();
                 let p_neg = self.alloc_pred();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    setp.gt.{ts} {}, {}, 0f00000000;",
                     p_pos.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    setp.lt.{ts} {}, {}, 0f00000000;",
                     p_neg.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    selp.{ts} {}, 0f3F800000, 0f00000000, {};",
                     dst.fmt_operand(),
                     p_pos.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    selp.{ts} {}, 0fBF800000, {}, {};",
                     dst.fmt_operand(),
                     dst.fmt_operand(),
                     p_neg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Fract => {
                 // fract(x) = x - floor(x)
                 let floored = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    cvt.rmi.{ts}.{ts} {}, {};",
                     floored.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    sub.{ts} {}, {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
                     floored.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Mix => {
@@ -301,23 +274,21 @@ impl PtxEmitter<'_> {
                 let t = super::require_math_arg(arg2, "mix", 2)?;
                 let diff = self.alloc_for_scalar(scalar);
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    sub.{ts} {}, {}, {};",
                     diff.fmt_operand(),
                     b.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    fma.rn.{ts} {}, {}, {}, {};",
                     dst.fmt_operand(),
                     t.fmt_operand(),
                     diff.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Step => {
@@ -325,21 +296,19 @@ impl PtxEmitter<'_> {
                 let x = super::require_math_arg(arg1, "step", 1)?;
                 let pred = self.alloc_pred();
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    setp.ge.{ts} {}, {}, {};",
                     pred.fmt_operand(),
                     x.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    selp.{ts} {}, 0f3F800000, 0f00000000, {};",
                     dst.fmt_operand(),
                     pred.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Dot => {
@@ -347,24 +316,22 @@ impl PtxEmitter<'_> {
                 match (arg, rhs) {
                     (PtxVal::Vec(lhs_comps), PtxVal::Vec(rhs_comps)) => {
                         let dst = self.alloc_for_scalar(scalar);
-                        writeln!(
+                        writeln_ptx!(
                             self.body,
                             "    mul.{ts} {}, {}, {};",
                             dst.fmt_operand(),
                             lhs_comps[0].fmt_operand(),
                             rhs_comps[0].fmt_operand(),
-                        )
-                        .expect("write to String");
+                        );
                         for (l, r) in lhs_comps.iter().zip(rhs_comps.iter()).skip(1) {
-                            writeln!(
+                            writeln_ptx!(
                                 self.body,
                                 "    fma.rn.{ts} {}, {}, {}, {};",
                                 dst.fmt_operand(),
                                 l.fmt_operand(),
                                 r.fmt_operand(),
                                 dst.fmt_operand(),
-                            )
-                            .expect("write to String");
+                            );
                         }
                         Ok(dst)
                     }
@@ -375,97 +342,88 @@ impl PtxEmitter<'_> {
             }
             MF::Saturate => {
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    max.{ts} {}, {}, 0f00000000;",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    min.{ts} {}, {}, 0f3F800000;",
                     dst.fmt_operand(),
                     dst.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Radians => {
                 let dst = self.alloc_for_scalar(scalar);
                 // π/180 ≈ 0.01745329 = 0x3C8EFA35 in f32
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, 0f3C8EFA35;",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Degrees => {
                 let dst = self.alloc_for_scalar(scalar);
                 // 180/π ≈ 57.2957795 = 0x42652EE1 in f32
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, 0f42652EE1;",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::CountOneBits => {
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    popc.b32 {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::CountLeadingZeros => {
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    clz.b32 {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::CountTrailingZeros => {
                 // PTX has no ctz — use brev + clz
                 let rev = self.alloc_r32();
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    brev.b32 {}, {};",
                     rev.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    clz.b32 {}, {};",
                     dst.fmt_operand(),
                     rev.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::ReverseBits => {
                 let dst = self.alloc_r32();
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    brev.b32 {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::SmoothStep => {
@@ -480,122 +438,108 @@ impl PtxEmitter<'_> {
                 // range = high - low (arg is low, arg1 is high, arg2 is x in naga convention)
                 // Actually naga::MathFunction::SmoothStep has args: (low, high, x)
                 // naga passes them as arg=low, arg1=high, arg2=x
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    sub.{ts} {}, {}, {};",
                     range.fmt_operand(),
                     low.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 // t = (x - low) / range
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    sub.{ts} {}, {}, {};",
                     t.fmt_operand(),
                     x.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    rcp.approx.{ts} {}, {};",
                     range.fmt_operand(),
                     range.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, {};",
                     t.fmt_operand(),
                     t.fmt_operand(),
                     range.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 // clamp t to [0, 1]
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    max.{ts} {}, {}, 0f00000000;",
                     t.fmt_operand(),
                     t.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    min.{ts} {}, {}, 0f3F800000;",
                     t.fmt_operand(),
                     t.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 // 3 - 2*t
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, 0f40000000;",
                     two_t.fmt_operand(),
                     t.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    sub.{ts} {}, 0f40400000, {};",
                     three_minus_2t.fmt_operand(),
                     two_t.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 // t * t * (3 - 2t)
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, {};",
                     dst.fmt_operand(),
                     t.fmt_operand(),
                     t.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    mul.{ts} {}, {}, {};",
                     dst.fmt_operand(),
                     dst.fmt_operand(),
                     three_minus_2t.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Tanh | MF::Sinh | MF::Cosh => self.eval_math_trig(fun, arg, None, scalar, ts),
             MF::FirstTrailingBit => {
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    brev.b32 {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    clz.b32 {}, {};",
                     dst.fmt_operand(),
                     dst.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::FirstLeadingBit => {
                 let dst = self.alloc_for_scalar(scalar);
-                writeln!(
+                writeln_ptx!(
                     self.body,
                     "    clz.b32 {}, {};",
                     dst.fmt_operand(),
                     arg.fmt_operand(),
-                )
-                .expect("write to String");
-                writeln!(
+                );
+                writeln_ptx!(
                     self.body,
                     "    sub.s32 {}, 31, {};",
                     dst.fmt_operand(),
                     dst.fmt_operand(),
-                )
-                .expect("write to String");
+                );
                 Ok(dst)
             }
             MF::Length

@@ -4,11 +4,41 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 155f
+**Current status**: Phase 10 — Sprint 14 / Wave 155i
 
 ---
 
 ## [Unreleased]
+
+### Wave 155i: strandGate Live Validation + Deep Debt Execution (2026-07-29)
+
+#### Validated
+- All 18 JSON-RPC dispatch methods live-validated against running coralReef instance on strandGate (TCP :45071)
+- BTSP Phase 2→3 chain verified end-to-end with live security-domain provider (`btsp.session.create` → `btsp.negotiate` — null cipher fallback correct for unauthenticated test session)
+- RTX 3090 (sm_86) WGSL shader compilation confirmed (64 bytes, 13.3ms compile time, provenance hash generated)
+- Multi-target compilation (sm_86 + sm_89 + sm_120): 3/3 success from single WGSL source
+- GEMM compilation for sm_86 (1024×1024×1024 f32): 26,907 bytes
+- Capability-domain symlink (`shader.sock → coralreef-core-default.sock`) active
+- Discovery file (`coralreef-core.json`) correct with provides/requires/transports
+- WireGuard mesh connectivity to golgiBody hub verified (37ms RTT)
+
+#### Evolved (capability-based abstraction)
+- `beardog_socket()` → `security_provider_legacy_socket()` — primal-name-free API
+- `"BEARDOG_FAMILY_SEED"` → `env_keys::BTSP_FAMILY_SEED` — capability-based constant
+- `"FAMILY_SEED"` → `env_keys::FAMILY_SEED` — centralized env key constant
+- Added `BTSP_FAMILY_SEED` env key in `env_keys.rs`
+
+#### Added
+- `write_ptx!` / `writeln_ptx!` macros in `ptx_emit/macros.rs` — infallible String write wrappers
+- 463 `.expect("write to String")` calls replaced across 16 PTX emitter files (-363 lines net)
+
+#### Improved
+- f64 lowering clone density reduced: `func_math_exp_log.rs` dispatch by `&SSARef` reference (-7 clones), `newton.rs` last-use move (-1 clone), `opt_copy_prop` copy-type source ref helper (-2 clones)
+- Zero `.expect("write to String")` remaining in PTX emitter
+
+#### Identified
+- Glibc depot rebuild needed from sporeGate — no `x86_64-unknown-linux-gnu` depot binary exists yet (cellMembrane P0 code shipped, rebuild pending)
+- Unix socket stale (Connection refused) — TCP transport operational, no impact
 
 ### Wave 155f: strandGate Deep Debt Execution (2026-07-28)
 
@@ -21,7 +51,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - ~50 clippy pedantic/nursery violations across both crates (infallible casts, doc backticks, redundant closures, `div_ceil`, needless collect, dead code annotations)
 
 #### Added
-- `config::beardog_socket()` — composition launcher alias for security-domain provider
+- `config::security_provider_legacy_socket()` — composition launcher alias for security-domain provider (originally `beardog_socket()`, evolved in 155i)
 - `config::compile_timeout()` — env-configurable compile deadline (`CORALREEF_COMPILE_TIMEOUT_SECS`)
 - `unix_jsonrpc::handle_connection()` — BTSP Phase 3 encrypted transport handler with ChaCha20-Poly1305 AEAD frame loop
 - 7 new JSON-RPC dispatch routes: `shader.compile.multi`, `shader.compile.gemm`, `health.version`, `btsp.negotiate`, `auth.check`, `auth.mode`, `auth.peer_info`

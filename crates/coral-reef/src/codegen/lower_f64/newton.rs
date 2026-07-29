@@ -523,7 +523,7 @@ pub fn lower_f64_rcp(
     out.push(with_pred(
         Instr::new(OpDMul {
             dst: xy1.clone().into(),
-            srcs: [x_src.clone(), y1_src.clone()],
+            srcs: [x_src, y1_src.clone()],
             rnd_mode: rnd,
         }),
         pred,
