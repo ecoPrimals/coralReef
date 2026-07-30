@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 155i.
+**Current position**: Phase 10 — Sprint 14 / Wave 155j.
 
-**Last completed**: Wave 155i — NODE ATOMIC VALIDATED on strandGate. Windows cross-compilation fixed (zero errors/warnings on `x86_64-pc-windows-gnu`). Non-Unix platform stubs evolved with proper `Unsupported` error returns, doc comments, and clippy compliance. All 18 JSON-RPC methods live-validated, BTSP Phase 2→3 chain verified with bearDog, RTX 3090 sm_86 WGSL+GEMM compilation confirmed. Deep debt execution: PTX macros (463 `.expect()` purged), clone density reduction, capability-based abstraction. Wave 155f — strandGate deep debt execution. Wave 152 — deep debt deduplication. Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction.
+**Last completed**: Wave 155j — NUCLEUS ACHIEVED on strandGate. coralReef operational in first full NUCLEUS composition (8/9 healthy, 1,742 caps, 674 IPC methods). `--bind` alias shipped for biomeOS lifecycle standardization. Both P1s resolved (Windows cross-compile fix pushed, glibc binary validated). Wave 155i — Windows cross-compilation fixed, deep debt execution (PTX macros, clone reduction, capability-based abstraction). Wave 155f — strandGate deep debt. Wave 152 — deduplication. Wave 151b — BTSP client. Wave 146 — transport abstraction.
 
 **Tests**: 3,527 total (3,527 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: July 29, 2026.
 
-**Next focus**: Deploy to westGate or blueGate alongside existing Nest Atomic (first NUCLEUS gate). Await glibc depot rebuild from sporeGate (musl can't dlopen Vulkan). BTSP Phase 3 production validation with real key material. Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
+**Next focus**: STANDBY pending external blockers. westGate second NUCLEUS (add Compute Trio to existing Broker+Nest — glibc depot binary needed). bearDog `crypto.sign_ed25519` for Provenance 7/7. biomeOS composition lifecycle (startup ordering, health gates). Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
 ---
 

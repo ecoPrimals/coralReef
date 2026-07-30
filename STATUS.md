@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: July 29, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 155i (NODE ATOMIC VALIDATED on strandGate. All 18 JSON-RPC methods live-validated. BTSP Phase 2→3 chain verified with live bearDog. RTX 3090 (sm_86) WGSL + GEMM compilation confirmed. Windows cross-compilation clean (`cargo check --target x86_64-pc-windows-gnu`, zero warnings). Awaiting glibc depot rebuild for Vulkan ICD compute workloads. 3,527 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
+**Version**: 0.2.0 — Sprint 14 / Wave 155j (NUCLEUS ACHIEVED on strandGate — coralReef operational in first full NUCLEUS composition (8/9 healthy, 1,742 caps, 674 IPC methods, sub-ms GPU). Windows cross-compilation clean. `--bind` alias shipped for biomeOS lifecycle standardization. Both P1s resolved: Windows fix pushed, glibc binary validated. 3,527 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
 
 ---
 

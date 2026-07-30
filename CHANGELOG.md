@@ -4,11 +4,23 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 155i
+**Current status**: Phase 10 — Sprint 14 / Wave 155j
 
 ---
 
 ## [Unreleased]
+
+### Wave 155j: NUCLEUS Achieved + Lifecycle Readiness (2026-07-30)
+
+#### Added
+- `--bind` alias for `--port` in CLI (`coralreef server --bind <PORT>`) — biomeOS CLI flag standardization (Chain 1 item 5), matching rhizoCrypt and loamSpine
+
+#### Validated (NUCLEUS composition)
+- coralReef operational in first NUCLEUS composition on strandGate (8/9 healthy, 1,742 caps, 674 IPC methods)
+- All 11 health/meta JSON-RPC methods responding on NUCLEUS instance (port 41511)
+- WGSL compile (sm_86, 64 bytes, 44.1ms) and GEMM compile (26,907 bytes, 0.1ms) confirmed
+- glibc-linked binary validated (PID 3376482, 11+ hours uptime, dynamic-linked to libm/libc)
+- Windows P1 fix already shipped (`339eeb73`) — sporeGate can rebuild `coralreef.exe`
 
 ### Wave 155i: strandGate Live Validation + Deep Debt Execution + Windows Readiness (2026-07-29)
 

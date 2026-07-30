@@ -56,7 +56,7 @@ enum Commands {
     Server {
         /// TCP port for JSON-RPC listener (standard envelope).
         /// Binds to 127.0.0.1:PORT. Use --rpc-bind for full address control.
-        #[arg(long, conflicts_with = "rpc_bind")]
+        #[arg(long, alias = "bind", conflicts_with = "rpc_bind")]
         port: Option<u16>,
 
         /// Transport bind mode. Overrides `$PRIMAL_BIND_MODE` env var.
