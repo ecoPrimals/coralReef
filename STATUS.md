@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: July 29, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 155j (NUCLEUS ACHIEVED on strandGate — coralReef operational in first full NUCLEUS composition (8/9 healthy, 1,742 caps, 674 IPC methods, sub-ms GPU). Windows cross-compilation clean. `--bind` alias shipped for biomeOS lifecycle standardization. Both P1s resolved: Windows fix pushed, glibc binary validated. 3,527 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
+**Last updated**: Aug 3, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 156b (Deep debt deduplication: ShaderInfo::compute() constructor (-220 LOC), infer_arch_from_adapter → &'static str, duplicate test removal (-551 LOC). Test extraction for btsp.rs and types.rs. Coverage tests for env_keys.rs and tolerances.rs. 3,512 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
 
 ---
 
@@ -41,7 +41,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1–9 | Foundation through Full Sovereignty | **Complete** |
-| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 155i** |
+| 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 156b** |
 
 ### Post-101: Sprint 6 — Ecosystem Wave Sync: Phase D Markers, FECS Stability (May 12, 2026)
 

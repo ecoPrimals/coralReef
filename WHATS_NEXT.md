@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 155j.
+**Current position**: Phase 10 — Sprint 14 / Wave 156b.
 
-**Last completed**: Wave 155j — NUCLEUS ACHIEVED on strandGate. coralReef operational in first full NUCLEUS composition (8/9 healthy, 1,742 caps, 674 IPC methods). `--bind` alias shipped for biomeOS lifecycle standardization. Both P1s resolved (Windows cross-compile fix pushed, glibc binary validated). Wave 155i — Windows cross-compilation fixed, deep debt execution (PTX macros, clone reduction, capability-based abstraction). Wave 155f — strandGate deep debt. Wave 152 — deduplication. Wave 151b — BTSP client. Wave 146 — transport abstraction.
+**Last completed**: Wave 156b — deep debt deduplication: ShaderInfo::compute() constructor (-220 LOC across 14 sites), infer_arch_from_adapter → &'static str (8 allocs eliminated), duplicate test file removal (-551 LOC, -30 tests). Wave 156a — test extraction (btsp.rs 747→648, types.rs 753→712), coverage tests for env_keys.rs and tolerances.rs (+9 tests). Wave 155j — NUCLEUS ACHIEVED on strandGate. Wave 155i — Windows cross-compilation, PTX macros, clone reduction. Wave 155f — strandGate deep debt.
 
-**Tests**: 3,527 total (3,527 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,512 total (3,506 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
-**Last updated**: July 29, 2026.
+**Last updated**: Aug 3, 2026.
 
 **Next focus**: STANDBY pending external blockers. westGate second NUCLEUS (add Compute Trio to existing Broker+Nest — glibc depot binary needed). bearDog `crypto.sign_ed25519` for Provenance 7/7. biomeOS composition lifecycle (startup ordering, health gates). Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
@@ -692,7 +692,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,527 tests (3,527 passing, 6 ignored), zero failures. ~84% workspace coverage. Wave 155i.
+3,512 tests (3,506 passing, 6 ignored), zero failures. ~84% workspace coverage. Wave 156b.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.

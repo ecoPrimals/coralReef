@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 155i (strandGate Tower+Compute LIVE. Deep debt execution: capability-based evolution, PTX emitter macro modernization, clone density reduction, full primal-name abstraction. 3,527 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 156b (ShaderInfo dedup, adapter-inference alloc fix, duplicate test removal, test extraction. 3,512 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -29,7 +29,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3,527 passed, 0 failed, 6 ignored
+cargo test --workspace     # 3,506 passed, 0 failed, 6 ignored
 cargo clippy --all-features -- -W clippy::pedantic -W clippy::nursery -D warnings
 cargo fmt --check
 ```
@@ -141,7 +141,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --all-features` | PASS (3,527 passed, 0 failed, 6 ignored) |
+| `cargo test --all-features` | PASS (3,506 passed, 0 failed, 6 ignored) |
 | `cargo llvm-cov` | Target 90% line coverage |
 | `cargo clippy --all-targets --all-features -- -W clippy::pedantic -W clippy::nursery -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -186,7 +186,7 @@ advantage. See `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` (historical).
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 155i: strandGate LIVE. Capability-based evolution (primal-name abstraction), PTX emitter modernization (write_ptx! macro, -363 lines), clone density reduction, full live validation. 3,527 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 156b: ShaderInfo dedup, adapter-inference alloc fix, duplicate test removal. 3,512 tests, zero debt |
 
 ---
 

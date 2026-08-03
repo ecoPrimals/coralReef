@@ -39,8 +39,8 @@ runtime — no hardcoded primal names, no shared code imports.
 
 ## Project status (Sprint 14)
 
-- **Tests**: 3,527 workspace tests (3,527 passed, 6 ignored). Zero clippy warnings. Zero unsafe.
-- **Sprint 14 (current)**: Wave 155i — strandGate Tower+Compute LIVE validation (all 18 JSON-RPC methods, BTSP Phase 2→3 chain, RTX 3090 sm_86 WGSL+GEMM). Wave 152 — deep debt deduplication (`require_math_arg()`, test helper consolidation, dataflow.rs 768→293). Wave 151b — BTSP client handshake. Wave 146 — server-side transport abstraction. Wave 145 — deep debt (BEARDOG excised, provenance error visibility, main.rs dedup, identity.get Arc). Wave 144 — `local_transport` client-side. Wave 143 — file splits, namespace-agnostic paths, cross-arch Windows.
+- **Tests**: 3,512 workspace tests (3,506 passed, 6 ignored). Zero clippy warnings. Zero unsafe.
+- **Sprint 14 (current)**: Wave 156b — deep debt deduplication (ShaderInfo::compute() -220 LOC, adapter alloc fix, duplicate test removal -551 LOC). Wave 156a — test extraction (btsp.rs, types.rs), coverage tests (env_keys.rs, tolerances.rs). Wave 155j — NUCLEUS ACHIEVED on strandGate. Wave 155i — Windows cross-compilation, PTX macros, clone reduction. Wave 152 — deduplication (`require_math_arg()`, test helper consolidation). Wave 151b — BTSP client. Wave 146 — transport abstraction.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.
