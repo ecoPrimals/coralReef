@@ -1238,7 +1238,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3669 total: 3665 passing, 0 failed, 4 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (3533 total: 3527 passing, 0 failed, 6 ignored hardware-gated) |
 | `cargo llvm-cov` | ~84% line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
