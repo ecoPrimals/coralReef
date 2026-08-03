@@ -7,3 +7,25 @@ pub const CORAL_DEBUG_IR: &str = "CORAL_DEBUG_IR";
 
 /// Output path for instruction dependency graphviz dumps.
 pub const CORAL_DEP_GRAPH_PATH: &str = "CORAL_DEP_GRAPH_PATH";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_key_names_have_coral_prefix() {
+        assert!(CORAL_DEBUG_IR.starts_with("CORAL_"));
+        assert!(CORAL_DEP_GRAPH_PATH.starts_with("CORAL_"));
+    }
+
+    #[test]
+    fn env_key_names_are_screaming_snake_case() {
+        for key in [CORAL_DEBUG_IR, CORAL_DEP_GRAPH_PATH] {
+            assert_eq!(
+                key,
+                key.to_ascii_uppercase(),
+                "env key {key} must be SCREAMING_SNAKE_CASE"
+            );
+        }
+    }
+}

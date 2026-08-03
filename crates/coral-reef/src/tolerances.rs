@@ -119,3 +119,58 @@ pub const BINARY_SIZE_LIMIT_NV: usize = 1024 * 1024;
 ///
 /// Provenance: amdgpu kernel, AMD RDNA2 limits.
 pub const BINARY_SIZE_LIMIT_AMD: usize = 1024 * 1024;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn df64_ulp_within_reasonable_bound() {
+        assert!(DF64_ULP_TOLERANCE <= 16, "DF64 ULP should be tight");
+        assert!(DF64_ULP_TOLERANCE > 0);
+    }
+
+    #[test]
+    fn transcendental_ulp_within_reasonable_bound() {
+        assert!(F64_TRANSCENDENTAL_ULP <= 16);
+        assert!(F64_TRANSCENDENTAL_ULP > 0);
+    }
+
+    #[test]
+    fn sqrt_rcp_is_tightest() {
+        assert!(
+            F64_SQRT_RCP_ULP <= DF64_ULP_TOLERANCE,
+            "sqrt/rcp should be at least as tight as general DF64"
+        );
+    }
+
+    #[test]
+    fn f32_rel_tol_is_meaningful() {
+        assert!(F32_TRANSCENDENTAL_REL_TOL > 0.0);
+        assert!(
+            F32_TRANSCENDENTAL_REL_TOL < 0.01,
+            "f32 rel tolerance should be sub-percent"
+        );
+    }
+
+    #[test]
+    fn register_limits_match_hardware_specs() {
+        assert_eq!(REG_LIMIT_NV_SM70, 255);
+        assert_eq!(REG_LIMIT_NV_SM75, 255);
+        assert_eq!(REG_LIMIT_NV_SM86, 255);
+        assert_eq!(REG_LIMIT_AMD_RDNA2, 256);
+    }
+
+    #[test]
+    fn scheduler_thresholds_are_positive() {
+        assert!(SCHED_TARGET_FREE_GPRS > 0);
+        assert!(SCHED_SW_RESERVED_GPRS > 0);
+        assert!(SCHED_SW_RESERVED_GPRS_SPILL >= SCHED_SW_RESERVED_GPRS);
+    }
+
+    #[test]
+    fn binary_size_limits_are_at_least_1mb() {
+        assert!(BINARY_SIZE_LIMIT_NV >= 1024 * 1024);
+        assert!(BINARY_SIZE_LIMIT_AMD >= 1024 * 1024);
+    }
+}

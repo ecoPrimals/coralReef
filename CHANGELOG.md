@@ -4,11 +4,21 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 155j
+**Current status**: Phase 10 — Sprint 14 / Wave 156a
 
 ---
 
 ## [Unreleased]
+
+### Wave 156a: Deep Debt — Test Extraction & Coverage (2026-08-03)
+
+#### Changed
+- `ipc/btsp.rs`: extracted 99-line inline test module to `btsp/btsp_guard_tests.rs` (747 → 648 LOC)
+- `service/types.rs`: extracted 41-line `identity_tests` module to `types_identity_tests.rs` (753 → 712 LOC)
+
+#### Added
+- `env_keys.rs`: 2 unit tests — CORAL prefix invariant + SCREAMING_SNAKE_CASE validation
+- `tolerances.rs`: 7 unit tests — constant range invariants, cross-constant ordering, hardware-spec anchoring
 
 ### Wave 155j: NUCLEUS Achieved + Lifecycle Readiness (2026-07-30)
 
