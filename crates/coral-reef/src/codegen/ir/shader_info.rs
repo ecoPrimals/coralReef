@@ -134,6 +134,37 @@ pub struct ShaderInfo {
     pub io: ShaderIoInfo,
 }
 
+impl ShaderInfo {
+    /// Minimal compute shader info with zeroed counters.
+    ///
+    /// Used as initial state before register allocation and scheduling
+    /// populate the real metrics. Callers that need `uses_global_mem`,
+    /// `uses_fp64`, etc. can mutate the returned value.
+    pub fn compute(local_size: [u16; 3], shared_mem_size: u16) -> Self {
+        Self {
+            max_warps_per_sm: 0,
+            gpr_count: 0,
+            control_barrier_count: 0,
+            instr_count: 0,
+            static_cycle_count: 0,
+            spills_to_mem: 0,
+            fills_from_mem: 0,
+            spills_to_reg: 0,
+            fills_from_reg: 0,
+            shared_local_mem_size: 0,
+            max_crs_depth: 0,
+            uses_global_mem: false,
+            writes_global_mem: false,
+            uses_fp64: false,
+            stage: ShaderStageInfo::Compute(ComputeShaderInfo {
+                local_size,
+                shared_mem_size,
+            }),
+            io: ShaderIoInfo::None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shader struct and ISBE analysis
 // ---------------------------------------------------------------------------

@@ -77,11 +77,13 @@ fn resolve_arch(arch: &str, adapter: Option<&super::types::AdapterDescriptor>) -
     let Some(ad) = adapter else {
         return arch.to_owned();
     };
-    infer_arch_from_adapter(ad).unwrap_or_else(|| arch.to_owned())
+    infer_arch_from_adapter(ad).unwrap_or(arch).to_owned()
 }
 
 /// Infer SM/ISA architecture from adapter hardware identity.
-fn infer_arch_from_adapter(ad: &super::types::AdapterDescriptor) -> Option<String> {
+///
+/// Returns a `&'static str` — all arch names are compile-time constants.
+fn infer_arch_from_adapter(ad: &super::types::AdapterDescriptor) -> Option<&'static str> {
     let name = ad.device_name.to_lowercase();
     if ad.vendor_id == PCI_VENDOR_NVIDIA {
         if name.contains("5060")
@@ -91,7 +93,7 @@ fn infer_arch_from_adapter(ad: &super::types::AdapterDescriptor) -> Option<Strin
             || name.contains("blackwell")
             || name.contains("gb2")
         {
-            return Some("sm_120".to_owned());
+            return Some("sm_120");
         }
         if name.contains("4060")
             || name.contains("4070")
@@ -100,28 +102,28 @@ fn infer_arch_from_adapter(ad: &super::types::AdapterDescriptor) -> Option<Strin
             || name.contains("ada")
             || name.contains("l40")
         {
-            return Some("sm_89".to_owned());
+            return Some("sm_89");
         }
         if name.contains("3060")
             || name.contains("3070")
             || name.contains("3080")
             || name.contains("3090")
         {
-            return Some("sm_86".to_owned());
+            return Some("sm_86");
         }
         if name.contains("a100") || name.contains("a30") || name.contains("a10") {
-            return Some("sm_80".to_owned());
+            return Some("sm_80");
         }
         if name.contains("titan v") || name.contains("v100") || name.contains("gv100") {
-            return Some("sm_70".to_owned());
+            return Some("sm_70");
         }
     }
     if ad.vendor_id == PCI_VENDOR_AMD {
         if name.contains("7900") || name.contains("gfx1100") || name.contains("rdna3") {
-            return Some("rdna3".to_owned());
+            return Some("rdna3");
         }
         if name.contains("6900") || name.contains("6800") || name.contains("rdna2") {
-            return Some("rdna2".to_owned());
+            return Some("rdna2");
         }
     }
     None

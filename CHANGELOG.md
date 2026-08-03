@@ -4,11 +4,27 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156a
+**Current status**: Phase 10 — Sprint 14 / Wave 156b
 
 ---
 
 ## [Unreleased]
+
+### Wave 156b: Deep Debt — Deduplication, Allocation & Test Hygiene (2026-08-03)
+
+#### Changed
+- `ShaderInfo::compute()` constructor added to `shader_info.rs` — replaced 14 verbose
+  construction sites (~220 LOC) across naga_translate, test_shader_helpers, opt_bar_prop,
+  legalize, opt_prmt, opt_out, lower_fma, lower_f64, sm70_encode, spill_values
+- `infer_arch_from_adapter` returns `&'static str` instead of `String` — eliminates
+  8 heap allocations per adapter inference in the IPC compile path
+- Cleaned stale imports (`ComputeShaderInfo`, `ShaderIoInfo`, `ShaderStageInfo`) from
+  test_shader_helpers.rs, spill_values/fixtures.rs, spill_values/cases_a.rs
+
+#### Removed
+- `codegen_coverage_saturation.rs` (551 LOC, 30 tests) — 100% duplicated by
+  `codegen_coverage_sat_part01.rs` (20 tests) + `codegen_coverage_sat_part02.rs` (10 tests);
+  parts 02/03 also contain 19 unique tests not in the monolith
 
 ### Wave 156a: Deep Debt — Test Extraction & Coverage (2026-08-03)
 

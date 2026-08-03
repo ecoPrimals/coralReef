@@ -97,29 +97,16 @@ mod tests {
         };
         Shader {
             sm,
-            info: ShaderInfo {
-                max_warps_per_sm: 0,
-                gpr_count: 0,
-                control_barrier_count: 0,
-                instr_count: 0,
-                static_cycle_count: 0,
-                spills_to_mem: 0,
-                fills_from_mem: 0,
-                spills_to_reg: 0,
-                fills_from_reg: 0,
-                shared_local_mem_size: 0,
-                max_crs_depth: 0,
-                uses_global_mem: false,
-                writes_global_mem: false,
-                uses_fp64: false,
-                stage: ShaderStageInfo::Geometry(GeometryShaderInfo {
+            info: {
+                let mut info = ShaderInfo::compute([1, 1, 1], 0);
+                info.stage = ShaderStageInfo::Geometry(GeometryShaderInfo {
                     passthrough_enable: false,
                     stream_out_mask: 0,
                     threads_per_input_primitive: 1,
                     output_topology: OutputTopology::TriangleStrip,
                     max_output_vertex_count: 256,
-                }),
-                io: ShaderIoInfo::None,
+                });
+                info
             },
             functions: vec![function],
             fma_policy: crate::FmaPolicy::default(),

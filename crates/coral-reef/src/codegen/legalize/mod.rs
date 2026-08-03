@@ -283,27 +283,7 @@ mod tests {
         };
         Shader {
             sm,
-            info: ShaderInfo {
-                max_warps_per_sm: 0,
-                gpr_count: 0,
-                control_barrier_count: 0,
-                instr_count: 0,
-                static_cycle_count: 0,
-                spills_to_mem: 0,
-                fills_from_mem: 0,
-                spills_to_reg: 0,
-                fills_from_reg: 0,
-                shared_local_mem_size: 0,
-                max_crs_depth: 0,
-                uses_global_mem: false,
-                writes_global_mem: false,
-                uses_fp64: false,
-                stage: ShaderStageInfo::Compute(ComputeShaderInfo {
-                    local_size: [1, 1, 1],
-                    shared_mem_size: 0,
-                }),
-                io: ShaderIoInfo::None,
-            },
+            info: ShaderInfo::compute([1, 1, 1], 0),
             functions: vec![function],
             fma_policy: crate::FmaPolicy::default(),
         }

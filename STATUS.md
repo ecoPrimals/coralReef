@@ -22,7 +22,7 @@
 | coralDriver | — | *Excised Sprint 9* — hardware dispatch delegated to compute-dispatch provider |
 | coralGpu | — | *Excised Sprint 9* — dispatch delegated to compute-dispatch provider |
 | Code structure | A+ | All files under 1000 LOC. Smart refactoring: ecosystem.rs → directory module (343 LOC + extracted tests), btsp.rs test extraction (797→416 LOC), service 828→146 (Iter 76). Excised hardware crates removed Sprint 9. |
-| Tests | A+ | 3542 total (3536 passing, 6 ignored), IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery NotImplemented coverage, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening, SPIR-V version targeting, provenance hash determinism, mesh registration payload validation, SPIR-V e2e compile→provenance→validation, **TransportEndpoint injection tests (19)**, **capabilities.list dispatch**, **socket cleanup paths**, **ecosystem discovery capability-domain tests** |
+| Tests | A+ | 3512 total (3506 passing, 6 ignored), IR idempotency (WGSL roundtrip + SPIR-V roundtrip + multi-backend determinism), `primal.announce` payload schema, `--socket` CLI override, tarpc Unix roundtrip, IPC chaos/fault tests, BTSP Phase 3 AEAD crypto tests, Compute Trio wire contract, PTX emitter SM120, HMMA GEMM, RayQuery NotImplemented coverage, texture format coverage, inverse trig, geometry math, bit manipulation, texture queries, hyperbolic trig, float decomposition, bit scan, adapter-aware arch inference, subgroupBallot copy-prop regression, sovereign SPIR-V emission, SM120 membar.sys barrier, math pack/unpack builtins (10 variants), matrix transpose/determinant/inverse, multi-entry-point module hardening, SPIR-V version targeting, provenance hash determinism, mesh registration payload validation, SPIR-V e2e compile→provenance→validation, **TransportEndpoint injection tests (19)**, **capabilities.list dispatch**, **socket cleanup paths**, **ecosystem discovery capability-domain tests** |
 | Error handling | A+ | Typed errors via `thiserror` (`CompileError`, `EcosystemError`, `IpcError`, `TarpcCompileError`); zero production `.unwrap()`, zero `Result<_, String>` in library code |
 | Clippy | A+ | Zero warnings, pedantic categories enabled |
 | License | A | AGPL-3.0-or-later (upstream-derived files retain original attribution) |
@@ -1238,7 +1238,7 @@
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS (3542 total: 3536 passing, 0 failed, 6 ignored hardware-gated) |
+| `cargo test --workspace` | PASS (3512 total: 3506 passing, 0 failed, 6 ignored hardware-gated) |
 | `cargo llvm-cov` | ~84% line coverage |
 | `cargo clippy --all-features -- -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
