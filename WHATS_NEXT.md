@@ -376,8 +376,8 @@ Coverage table from Iter 73 (pre-excision). Post-excision workspace should be ~8
 - [x] thiserror error hierarchy, clap CLI, sysfs module extraction
 
 ### Sovereignty Roadmap
-- [ ] Custom PMU Falcon firmware for GV100 in Rust (replace vendor firmware dependency)
-- [ ] Sovereign HBM2 training via coral-driver typestate machine (eliminate nouveau dependency)
+- ~~Custom PMU Falcon firmware for GV100 in Rust~~ — **EXCISED** (Sprint 9: coral-driver removed, hardware dispatch delegated to toadStool)
+- ~~Sovereign HBM2 training via coral-driver typestate machine~~ — **EXCISED** (Sprint 9: coral-driver removed)
 - [x] Vendor-agnostic GPU abstraction layer in coral-driver (`ComputeDevice` trait — unified AMD/NVIDIA/VFIO backend)
 - [x] Devinit via VBIOS boot script execution from Rust (`vbios_devinit.rs` — full Kepler opcode interpreter, 836 LOC)
 
@@ -597,8 +597,8 @@ the full Spring absorption map.
 - [x] **NvDevice VM_INIT params** — `NV_KERNEL_MANAGED_ADDR = 0x80_0000_0000` constant — resolved Iteration 9
 - [x] **Shared memory sizing** — `CompilationInfo.shared_mem_bytes` + `barrier_count` wired compiler → QMD — resolved Iteration 9
 - [x] **ShaderInfo in dispatch trait** — `ComputeDevice::dispatch()` accepts `ShaderInfo` with GPR/shared/barrier/workgroup — resolved Iteration 9
-- [ ] Titan V (SM70) hardware execution validation (nouveau dispatch ready, needs on-site)
-- [ ] RTX 4070 (SM89) UVM dispatch pipeline code-complete (GPFIFO + USERD doorbell + completion polling); `NvDrmDevice` delegates to `NvUvmComputeDevice` — identity detection confirmed, needs UVM hardware validation
+- ~~Titan V (SM70) hardware execution validation~~ — **EXCISED** (Sprint 9: dispatch delegated to toadStool)
+- ~~RTX 4070 (SM89) UVM dispatch pipeline~~ — **EXCISED** (Sprint 9: dispatch delegated to toadStool)
 - [x] **RX 6950 XT (GFX1030) E2E verified** — WGSL compile → PM4 dispatch → readback → verified `out[0] = 42u` — resolved Iteration 10
 
 ### P0 — AMD E2E critical fixes (Iteration 10)
@@ -679,14 +679,14 @@ the full Spring absorption map.
 - [x] ~~f64 min/max/clamp broken for f64 (used a[0] truncating to f32)~~ — fixed Iteration 26
 - [x] ~~ComputeDevice not Send + Sync~~ — fixed Iteration 26
 - [x] **DRM ioctl struct ABI fixes** — 4 mismatches resolved (Exp 057): VM_INIT size, EXEC field order, VM_BIND field order, ChannelAlloc/Free padding. VM_INIT now succeeds on Titan V.
-- [ ] **Wire new UAPI into NvDevice::open_from_drm** — replace legacy `create_channel` with `vm_init→gem_new→vm_bind→exec` (ioctls ready)
-- [ ] **Titan V nouveau dispatch blocked: PMU firmware** — CHANNEL_ALLOC fails after VM_INIT succeeds. NVIDIA does not ship signed PMU firmware for desktop Volta (GV100). **UVM bypass path now implemented** (Iteration 36).
+- ~~**Wire new UAPI into NvDevice::open_from_drm**~~ — **EXCISED** (Sprint 9: NvDevice removed with coral-driver)
+- ~~**Titan V nouveau dispatch blocked: PMU firmware**~~ — **EXCISED** (Sprint 9: hardware dispatch delegated to toadStool)
 - [x] **UVM Sovereign Compute Dispatch (Iteration 36)** — Full RM object hierarchy: `RM_CONTROL` wrapper, GPU UUID query, `UVM_REGISTER_GPU`, `FERMI_VASPACE_A`, `KEPLER_CHANNEL_GROUP_A`, `VOLTA_CHANNEL_GPFIFO_A`, `VOLTA_COMPUTE_A` bind, `NV01_MEMORY_SYSTEM` alloc, `NvUvmComputeDevice` with full `ComputeDevice` trait impl, `coral-gpu` auto-UVM wiring.
 - [x] **UVM GPFIFO submission (Iteration 37)** — `submit_gpfifo()` writes GPFIFO entry to CPU-mapped ring buffer + updates GP_PUT via USERD doorbell. `poll_gpfifo_completion()` polls GP_GET for sync.
 - [x] **NvDrmDevice delegation (Iteration 37)** — Evolved from stub to functional delegator: holds `Option<NvUvmComputeDevice>`, all `ComputeDevice` ops pass through to UVM backend.
 - [x] **dispatch_binary API (Iteration 37)** — `KernelCacheEntry` (serde-derived), `GpuContext::dispatch_precompiled()`, `GpuTarget::arch_name()` — wires barraCuda kernel cache integration.
 - [x] **Deep debt evolution (Iteration 37)** — `bytemuck::Zeroable` eliminates 5 `unsafe { zeroed() }` blocks, PCI vendor constants centralized, `raw_nv_ioctl` helper, pushbuf constant unification, NV_STATUS documented, uvm.rs smart-refactored (727 LOC → 3 files).
-- [ ] **UVM hardware validation** — Full dispatch pipeline ready, needs RTX 5060 on-site testing (RTX 3090 decommissioned)
+- ~~**UVM hardware validation**~~ — **EXCISED** (Sprint 9: UVM dispatch delegated to toadStool/barraCuda)
 - [ ] Coverage ~66% → 90% (~66% workspace line — ceiling ~81% non-hardware without GPU hardware test infrastructure)
 
 ---

@@ -70,9 +70,9 @@ impl Shader<'_> {
 mod tests {
     use super::*;
     use crate::codegen::ir::{
-        BasicBlock, ComputeShaderInfo, Dst, Function, GeometryShaderInfo, Instr, LabelAllocator,
-        OpExit, OpOut, PhiAllocator, RegFile, SSAValueAllocator, Shader, ShaderInfo, ShaderIoInfo,
-        ShaderModelInfo, ShaderStageInfo, Src,
+        BasicBlock, Dst, Function, GeometryShaderInfo, Instr, LabelAllocator, OpExit, OpOut,
+        PhiAllocator, RegFile, SSAValueAllocator, Shader, ShaderInfo, ShaderModelInfo,
+        ShaderStageInfo, Src,
     };
     use crate::codegen::nv::shader_header::OutputTopology;
     use coral_reef_stubs::cfg::CFGBuilder;

@@ -4,11 +4,27 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156b
+**Current status**: Phase 10 — Sprint 14 / Wave 156e
 
 ---
 
 ## [Unreleased]
+
+### Wave 156e: Deep Debt — Registry Drift, Fossil Cleanup & SM30 Coverage (2026-08-05)
+
+#### Changed
+- `capability_registry.toml`: added missing `shader.compile.multi` method and operation,
+  added consumed capabilities `primal.announce` and `crypto.sign`, removed stale NVIDIA
+  architectures (sm50, sm60, sm90) not present in manifest or `NvArch` enum
+- `WHATS_NEXT.md`: marked 6 unchecked diesel-stack items as EXCISED (coral-driver, UVM
+  dispatch, PMU firmware — all delegated to toadStool since Sprint 9)
+- Cleaned stale imports (`ShaderIoInfo`, `ComputeShaderInfo`, `ShaderStageInfo`) from
+  `opt_out.rs` and `opt_prmt.rs` test modules
+
+#### Added
+- `sm30_instr_latencies.rs`: 13 direct unit tests — latency tables, exec latency,
+  Kepler-A vs Kepler-B branching, scheduling byte patterns (TexDepBar 0xc2, Sync 0x00,
+  base 0x20/0x40, delay clamping 1–32)
 
 ### Wave 156b: Deep Debt — Deduplication, Allocation & Test Hygiene (2026-08-03)
 
