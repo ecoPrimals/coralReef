@@ -376,6 +376,38 @@ pub fn compile_wgsl_full_with(
     backend.compile(&mut shader)
 }
 
+/// Compile a pre-parsed `naga::Module` to native GPU binary.
+///
+/// Use with [`parse_wgsl_to_naga`] to share the parse between
+/// the native codegen and SPIR-V emission paths, avoiding double
+/// WGSL parsing. Falls back to string-based compilation for SM100+
+/// (PTX emitter path) since it operates on WGSL text directly.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if the module cannot be compiled for the
+/// target architecture.
+pub fn compile_naga_module_full(
+    module: &naga::Module,
+    options: &CompileOptions,
+) -> Result<CompiledBinary, CompileError> {
+    tracing::info!(
+        target = %options.target,
+        opt = options.opt_level,
+        "coral-reef compile_naga_module_full"
+    );
+
+    let sm = shader_model_for(options.target)?;
+    let ep = module
+        .entry_points
+        .first()
+        .ok_or_else(|| CompileError::InvalidInput("no entry points in module".into()))?;
+    let mut shader = codegen::naga_translate::translate(module, sm.as_ref(), &ep.name)?;
+    shader.fma_policy = options.fma_policy;
+    let backend = backend::backend_for(options.target)?;
+    backend.compile(&mut shader)
+}
+
 /// Emit validated SPIR-V binary from WGSL source.
 ///
 /// Parses the WGSL, validates with `naga::valid::Validator`, and emits
@@ -395,17 +427,32 @@ pub fn wgsl_to_spirv(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, Co
     let prepared = prepare_wgsl(wgsl, options);
     let module = naga::front::wgsl::parse_str(&prepared)
         .map_err(|e| CompileError::InvalidInput(format!("WGSL parse: {e}").into()))?;
+    module_to_spirv(&module, options)
+}
 
+/// Emit SPIR-V from a pre-parsed `naga::Module`.
+///
+/// Validates the module, then emits standard SPIR-V binary. Use this when
+/// the caller already has a parsed module (e.g. shared between the native
+/// codegen and SPIR-V emission paths to avoid double-parsing WGSL).
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if validation or SPIR-V emission fails.
+pub fn module_to_spirv(
+    module: &naga::Module,
+    options: &CompileOptions,
+) -> Result<Vec<u8>, CompileError> {
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
     );
     let info = validator
-        .validate(&module)
+        .validate(module)
         .map_err(|e| CompileError::Validation(format!("{e}").into()))?;
 
     let spv_opts = build_spirv_backend_options(options);
-    let spv_words = naga::back::spv::write_vec(&module, &info, &spv_opts, None)
+    let spv_words = naga::back::spv::write_vec(module, &info, &spv_opts, None)
         .map_err(|e| CompileError::Encoding(format!("SPIR-V emit: {e}").into()))?;
 
     let mut bytes = Vec::with_capacity(spv_words.len() * 4);
@@ -413,6 +460,24 @@ pub fn wgsl_to_spirv(wgsl: &str, options: &CompileOptions) -> Result<Vec<u8>, Co
         bytes.extend_from_slice(&word.to_le_bytes());
     }
     Ok(bytes)
+}
+
+/// Parse and preprocess WGSL source into a `naga::Module`.
+///
+/// Applies `prepare_wgsl` preprocessing and then parses with the naga
+/// frontend. Returns the module for reuse across both the native codegen
+/// pipeline and SPIR-V emission (via [`module_to_spirv`]).
+///
+/// # Errors
+///
+/// Returns [`CompileError::InvalidInput`] if WGSL parsing fails.
+pub fn parse_wgsl_to_naga(
+    wgsl: &str,
+    options: &CompileOptions,
+) -> Result<naga::Module, CompileError> {
+    let prepared = prepare_wgsl(wgsl, options);
+    naga::front::wgsl::parse_str(&prepared)
+        .map_err(|e| CompileError::InvalidInput(format!("WGSL parse: {e}").into()))
 }
 
 /// Build naga SPIR-V backend options from [`CompileOptions`].

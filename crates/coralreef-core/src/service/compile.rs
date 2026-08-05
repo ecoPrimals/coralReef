@@ -278,14 +278,14 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
     let wave_size = wave_size_for(options.target);
     let hardware_hint = dispatch_hint_from_precision_advice(req.precision_advice.as_ref());
     let t0 = Instant::now();
-    let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
-    // PERF: when emit_spirv is true, WGSL is parsed twice (once for native,
-    // once for SPIR-V). A shared `naga::Module` between both paths would
-    // eliminate the redundant parse. Requires `coral-reef` API evolution to
-    // accept pre-parsed modules. Not a correctness issue; WGSL parsing is
-    // fast relative to native codegen.
-    let spirv = if req.emit_spirv {
-        match coral_reef::wgsl_to_spirv(req.wgsl_source.as_ref(), &options) {
+    let is_ptx_emitter = options
+        .target
+        .as_nvidia()
+        .is_some_and(|nv| nv.sm() >= 100);
+    let (compiled, spirv) = if !is_ptx_emitter && req.emit_spirv {
+        let module = coral_reef::parse_wgsl_to_naga(req.wgsl_source.as_ref(), &options)?;
+        let compiled = coral_reef::compile_naga_module_full(&module, &options)?;
+        let spirv = match coral_reef::module_to_spirv(&module, &options) {
             Ok(bytes) => Some(Bytes::from(bytes)),
             Err(e) => {
                 tracing::warn!(
@@ -294,9 +294,25 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
                 );
                 None
             }
-        }
+        };
+        (compiled, spirv)
     } else {
-        None
+        let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;
+        let spirv = if req.emit_spirv {
+            match coral_reef::wgsl_to_spirv(req.wgsl_source.as_ref(), &options) {
+                Ok(bytes) => Some(Bytes::from(bytes)),
+                Err(e) => {
+                    tracing::warn!(
+                        arch = effective_arch,
+                        "SPIR-V emission failed (native binary succeeded): {e}"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        (compiled, spirv)
     };
     let elapsed = t0.elapsed();
     let size = compiled.binary.len();
