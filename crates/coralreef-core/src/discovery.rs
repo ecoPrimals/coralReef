@@ -20,6 +20,7 @@
 //! No primal names are hardcoded. Providers are identified at runtime from
 //! their discovery files by capability id matching.
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::path::Path;
 
 /// Vendor-agnostic GPU device descriptor.
@@ -40,7 +41,7 @@ pub struct GpuDeviceDescriptor {
     /// Device memory in bytes (from ecosystem discovery, if available).
     pub memory_bytes: Option<u64>,
     /// Discovery source: `"ecosystem"` or `"drm-scan"`.
-    pub source: String,
+    pub source: Cow<'static, str>,
 }
 
 /// A discovered provider with GPU capabilities.
@@ -203,7 +204,7 @@ fn discover_from_ecosystem(discovery_dir: &Path) -> Option<Vec<GpuDeviceDescript
                 render_node: dev.render_node.clone(),
                 driver: dev.driver.clone(),
                 memory_bytes: dev.memory_bytes,
-                source: "ecosystem".to_string(),
+                source: Cow::Borrowed("ecosystem"),
             });
         }
 
@@ -249,7 +250,7 @@ mod tests {
             render_node: Some("/dev/dri/renderD128".to_string()),
             driver: Some("amdgpu".to_string()),
             memory_bytes: Some(16 * 1024 * 1024 * 1024),
-            source: "drm-scan".to_string(),
+            source: Cow::Borrowed("drm-scan"),
         };
         let debug = format!("{desc:?}");
         assert!(debug.contains("amd"));
@@ -264,7 +265,7 @@ mod tests {
             render_node: Some("/dev/dri/renderD129".to_string()),
             driver: Some("nvidia-drm".to_string()),
             memory_bytes: Some(24 * 1024 * 1024 * 1024),
-            source: "ecosystem".to_string(),
+            source: Cow::Borrowed("ecosystem"),
         };
         let json = serde_json::to_string(&desc).unwrap();
         assert!(json.contains("nvidia"));
