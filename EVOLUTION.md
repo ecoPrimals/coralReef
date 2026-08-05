@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: Aug 3, 2026 (Phase 10 — Sprint 14 / Wave 156b)
-**Phase**: 10 — Sprint 14 / Wave 156b: ShaderInfo::compute() dedup (-220 LOC), adapter alloc fix, duplicate test removal (-551 LOC), test extraction, coverage tests. 3,512 tests (3,506 passed, 6 ignored), 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: Aug 5, 2026 (Phase 10 — Sprint 14 / Wave 156g)
+**Phase**: 10 — Sprint 14 / Wave 156g: Compile-path alloc elimination (CompileResponse.status + GpuDeviceDescriptor.source → Cow), 9 CFG error reclassifications, SM20 f64 test hardening, SM30 latency tests (+13), VOP3 split (929→523 LOC). 3,525 tests (3,519 passed, 6 ignored), 84% line coverage, zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -537,7 +537,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 14 / Wave 156b: 3512 tests (3506 passing, 6 ignored). Zero unsafe. Zero clippy warnings.
+Sprint 14 / Wave 156g: 3525 tests (3519 passing, 6 ignored). Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.

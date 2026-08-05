@@ -11,7 +11,7 @@ springs = []
 ## Status
 
 - **3525 tests** (3519 passing, 6 ignored — hardware-gated)
-- **Version**: 0.2.0 — Sprint 14 / Wave 156b, 3,512 tests
+- **Version**: 0.2.0 — Sprint 14 / Wave 156g, 3,525 tests
 - **Grade**: A++ (Multi-Vendor Sovereign GPU Compiler — Stadial Ready)
 - **License**: AGPL-3.0-or-later
 - **Binary**: `coralreef` (single UniBin, clap subcommands)

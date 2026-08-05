@@ -4,11 +4,26 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156e
+**Current status**: Phase 10 — Sprint 14 / Wave 156g
 
 ---
 
 ## [Unreleased]
+
+### Wave 156g: Deep Debt — Alloc Elimination, Test Hardening & Error Reclassify (2026-08-05)
+
+#### Changed
+- `CompileResponse.status`: `Option<String>` → `Option<Cow<'static, str>>` — eliminates
+  heap allocation per compile response; 5× `STATUS_SUCCESS.to_owned()` → `Cow::Borrowed`
+- `GpuDeviceDescriptor.source`: `String` → `Cow<'static, str>` — eliminates per-device
+  heap alloc for known `"ecosystem"` / `"drm-scan"` values
+- Reclassified 9 CFG invariant errors (`break outside loop`, `continue outside loop`,
+  `loop stack empty`) from `CompileError::NotImplemented` → `CompileError::Internal`
+  (ICE — not user-facing feature gaps)
+
+#### Added
+- SM20 f64 legalize tests: 7 smoke-only tests now verify source reference preservation,
+  dst integrity, fabs stripping, imm retention, and pred src invariants
 
 ### Wave 156e: Deep Debt — Registry Drift, Fossil Cleanup & SM30 Coverage (2026-08-05)
 

@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 5, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 156e (Capability registry drift fix, WHATS_NEXT.md fossil cleanup, SM30 latency coverage (+13 tests). 3,525 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
+**Version**: 0.2.0 — Sprint 14 / Wave 156g (Compile-path alloc elimination, error reclassification, SM20 test hardening. 3,525 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
 
 ---
 
