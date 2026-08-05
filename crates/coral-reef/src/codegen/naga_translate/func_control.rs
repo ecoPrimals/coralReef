@@ -323,7 +323,7 @@ impl FuncTranslator<'_, '_> {
             let loop_ctx = self
                 .loop_stack
                 .last()
-                .ok_or_else(|| CompileError::NotImplemented("loop stack empty in body".into()))?;
+                .ok_or_else(|| CompileError::Internal("loop stack empty in body".into()))?;
             let mut cont_phi_srcs = OpPhiSrcs::new();
             for (slot_idx, phis) in loop_ctx.continue_slot_phis.iter().enumerate() {
                 if slot_idx < self.var_storage.len() {
@@ -363,7 +363,7 @@ impl FuncTranslator<'_, '_> {
             let cont_phis: Vec<Vec<Phi>> = self
                 .loop_stack
                 .last()
-                .ok_or_else(|| CompileError::NotImplemented("loop stack empty in continue".into()))?
+                .ok_or_else(|| CompileError::Internal("loop stack empty in continue".into()))?
                 .continue_slot_phis
                 .clone();
             let mut cont_phi_dsts = OpPhiDsts::new();
@@ -385,7 +385,7 @@ impl FuncTranslator<'_, '_> {
         let has_continue_preds = !self
             .loop_stack
             .last()
-            .ok_or_else(|| CompileError::NotImplemented("loop stack empty in back-edge".into()))?
+            .ok_or_else(|| CompileError::Internal("loop stack empty in back-edge".into()))?
             .continue_blocks
             .is_empty();
         let continuing_reachable = !body_ended_dead || has_continue_preds;
@@ -400,7 +400,7 @@ impl FuncTranslator<'_, '_> {
             if num_slots > 0 {
                 let mut phi_srcs = OpPhiSrcs::new();
                 let loop_ctx = self.loop_stack.last().ok_or_else(|| {
-                    CompileError::NotImplemented("loop stack empty in phi_srcs".into())
+                    CompileError::Internal("loop stack empty in phi_srcs".into())
                 })?;
                 if break_cond_ssa.is_some() {
                     for (slot_idx, phis) in loop_ctx.exit_slot_phis.iter().enumerate() {
@@ -470,7 +470,7 @@ impl FuncTranslator<'_, '_> {
         let loop_ctx = self
             .loop_stack
             .pop()
-            .ok_or_else(|| CompileError::NotImplemented("loop stack empty at exit".into()))?;
+            .ok_or_else(|| CompileError::Internal("loop stack empty at exit".into()))?;
 
         self.start_block();
         self.current_label = exit_label;

@@ -158,7 +158,7 @@ pub struct CompileResponse {
     pub arch: Option<String>,
     /// Compilation status (e.g. `"success"`, `"partial"`).
     #[serde(default)]
-    pub status: Option<String>,
+    pub status: Option<Cow<'static, str>>,
     /// Compilation metadata for dispatch descriptor construction.
     ///
     /// Canonical wire name: `"shader_info"`. Accepts `"info"` as alias

@@ -333,7 +333,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let loop_ctx = self
                     .loop_stack
                     .last()
-                    .ok_or_else(|| CompileError::NotImplemented("break outside loop".into()))?;
+                    .ok_or_else(|| CompileError::Internal("break outside loop".into()))?;
                 let exit_label = loop_ctx.exit_label;
                 self.emit_loop_exit_phi_srcs()?;
                 self.push_instr(Instr::new(OpBra {
@@ -343,7 +343,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let break_block = self.finish_block_no_fallthrough()?;
                 self.loop_stack
                     .last_mut()
-                    .ok_or_else(|| CompileError::NotImplemented("break outside loop".into()))?
+                    .ok_or_else(|| CompileError::Internal("break outside loop".into()))?
                     .break_blocks
                     .push(break_block);
                 self.start_block();
@@ -355,7 +355,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let loop_ctx = self
                     .loop_stack
                     .last()
-                    .ok_or_else(|| CompileError::NotImplemented("continue outside loop".into()))?;
+                    .ok_or_else(|| CompileError::Internal("continue outside loop".into()))?;
                 let continue_label = loop_ctx.continue_label;
                 self.emit_loop_continue_phi_srcs()?;
                 self.push_instr(Instr::new(OpBra {
@@ -365,7 +365,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let cont_block = self.finish_block_no_fallthrough()?;
                 self.loop_stack
                     .last_mut()
-                    .ok_or_else(|| CompileError::NotImplemented("continue outside loop".into()))?
+                    .ok_or_else(|| CompileError::Internal("continue outside loop".into()))?
                     .continue_blocks
                     .push(cont_block);
                 self.start_block();
