@@ -378,12 +378,50 @@ pub fn generate_encoding_file(
     writeln!(out)?;
 
     if let Some(instrs) = instrs {
-        for instr in instrs {
-            let const_name = instr.name.to_uppercase();
-            if !instr.desc.is_empty() {
-                writeln!(out, "/// {}", instr.desc)?;
+        if vop3_sub_split {
+            // Append opcode constants to each category sub-file and re-export
+            // from mod.rs so the public API is unchanged.
+            let mut by_cat: std::collections::BTreeMap<String, Vec<&InstrInfo>> =
+                std::collections::BTreeMap::new();
+            for instr in instrs {
+                let cat = vop3_category(&instr.name);
+                let file_cat = if cat == "cmp" {
+                    cmp_sub_category(&instr.name).to_string()
+                } else {
+                    cat.to_string()
+                };
+                by_cat.entry(file_cat).or_default().push(instr);
             }
-            writeln!(out, "pub const {const_name}: u16 = {};", instr.opcode)?;
+            for (file_cat, cat_instrs) in &by_cat {
+                let sub_file_name = format!("table_{file_cat}.rs");
+                let sub = table_sub_files
+                    .iter_mut()
+                    .find(|(name, _)| name == &sub_file_name)
+                    .map(|(_, content)| content);
+                if let Some(sub_content) = sub {
+                    writeln!(sub_content)?;
+                    for instr in cat_instrs {
+                        let const_name = instr.name.to_uppercase();
+                        if !instr.desc.is_empty() {
+                            writeln!(sub_content, "/// {}", instr.desc)?;
+                        }
+                        writeln!(sub_content, "pub const {const_name}: u16 = {};", instr.opcode)?;
+                    }
+                }
+                // Re-export constants from mod.rs
+                for instr in cat_instrs {
+                    let const_name = instr.name.to_uppercase();
+                    writeln!(out, "pub use table_{file_cat}::{const_name};")?;
+                }
+            }
+        } else {
+            for instr in instrs {
+                let const_name = instr.name.to_uppercase();
+                if !instr.desc.is_empty() {
+                    writeln!(out, "/// {}", instr.desc)?;
+                }
+                writeln!(out, "pub const {const_name}: u16 = {};", instr.opcode)?;
+            }
         }
 
         if needs_split && !vop3_sub_split && !vopc_split {
@@ -416,7 +454,7 @@ pub fn generate_mod_file(
 
     writeln!(
         out,
-        "#[expect(dead_code, missing_docs, reason = \"generated ISA tables from amd-isa-gen\")]"
+        "#[allow(dead_code, missing_docs)] // generated ISA tables from amd-isa-gen"
     )?;
     writeln!(out, "pub mod isa_types;")?;
     writeln!(out)?;
@@ -425,7 +463,7 @@ pub fn generate_mod_file(
         let mod_name = encoding_to_rust_mod(enc_name);
         writeln!(
             out,
-            "#[expect(dead_code, missing_docs, unused_imports, reason = \"generated ISA tables from amd-isa-gen\")]"
+            "#[allow(dead_code, missing_docs, unused_imports)] // generated ISA tables from amd-isa-gen"
         )?;
         writeln!(out, "pub mod {mod_name};")?;
     }
