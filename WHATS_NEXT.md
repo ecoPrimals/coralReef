@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 156b.
+**Current position**: Phase 10 — Sprint 14 / Wave 156j.
 
-**Last completed**: Wave 156b — deep debt deduplication: ShaderInfo::compute() constructor (-220 LOC across 14 sites), infer_arch_from_adapter → &'static str (8 allocs eliminated), duplicate test file removal (-551 LOC, -30 tests). Wave 156a — test extraction (btsp.rs 747→648, types.rs 753→712), coverage tests for env_keys.rs and tolerances.rs (+9 tests). Wave 155j — NUCLEUS ACHIEVED on strandGate. Wave 155i — Windows cross-compilation, PTX macros, clone reduction. Wave 155f — strandGate deep debt.
+**Last completed**: Wave 156j — binary ops coverage (+23 E2E tests for expr_binary.rs), redundant copy_src_ref removal, C2 dual-socket convention (`.tarpc.sock`), SPIR-V module extraction (lib.rs 820→717 LOC), control flow test coverage (+15 tests), Src::without_modifier, CFG block-id verify helper, double WGSL parse elimination, heap allocation reduction (Cow on hot paths), SM20 f64 test hardening. Full deep debt audit clean.
 
-**Tests**: 3,512 total (3,506 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,565 total (3,559 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
-**Last updated**: Aug 3, 2026.
+**Last updated**: Aug 6, 2026.
 
-**Next focus**: STANDBY pending external blockers. westGate second NUCLEUS (add Compute Trio to existing Broker+Nest — glibc depot binary needed). bearDog `crypto.sign_ed25519` for Provenance 7/7. biomeOS composition lifecycle (startup ordering, health gates). Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
+**Next focus**: Coverage push toward 90% (compiler backends are main gap). C3 JSON-RPC health shim (nestgate.io 13/13 — may be deployment config, not code). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
 ---
 
@@ -692,9 +692,10 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,512 tests (3,506 passing, 6 ignored), zero failures. ~84% workspace coverage. Wave 156b.
+3,565 tests (3,559 passing, 6 ignored), zero failures. ~84% workspace coverage. Wave 156j.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
-Zero files over 1000 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
+C2 dual-socket convention (`.tarpc.sock`). Binary ops coverage. SPIR-V module extraction.
+Zero files over 800 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
 All pure Rust. Sovereignty is a compile choice.*

@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: Aug 3, 2026 (Sprint 14 / Wave 156b: 3,512 tests, 84% line coverage. ShaderInfo dedup, adapter alloc fix, duplicate test removal, test extraction)
+**Last updated**: Aug 6, 2026 (Sprint 14 / Wave 156j: 3,565 tests, ~84% line coverage. Binary ops coverage, copy_src_ref removal, C2 dual-socket, SPIR-V extraction, control flow tests)
 
 ---
 
