@@ -320,10 +320,7 @@ fn resolve_uds_binds(tarpc_bind: &str) -> (String, Option<std::path::PathBuf>) {
         return (tarpc_bind.to_owned(), None);
     };
     let path = std::path::PathBuf::from(path_str);
-    let file_name = path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
+    let file_name = path.file_name().unwrap_or_default().to_string_lossy();
     if file_name.contains(".tarpc.") {
         return (tarpc_bind.to_owned(), None);
     }

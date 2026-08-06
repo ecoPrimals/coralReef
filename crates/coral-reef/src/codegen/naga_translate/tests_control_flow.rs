@@ -32,9 +32,7 @@ fn count_ops(wgsl: &str) -> OpCounts {
         Op::Exit(_) => counts.exit += 1,
         _ => {}
     });
-    if let ShaderStageInfo::Compute(ComputeShaderInfo { local_size, .. }) =
-        shader.info.stage
-    {
+    if let ShaderStageInfo::Compute(ComputeShaderInfo { local_size, .. }) = shader.info.stage {
         counts.workgroup_size = local_size;
     }
     counts

@@ -28,9 +28,14 @@ mod inner {
         process_newline_after_brace_line, process_newline_reader_writer,
     };
     use crate::ipc::btsp;
+    use crate::ipc::ipc_protocol::IpcProtocol;
+    use crate::ipc::protocol_negotiation;
 
     /// Peek timeout for first-byte BTSP protocol detection.
     const PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    /// G65 timeout for first-byte protocol negotiation detection.
+    const G65_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 
     /// `true` when the bound socket path uses the shared ecosystem directory segment.
     fn path_in_ecosystem_namespace(socket_path: &Path) -> bool {
@@ -120,70 +125,69 @@ mod inner {
 
         tracing::info!(path = %bound_path.display(), "Unix JSON-RPC server listening");
 
+        #[cfg(feature = "tarpc-transport")]
+        let tarpc_available = true;
+        #[cfg(not(feature = "tarpc-transport"))]
+        let tarpc_available = false;
+
         let handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     accept = listener.accept() => {
                         match accept {
-                            Ok((stream, _addr)) => {
-                                let (reader, mut writer) = stream.into_split();
-                                let mut peeker = tokio::io::BufReader::new(reader);
+                            Ok((mut stream, _addr)) => {
+                                // ── G65 Protocol Negotiation ──────────────────
+                                // Peek first byte with 100ms G65 timeout.
+                                // If `P` → G65 negotiation (tarpc or JSON-RPC).
+                                // Otherwise fall through to BTSP / JSON-RPC.
+                                use tokio::io::AsyncReadExt;
+                                let mut first = [0u8; 1];
                                 let first_byte = match tokio::time::timeout(
-                                    PEEK_TIMEOUT,
-                                    peeker.fill_buf(),
+                                    G65_TIMEOUT,
+                                    stream.read_exact(&mut first),
                                 )
                                 .await
                                 {
-                                    Ok(Ok(buf)) => buf.first().copied(),
-                                    _ => None,
-                                };
-                                if first_byte == Some(b'{') {
-                                    use tokio::io::AsyncBufReadExt;
-                                    let mut first_line = String::new();
-                                    match tokio::time::timeout(
-                                        PEEK_TIMEOUT,
-                                        peeker.read_line(&mut first_line),
-                                    )
-                                    .await
-                                    {
-                                        Ok(Ok(0) | Err(_)) | Err(_) => continue,
-                                        Ok(Ok(_)) => {}
-                                    }
-                                    if btsp::line_looks_like_btsp_client_hello(&first_line) {
-                                        if btsp::relay_json_line_handshake(
-                                            &first_line,
-                                            &mut peeker,
-                                            &mut writer,
+                                    Ok(Ok(_)) => Some(first[0]),
+                                    Ok(Err(_)) => None,
+                                    Err(_) => {
+                                        // 100ms timeout — no negotiation line.
+                                        // Wait for remaining BTSP timeout.
+                                        match tokio::time::timeout(
+                                            PEEK_TIMEOUT.saturating_sub(G65_TIMEOUT),
+                                            stream.read_exact(&mut first),
                                         )
                                         .await
-                                        .is_err()
                                         {
+                                            Ok(Ok(_)) => Some(first[0]),
+                                            _ => None,
+                                        }
+                                    }
+                                };
+
+                                match first_byte {
+                                    Some(b'P') => {
+                                        handle_g65_connection(stream, tarpc_available).await;
+                                    }
+                                    Some(b'{') => {
+                                        handle_brace_connection(stream).await;
+                                    }
+                                    other => {
+                                        let outcome =
+                                            btsp::guard_from_first_byte(other).await;
+                                        if !outcome.should_accept() {
+                                            tracing::warn!(
+                                                ?outcome,
+                                                "BTSP rejected connection"
+                                            );
                                             continue;
                                         }
+                                        let (reader, writer) = stream.into_split();
+                                        let peeker = tokio::io::BufReader::new(reader);
                                         tokio::spawn(async move {
                                             process_newline_reader_writer(peeker, writer).await;
                                         });
-                                    } else {
-                                        tokio::spawn(async move {
-                                            process_newline_after_brace_line(
-                                                first_line, peeker, writer,
-                                            )
-                                            .await;
-                                        });
                                     }
-                                } else {
-                                    let outcome =
-                                        btsp::guard_from_first_byte(first_byte).await;
-                                    if !outcome.should_accept() {
-                                        tracing::warn!(
-                                            ?outcome,
-                                            "BTSP rejected connection"
-                                        );
-                                        continue;
-                                    }
-                                    tokio::spawn(async move {
-                                        process_newline_reader_writer(peeker, writer).await;
-                                    });
                                 }
                             }
                             Err(e) => {
@@ -203,6 +207,70 @@ mod inner {
         });
 
         Ok((bound_path, handle))
+    }
+
+    /// Handle a connection whose first byte was `P` (G65 protocol negotiation).
+    ///
+    /// Reads the remainder of the `PROTOCOLS:` line byte-by-byte, selects the
+    /// best protocol, writes the `PROTOCOL:` response, and dispatches to either
+    /// tarpc or JSON-RPC for the rest of the connection.
+    async fn handle_g65_connection(mut stream: tokio::net::UnixStream, tarpc_available: bool) {
+        let server_supported = if tarpc_available {
+            IpcProtocol::supported()
+        } else {
+            vec![IpcProtocol::JsonRpc]
+        };
+
+        let selected =
+            protocol_negotiation::negotiate_server_after_p(&mut stream, &server_supported).await;
+
+        match selected {
+            #[cfg(feature = "tarpc-transport")]
+            Some(IpcProtocol::Tarpc) => {
+                tracing::info!("G65: dispatching to tarpc on negotiated stream");
+                tokio::spawn(async move {
+                    super::super::tarpc_transport::handle_tarpc_negotiated(stream).await;
+                });
+            }
+            _ => {
+                let (reader, writer) = stream.into_split();
+                let peeker = tokio::io::BufReader::new(reader);
+                tokio::spawn(async move {
+                    process_newline_reader_writer(peeker, writer).await;
+                });
+            }
+        }
+    }
+
+    /// Handle a connection whose first byte was `{` (BTSP or plain JSON-RPC).
+    ///
+    /// The `{` has already been consumed, so we read the rest of the first
+    /// line and prepend it for BTSP detection.
+    async fn handle_brace_connection(stream: tokio::net::UnixStream) {
+        let (reader, mut writer) = stream.into_split();
+        let mut peeker = tokio::io::BufReader::new(reader);
+        let mut line_rest = String::new();
+        match tokio::time::timeout(PEEK_TIMEOUT, peeker.read_line(&mut line_rest)).await {
+            Ok(Ok(0) | Err(_)) | Err(_) => return,
+            Ok(Ok(_)) => {}
+        }
+        let first_line = format!("{{{line_rest}");
+
+        if btsp::line_looks_like_btsp_client_hello(&first_line) {
+            if btsp::relay_json_line_handshake(&first_line, &mut peeker, &mut writer)
+                .await
+                .is_err()
+            {
+                return;
+            }
+            tokio::spawn(async move {
+                process_newline_reader_writer(peeker, writer).await;
+            });
+        } else {
+            tokio::spawn(async move {
+                process_newline_after_brace_line(first_line, peeker, writer).await;
+            });
+        }
     }
 }
 

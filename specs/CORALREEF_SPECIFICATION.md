@@ -4,7 +4,7 @@
 
 **Version**: 0.2.0
 **Date**: Aug 3, 2026
-**Status**: Phase 10 — Sprint 14 / Wave 156m (Pure compiler primal, 3,644 tests, zero unsafe)
+**Status**: Phase 10 — Sprint 14 / Wave 156p (Pure compiler primal, 3,686 tests, zero unsafe, G65 protocol negotiation)
 
 ---
 
@@ -173,7 +173,7 @@ Adopted from barraCuda's `Fp64Strategy`:
 | 7 | coralDriver — userspace GPU dispatch (AMD + NVIDIA) | **Complete** |
 | 8 | coralGpu — unified Rust GPU abstraction | **Complete** |
 | 9 | Full sovereignty — zero FFI, zero C, all Rust | **Complete** |
-| 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 14 / Wave 156m — 3,644 tests, zero unsafe, zero debt** |
+| 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 14 / Wave 156p — 3,686 tests, zero unsafe, G65 protocol negotiation** |
 
 ## Full-GPU Silicon Exploitation — Future Horizons
 

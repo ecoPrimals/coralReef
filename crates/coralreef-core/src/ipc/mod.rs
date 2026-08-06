@@ -26,8 +26,11 @@ use crate::config;
 use crate::env_keys;
 
 pub mod error;
+pub mod ipc_protocol;
 pub mod method_gate;
 pub mod transport;
+
+pub mod protocol_negotiation;
 
 #[cfg(feature = "tarpc-transport")]
 mod tarpc_transport;

@@ -2,8 +2,8 @@
 
 use super::super::*;
 use crate::codegen::ir::{
-    BasicBlock, Instr, IntCmpOp, IntCmpType, LabelAllocator, OpCopy, OpExit, OpISetP,
-    PhiAllocator, PredSetOp, Src,
+    BasicBlock, Instr, IntCmpOp, IntCmpType, LabelAllocator, OpCopy, OpExit, OpISetP, PhiAllocator,
+    PredSetOp, Src,
 };
 use crate::codegen::ssa_value::SSAValueAllocator;
 use coral_reef_stubs::cfg::CFGBuilder;

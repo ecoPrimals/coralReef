@@ -405,7 +405,11 @@ pub fn generate_encoding_file(
                         if !instr.desc.is_empty() {
                             writeln!(sub_content, "/// {}", instr.desc)?;
                         }
-                        writeln!(sub_content, "pub const {const_name}: u16 = {};", instr.opcode)?;
+                        writeln!(
+                            sub_content,
+                            "pub const {const_name}: u16 = {};",
+                            instr.opcode
+                        )?;
                     }
                 }
                 // Re-export constants from mod.rs

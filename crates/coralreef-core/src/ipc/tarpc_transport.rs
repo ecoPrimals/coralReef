@@ -224,6 +224,28 @@ impl ShaderCompileTarpc for TarpcServer {
     }
 }
 
+/// Serve a single tarpc connection on an already-negotiated stream (G65).
+///
+/// Used when G65 protocol negotiation on the main socket selects tarpc.
+/// The stream must have completed the `PROTOCOLS:` / `PROTOCOL:` handshake —
+/// only tarpc bincode frames should follow on the wire.
+pub async fn handle_tarpc_negotiated(
+    stream: impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+) {
+    use tarpc::server::{self, Channel};
+    use tokio_serde::formats::Bincode;
+    use tokio_util::codec::length_delimited::Builder as LengthDelimitedBuilder;
+
+    let framed = LengthDelimitedBuilder::new().new_framed(stream);
+    let transport = tarpc::serde_transport::new(framed, Bincode::default());
+    server::BaseChannel::with_defaults(transport)
+        .execute(TarpcServer.serve())
+        .for_each(|response| async move {
+            tokio::spawn(response);
+        })
+        .await;
+}
+
 /// Start a tarpc server over TCP.
 ///
 /// Returns the bound address and join handle for graceful shutdown.

@@ -342,8 +342,14 @@ fn op_dadd_legalize_runs_for_ssa_sources() {
         rnd_mode: FRndMode::NearestEven,
     };
     op.legalize(&mut b);
-    assert!(matches!(op.srcs[0].reference, SrcRef::SSA(_)), "src0 stays SSA");
-    assert!(matches!(op.srcs[1].reference, SrcRef::SSA(_)), "src1 stays SSA");
+    assert!(
+        matches!(op.srcs[0].reference, SrcRef::SSA(_)),
+        "src0 stays SSA"
+    );
+    assert!(
+        matches!(op.srcs[1].reference, SrcRef::SSA(_)),
+        "src1 stays SSA"
+    );
     assert!(matches!(op.dst, Dst::SSA(_)), "dst unchanged");
 }
 
@@ -362,8 +368,14 @@ fn op_dmul_legalize_runs_for_ssa_sources() {
         rnd_mode: FRndMode::NearestEven,
     };
     op.legalize(&mut b);
-    assert!(matches!(op.srcs[0].reference, SrcRef::SSA(_)), "src0 stays SSA");
-    assert!(matches!(op.srcs[1].reference, SrcRef::SSA(_)), "src1 stays SSA");
+    assert!(
+        matches!(op.srcs[0].reference, SrcRef::SSA(_)),
+        "src0 stays SSA"
+    );
+    assert!(
+        matches!(op.srcs[1].reference, SrcRef::SSA(_)),
+        "src1 stays SSA"
+    );
     assert!(matches!(op.dst, Dst::SSA(_)), "dst unchanged");
 }
 
@@ -381,9 +393,18 @@ fn op_dmnmx_legalize_runs_for_ssa_sources() {
         srcs: [s0, s1, Src::new_imm_bool(true)],
     };
     op.legalize(&mut b);
-    assert!(matches!(op.srcs[0].reference, SrcRef::SSA(_)), "src0 stays SSA");
-    assert!(matches!(op.srcs[1].reference, SrcRef::SSA(_)), "src1 stays SSA");
-    assert!(matches!(op.srcs[2].reference, SrcRef::True), "pred src preserved");
+    assert!(
+        matches!(op.srcs[0].reference, SrcRef::SSA(_)),
+        "src0 stays SSA"
+    );
+    assert!(
+        matches!(op.srcs[1].reference, SrcRef::SSA(_)),
+        "src1 stays SSA"
+    );
+    assert!(
+        matches!(op.srcs[2].reference, SrcRef::True),
+        "pred src preserved"
+    );
     assert!(matches!(op.dst, Dst::SSA(_)), "dst unchanged");
 }
 
@@ -403,9 +424,18 @@ fn op_dfma_legalize_all_gpr_ssa() {
         rnd_mode: FRndMode::NearestEven,
     };
     op.legalize(&mut b);
-    assert!(matches!(op.srcs[0].reference, SrcRef::SSA(_)), "src0 stays SSA");
-    assert!(matches!(op.srcs[1].reference, SrcRef::SSA(_)), "src1 stays SSA");
-    assert!(matches!(op.srcs[2].reference, SrcRef::SSA(_)), "src2 stays SSA");
+    assert!(
+        matches!(op.srcs[0].reference, SrcRef::SSA(_)),
+        "src0 stays SSA"
+    );
+    assert!(
+        matches!(op.srcs[1].reference, SrcRef::SSA(_)),
+        "src1 stays SSA"
+    );
+    assert!(
+        matches!(op.srcs[2].reference, SrcRef::SSA(_)),
+        "src2 stays SSA"
+    );
     assert!(matches!(op.dst, Dst::SSA(_)), "dst unchanged");
 }
 
@@ -424,7 +454,10 @@ fn op_dfma_legalize_imm_src1_branch() {
         rnd_mode: FRndMode::NearestEven,
     };
     op.legalize(&mut b);
-    assert!(matches!(op.srcs[0].reference, SrcRef::SSA(_)), "src0 stays SSA");
+    assert!(
+        matches!(op.srcs[0].reference, SrcRef::SSA(_)),
+        "src0 stays SSA"
+    );
     assert!(
         matches!(op.srcs[1].reference, SrcRef::Imm32(_)),
         "src1 keeps imm (fits F20)"
@@ -481,8 +514,17 @@ fn op_dsetp_legalize_runs_for_ssa_sources() {
         srcs: [s0, s1, s2],
     };
     op.legalize(&mut b);
-    assert!(matches!(op.srcs[0].reference, SrcRef::SSA(_)), "src0 stays SSA");
-    assert!(matches!(op.srcs[1].reference, SrcRef::SSA(_)), "src1 stays SSA");
-    assert!(matches!(op.srcs[2].reference, SrcRef::SSA(_)), "pred src stays SSA");
+    assert!(
+        matches!(op.srcs[0].reference, SrcRef::SSA(_)),
+        "src0 stays SSA"
+    );
+    assert!(
+        matches!(op.srcs[1].reference, SrcRef::SSA(_)),
+        "src1 stays SSA"
+    );
+    assert!(
+        matches!(op.srcs[2].reference, SrcRef::SSA(_)),
+        "pred src stays SSA"
+    );
     assert!(matches!(op.dst, Dst::SSA(_)), "dst unchanged");
 }

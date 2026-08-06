@@ -4,11 +4,33 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156m
+**Current status**: Phase 10 — Sprint 14 / Wave 156p
 
 ---
 
 ## [Unreleased]
+
+### Wave 156p: G65 Protocol Negotiation (2026-08-06)
+
+#### Added
+- **G65 protocol negotiation** (Phase 3 cephalization): single-socket protocol
+  selection between tarpc and JSON-RPC via `PROTOCOLS:` / `PROTOCOL:` wire
+  handshake on the UDS listener. Backward-compatible — legacy JSON-RPC clients
+  work with zero changes (no `PROTOCOLS:` line = JSON-RPC fallback).
+- New module `ipc_protocol.rs`: `IpcProtocol` enum (`JsonRpc`, `Tarpc`) with
+  wire-name parsing, `Display`, serde support, and 7 unit tests.
+- New module `protocol_negotiation.rs`: `ProtocolRequest`/`ProtocolResponse`
+  wire types, `select_protocol()` (client preference wins), byte-by-byte
+  `read_negotiation_line_after_p()`, `negotiate_server_after_p()` server-side
+  handler, and 14 unit tests including duplex tarpc/jsonrpc/malformed scenarios.
+- `handle_tarpc_negotiated()` in `tarpc_transport.rs`: serves tarpc on an
+  already-negotiated stream via `LengthDelimited` + bincode framing.
+- Test count: 3,644 → 3,686 (+42)
+
+#### Changed
+- Restructured UDS accept loop in `unix_jsonrpc.rs`: first byte dispatches to
+  G65 (`P`), BTSP (`{`), or guard (other). Two-stage timeout (100ms G65 +
+  remaining for BTSP) preserves backward compatibility.
 
 ### Wave 156m: Dispatch Refactor & Adapter Inference Tests (2026-08-06)
 

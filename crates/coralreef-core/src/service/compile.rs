@@ -173,7 +173,13 @@ fn bytes_to_spirv_words(bytes: &[u8]) -> Result<Vec<u32>, CompileError> {
     }
     Ok(bytes
         .chunks_exact(4)
-        .map(|chunk| u32::from_le_bytes(chunk.try_into().expect("chunks_exact(4) always yields 4 bytes")))
+        .map(|chunk| {
+            u32::from_le_bytes(
+                chunk
+                    .try_into()
+                    .expect("chunks_exact(4) always yields 4 bytes"),
+            )
+        })
         .collect())
 }
 
@@ -273,10 +279,7 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
     let wave_size = wave_size_for(options.target);
     let hardware_hint = dispatch_hint_from_precision_advice(req.precision_advice.as_ref());
     let t0 = Instant::now();
-    let is_ptx_emitter = options
-        .target
-        .as_nvidia()
-        .is_some_and(|nv| nv.sm() >= 100);
+    let is_ptx_emitter = options.target.as_nvidia().is_some_and(|nv| nv.sm() >= 100);
     let (compiled, spirv) = if !is_ptx_emitter && req.emit_spirv {
         let module = coral_reef::parse_wgsl_to_naga(req.wgsl_source.as_ref(), &options)?;
         let compiled = coral_reef::compile_naga_module_full(&module, &options)?;
@@ -778,7 +781,10 @@ mod tests {
             df64_naga_poisoned: false,
             domain: None,
         };
-        assert_eq!(dispatch_hint_from_precision_advice(Some(&advice)), "compute");
+        assert_eq!(
+            dispatch_hint_from_precision_advice(Some(&advice)),
+            "compute"
+        );
     }
 
     #[test]

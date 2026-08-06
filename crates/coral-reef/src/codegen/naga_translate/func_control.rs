@@ -399,9 +399,10 @@ impl FuncTranslator<'_, '_> {
 
             if num_slots > 0 {
                 let mut phi_srcs = OpPhiSrcs::new();
-                let loop_ctx = self.loop_stack.last().ok_or_else(|| {
-                    CompileError::Internal("loop stack empty in phi_srcs".into())
-                })?;
+                let loop_ctx = self
+                    .loop_stack
+                    .last()
+                    .ok_or_else(|| CompileError::Internal("loop stack empty in phi_srcs".into()))?;
                 if break_cond_ssa.is_some() {
                     for (slot_idx, phis) in loop_ctx.exit_slot_phis.iter().enumerate() {
                         if slot_idx < self.var_storage.len() {

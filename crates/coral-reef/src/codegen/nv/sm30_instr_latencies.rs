@@ -188,26 +188,32 @@ mod tests {
 
     #[test]
     fn exec_latency_brk_kepler_a_is_5() {
-        let op = Op::Brk(OpBrk {
-            target: label_0(),
-        });
-        assert_eq!(instr_exec_latency(30, &op), 5, "SM30 (Kepler-A) Brk should be 5");
+        let op = Op::Brk(OpBrk { target: label_0() });
+        assert_eq!(
+            instr_exec_latency(30, &op),
+            5,
+            "SM30 (Kepler-A) Brk should be 5"
+        );
     }
 
     #[test]
     fn exec_latency_cont_kepler_a_is_5() {
-        let op = Op::Cont(OpCont {
-            target: label_0(),
-        });
-        assert_eq!(instr_exec_latency(30, &op), 5, "SM30 (Kepler-A) Cont should be 5");
+        let op = Op::Cont(OpCont { target: label_0() });
+        assert_eq!(
+            instr_exec_latency(30, &op),
+            5,
+            "SM30 (Kepler-A) Cont should be 5"
+        );
     }
 
     #[test]
     fn exec_latency_cont_non_kepler_a_is_1() {
-        let op = Op::Cont(OpCont {
-            target: label_0(),
-        });
-        assert_eq!(instr_exec_latency(32, &op), 1, "SM32 (Kepler-B) Cont should be 1");
+        let op = Op::Cont(OpCont { target: label_0() });
+        assert_eq!(
+            instr_exec_latency(32, &op),
+            1,
+            "SM32 (Kepler-B) Cont should be 1"
+        );
     }
 
     #[test]
@@ -218,21 +224,13 @@ mod tests {
     #[test]
     fn sched_texdepbar_is_0xc2() {
         let op = Op::TexDepBar(Box::new(OpTexDepBar { textures_left: 0 }));
-        assert_eq!(
-            calc_instr_sched(None, &op, &InstrDeps::new()),
-            0xc2,
-        );
+        assert_eq!(calc_instr_sched(None, &op, &InstrDeps::new()), 0xc2,);
     }
 
     #[test]
     fn sched_sync_is_0x00() {
-        let op = Op::Sync(OpSync {
-            target: label_0(),
-        });
-        assert_eq!(
-            calc_instr_sched(None, &op, &InstrDeps::new()),
-            0x00,
-        );
+        let op = Op::Sync(OpSync { target: label_0() });
+        assert_eq!(calc_instr_sched(None, &op, &InstrDeps::new()), 0x00,);
     }
 
     #[test]
@@ -252,6 +250,10 @@ mod tests {
 
         deps.set_delay(100);
         let sched_max = calc_instr_sched(None, &nop_op(), &deps);
-        assert_eq!(sched_max & 0x1f, 31, "delay=100 clamped to 32 → encoding 31");
+        assert_eq!(
+            sched_max & 0x1f,
+            31,
+            "delay=100 clamped to 32 → encoding 31"
+        );
     }
 }
