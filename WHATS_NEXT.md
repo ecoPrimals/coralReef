@@ -2,11 +2,11 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 156j.
+**Current position**: Phase 10 — Sprint 14 / Wave 156q.
 
-**Last completed**: Wave 156j — binary ops coverage (+23 E2E tests for expr_binary.rs), redundant copy_src_ref removal, C2 dual-socket convention (`.tarpc.sock`), SPIR-V module extraction (lib.rs 820→717 LOC), control flow test coverage (+15 tests), Src::without_modifier, CFG block-id verify helper, double WGSL parse elimination, heap allocation reduction (Cow on hot paths), SM20 f64 test hardening. Full deep debt audit clean.
+**Last completed**: Wave 156q — C3 health shim verification: 3 G65 E2E integration tests proving `health.liveness` works through negotiated JSON-RPC and backward-compat paths. Wave 156p — G65 protocol negotiation (Phase 3 cephalization), single-socket tarpc + JSON-RPC. Wave 156m — dispatch refactor, adapter inference tests. Wave 156l — cast/conversion coverage, visibility narrowing.
 
-**Tests**: 3,686 total (3,680 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,689 total (3,683 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 6, 2026.
 

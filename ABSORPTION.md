@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: Aug 6, 2026 (Sprint 14 / Wave 156p: 3,686 tests, ~84% line coverage. G65 protocol negotiation, dispatch refactor, adapter inference tests, C2 dual-socket)
+**Last updated**: Aug 6, 2026 (Sprint 14 / Wave 156q: 3,689 tests, ~84% line coverage. G65 protocol negotiation, C3 health shim verified, dispatch refactor, adapter inference tests, C2 dual-socket)
 
 ---
 

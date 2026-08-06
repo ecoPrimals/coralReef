@@ -432,3 +432,122 @@ async fn test_unix_jsonrpc_compile_invalid_wgsl_returns_error_response() {
     let _: Result<(), _> = shutdown_tx.send(());
     let _ = std::fs::remove_file(&sock_path);
 }
+
+/// G65: client sends `PROTOCOLS: jsonrpc\n`, server responds `PROTOCOL: jsonrpc\n`,
+/// then health.liveness works over the negotiated JSON-RPC connection.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_g65_negotiate_jsonrpc_then_health_liveness() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("g65-jsonrpc-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let stream = UnixStream::connect(&sock_path).await.unwrap();
+    let (reader, mut writer) = stream.into_split();
+
+    writer.write_all(b"PROTOCOLS: jsonrpc\n").await.unwrap();
+
+    let mut lines = BufReader::new(reader);
+    let mut negotiate_resp = String::new();
+    lines.read_line(&mut negotiate_resp).await.unwrap();
+    assert_eq!(negotiate_resp.trim(), "PROTOCOL: jsonrpc");
+
+    let req = r#"{"jsonrpc":"2.0","method":"health.liveness","params":{},"id":1}"#;
+    writer
+        .write_all(format!("{req}\n").as_bytes())
+        .await
+        .unwrap();
+
+    let mut health_resp = String::new();
+    lines.read_line(&mut health_resp).await.unwrap();
+    let resp: serde_json::Value = serde_json::from_str(&health_resp).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 1);
+    assert!(
+        resp["result"].is_object(),
+        "health.liveness should return a result"
+    );
+    assert_eq!(resp["result"]["status"], "alive");
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+/// G65 backward-compat: plain JSON-RPC health.liveness with no negotiation (C3).
+#[cfg(unix)]
+#[tokio::test]
+async fn test_g65_backward_compat_health_liveness() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("g65-compat-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let req = r#"{"jsonrpc":"2.0","method":"health.liveness","params":{},"id":42}"#;
+    let resp_line = unix_jsonrpc_send_request(&sock_path, req).await;
+    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap();
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 42);
+    assert!(resp["result"].is_object());
+    assert_eq!(resp["result"]["status"], "alive");
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}
+
+/// G65: negotiate tarpc,jsonrpc — server responds with best match, then health works.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_g65_negotiate_tarpc_preferred_falls_back() {
+    let dir = std::env::temp_dir().join("coralreef-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let sock_path = dir.join(format!("g65-tarpc-fb-{}.sock", std::process::id()));
+
+    let (shutdown_tx, shutdown_rx) = test_helpers::test_shutdown_channel();
+    let (_path, _handle) = start_unix_jsonrpc_server(&sock_path, shutdown_rx)
+        .await
+        .unwrap();
+
+    let stream = UnixStream::connect(&sock_path).await.unwrap();
+    let (reader, mut writer) = stream.into_split();
+
+    writer
+        .write_all(b"PROTOCOLS: tarpc,jsonrpc\n")
+        .await
+        .unwrap();
+
+    let mut lines = BufReader::new(reader);
+    let mut negotiate_resp = String::new();
+    lines.read_line(&mut negotiate_resp).await.unwrap();
+    let selected = negotiate_resp.trim();
+    assert!(
+        selected == "PROTOCOL: tarpc" || selected == "PROTOCOL: jsonrpc",
+        "expected valid G65 response, got: {selected}"
+    );
+
+    if selected == "PROTOCOL: jsonrpc" {
+        let req = r#"{"jsonrpc":"2.0","method":"health.liveness","params":{},"id":7}"#;
+        writer
+            .write_all(format!("{req}\n").as_bytes())
+            .await
+            .unwrap();
+
+        let mut health_resp = String::new();
+        lines.read_line(&mut health_resp).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&health_resp).unwrap();
+        assert_eq!(resp["result"]["status"], "alive");
+    }
+
+    let _: Result<(), _> = shutdown_tx.send(());
+    let _ = std::fs::remove_file(&sock_path);
+}

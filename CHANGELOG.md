@@ -4,11 +4,24 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156p
+**Current status**: Phase 10 — Sprint 14 / Wave 156q
 
 ---
 
 ## [Unreleased]
+
+### Wave 156q: C3 Health Shim Verification (2026-08-06)
+
+#### Added
+- **C3 verification**: 3 G65 E2E integration tests proving `health.liveness`
+  works through the negotiated socket:
+  - `test_g65_negotiate_jsonrpc_then_health_liveness` — full G65 handshake
+    (`PROTOCOLS: jsonrpc\n` → `PROTOCOL: jsonrpc\n`) then health.liveness.
+  - `test_g65_backward_compat_health_liveness` — plain JSON-RPC (no
+    negotiation) health.liveness (C3 backward-compat path).
+  - `test_g65_negotiate_tarpc_preferred_falls_back` — tarpc+jsonrpc
+    negotiation with health verification on the selected protocol.
+- Test count: 3,686 → 3,689 (+3)
 
 ### Wave 156p: G65 Protocol Negotiation (2026-08-06)
 

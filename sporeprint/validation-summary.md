@@ -1,6 +1,6 @@
 +++
 title = "coralReef Validation Summary"
-description = "Sovereign Rust GPU shader compiler — 3686 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), G65 protocol negotiation, capability abstraction, PTX macro modernization, BTSP client handshake, zero unsafe, zero C deps"
+description = "Sovereign Rust GPU shader compiler — 3689 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), G65 protocol negotiation, C3 health shim verified, capability abstraction, PTX macro modernization, BTSP client handshake, zero unsafe, zero C deps"
 date = 2026-08-06
 
 [taxonomies]
