@@ -6,7 +6,7 @@ use super::func::FuncTranslator;
 use crate::error::CompileError;
 use naga::Handle;
 
-pub fn translate(
+pub(super) fn translate(
     ft: &mut FuncTranslator<'_, '_>,
     fun: naga::MathFunction,
     a: SSARef,

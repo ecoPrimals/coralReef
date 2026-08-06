@@ -4,11 +4,27 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156j
+**Current status**: Phase 10 — Sprint 14 / Wave 156l
 
 ---
 
 ## [Unreleased]
+
+### Wave 156l: Cast/Conversion Coverage & Visibility Narrowing (2026-08-06)
+
+#### Added
+- `tests_cast_ops.rs` — 16 E2E tests covering type conversion translation
+  (`translate_cast` in `func_ops.rs`). Tests exercise i32→f32, u32→f32 (I2F),
+  f32→i32, f32→u32 (F2I), bitcast (f32↔u32, i32→f32, vec2), identity casts
+  (i32↔u32), bool→u32 via select, vector conversions (vec3 u32→f32, vec2
+  f32→i32), mixed int/float arithmetic, and relational all/any on vec2<bool>.
+- Test count: 3,580 → 3,596 (+16)
+
+#### Changed
+- Narrowed `func_math_interp::translate` visibility from `pub` to `pub(super)`,
+  consistent with all other math sub-module translate functions.
+- Narrowed `TexQueueSimulationState` visibility from `pub` to `pub(super)` in
+  `calc_instr_deps/types.rs` — only used within the module.
 
 ### Wave 156j (cont.): Memory + Binary Ops Coverage & Code Debt Cleanup (2026-08-06)
 

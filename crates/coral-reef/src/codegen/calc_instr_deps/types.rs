@@ -397,7 +397,7 @@ impl TexQueueSimulationBucket {
 /// buckets of 4.  With this optimization each RegRef only accesses a single
 /// bucket.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TexQueueSimulationState {
+pub(super) struct TexQueueSimulationState {
     /// Min position of the destination register in the queue,
     /// in buckets of 4 (indexed by register_index / 4).
     queue_pos: FxHashMap<u8, TexQueueSimulationBucket>,
