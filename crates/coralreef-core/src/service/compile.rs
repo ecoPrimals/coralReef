@@ -171,15 +171,10 @@ fn bytes_to_spirv_words(bytes: &[u8]) -> Result<Vec<u32>, CompileError> {
             "SPIR-V must be multiple of 4 bytes".into(),
         ));
     }
-    let mut words = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        debug_assert_eq!(chunk.len(), 4, "chunks_exact(4) yields 4 bytes");
-        let arr: [u8; 4] = chunk
-            .try_into()
-            .map_err(|_| CompileError::InvalidInput("SPIR-V chunk must be 4 bytes".into()))?;
-        words.push(u32::from_le_bytes(arr));
-    }
-    Ok(words)
+    Ok(bytes
+        .chunks_exact(4)
+        .map(|chunk| u32::from_le_bytes(chunk.try_into().expect("chunks_exact(4) always yields 4 bytes")))
+        .collect())
 }
 
 /// Execute a SPIR-V compile from raw bytes (zero-copy friendly).
@@ -658,4 +653,176 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
         spirv_binary: None,
         provenance: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn adapter(vendor_id: u32, name: &str) -> super::super::types::AdapterDescriptor {
+        super::super::types::AdapterDescriptor {
+            vendor_id,
+            device_name: name.to_owned(),
+            device_type: String::new(),
+        }
+    }
+
+    #[test]
+    fn nvidia_rtx_5090_infers_sm120() {
+        let ad = adapter(PCI_VENDOR_NVIDIA, "NVIDIA GeForce RTX 5090");
+        assert_eq!(infer_arch_from_adapter(&ad), Some("sm_120"));
+    }
+
+    #[test]
+    fn nvidia_rtx_4090_infers_sm89() {
+        let ad = adapter(PCI_VENDOR_NVIDIA, "NVIDIA GeForce RTX 4090");
+        assert_eq!(infer_arch_from_adapter(&ad), Some("sm_89"));
+    }
+
+    #[test]
+    fn nvidia_rtx_3080_infers_sm86() {
+        let ad = adapter(PCI_VENDOR_NVIDIA, "NVIDIA GeForce RTX 3080");
+        assert_eq!(infer_arch_from_adapter(&ad), Some("sm_86"));
+    }
+
+    #[test]
+    fn nvidia_a100_infers_sm80() {
+        let ad = adapter(PCI_VENDOR_NVIDIA, "NVIDIA A100-SXM4-40GB");
+        assert_eq!(infer_arch_from_adapter(&ad), Some("sm_80"));
+    }
+
+    #[test]
+    fn nvidia_v100_infers_sm70() {
+        let ad = adapter(PCI_VENDOR_NVIDIA, "Tesla V100-SXM2-16GB");
+        assert_eq!(infer_arch_from_adapter(&ad), Some("sm_70"));
+    }
+
+    #[test]
+    fn amd_7900_infers_rdna3() {
+        let ad = adapter(PCI_VENDOR_AMD, "AMD Radeon RX 7900 XTX");
+        assert_eq!(infer_arch_from_adapter(&ad), Some("rdna3"));
+    }
+
+    #[test]
+    fn amd_6800_infers_rdna2() {
+        let ad = adapter(PCI_VENDOR_AMD, "AMD Radeon RX 6800 XT");
+        assert_eq!(infer_arch_from_adapter(&ad), Some("rdna2"));
+    }
+
+    #[test]
+    fn unknown_vendor_returns_none() {
+        let ad = adapter(0x8086, "Intel Arc A770");
+        assert_eq!(infer_arch_from_adapter(&ad), None);
+    }
+
+    #[test]
+    fn unknown_nvidia_model_returns_none() {
+        let ad = adapter(PCI_VENDOR_NVIDIA, "NVIDIA GeForce GTX 960");
+        assert_eq!(infer_arch_from_adapter(&ad), None);
+    }
+
+    #[test]
+    fn resolve_arch_uses_explicit_when_not_default() {
+        let ad = adapter(PCI_VENDOR_NVIDIA, "NVIDIA GeForce RTX 4090");
+        assert_eq!(resolve_arch("sm_50", Some(&ad)), "sm_50");
+    }
+
+    #[test]
+    fn resolve_arch_infers_from_adapter_on_default() {
+        let ad = adapter(PCI_VENDOR_NVIDIA, "NVIDIA GeForce RTX 4090");
+        let default = super::super::types::default_arch();
+        assert_eq!(resolve_arch(&default, Some(&ad)), "sm_89");
+    }
+
+    #[test]
+    fn resolve_arch_falls_back_without_adapter() {
+        let default = super::super::types::default_arch();
+        assert_eq!(resolve_arch(&default, None), default);
+    }
+
+    #[test]
+    fn wave_size_nvidia_is_32() {
+        assert_eq!(wave_size_for(GpuTarget::Nvidia(NvArch::Sm70)), 32);
+    }
+
+    #[test]
+    fn wave_size_amd_matches_arch() {
+        let rdna3 = GpuTarget::Amd(AmdArch::parse("rdna3").expect("valid arch"));
+        assert!(wave_size_for(rdna3) > 0);
+    }
+
+    #[test]
+    fn dispatch_hint_tensor_core_for_f16() {
+        let advice = super::super::types::PrecisionAdvice {
+            tier: "f16".to_owned(),
+            needs_transcendental_lowering: false,
+            df64_naga_poisoned: false,
+            domain: None,
+        };
+        assert_eq!(
+            dispatch_hint_from_precision_advice(Some(&advice)),
+            "tensor_core"
+        );
+    }
+
+    #[test]
+    fn dispatch_hint_compute_for_none() {
+        assert_eq!(dispatch_hint_from_precision_advice(None), "compute");
+    }
+
+    #[test]
+    fn dispatch_hint_compute_for_unknown_tier() {
+        let advice = super::super::types::PrecisionAdvice {
+            tier: "fp32".to_owned(),
+            needs_transcendental_lowering: false,
+            df64_naga_poisoned: false,
+            domain: None,
+        };
+        assert_eq!(dispatch_hint_from_precision_advice(Some(&advice)), "compute");
+    }
+
+    #[test]
+    fn binary_format_nvidia_is_ptx() {
+        assert_eq!(
+            binary_format_for(GpuTarget::Nvidia(NvArch::Sm70)).as_ref(),
+            "ptx"
+        );
+    }
+
+    #[test]
+    fn binary_format_amd_is_isa() {
+        let rdna3 = GpuTarget::Amd(AmdArch::parse("rdna3").expect("valid arch"));
+        assert_eq!(binary_format_for(rdna3).as_ref(), "isa");
+    }
+
+    #[test]
+    fn bytes_to_spirv_words_rejects_odd_length() {
+        let result = bytes_to_spirv_words(&[0, 1, 2]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn bytes_to_spirv_words_converts_le() {
+        let bytes = [0x03, 0x02, 0x23, 0x07];
+        let words = bytes_to_spirv_words(&bytes).expect("valid input");
+        assert_eq!(words, vec![0x0723_0203]);
+    }
+
+    #[test]
+    fn parse_fma_policy_fused() {
+        assert!(matches!(parse_fma_policy(Some("fused")), FmaPolicy::Fused));
+    }
+
+    #[test]
+    fn parse_fma_policy_separate() {
+        assert!(matches!(
+            parse_fma_policy(Some("separate")),
+            FmaPolicy::Separate
+        ));
+    }
+
+    #[test]
+    fn parse_fma_policy_default() {
+        assert!(matches!(parse_fma_policy(None), FmaPolicy::Auto));
+    }
 }

@@ -4,11 +4,30 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156l
+**Current status**: Phase 10 — Sprint 14 / Wave 156m
 
 ---
 
 ## [Unreleased]
+
+### Wave 156m: Dispatch Refactor & Adapter Inference Tests (2026-08-06)
+
+#### Added
+- 24 unit tests for `compile.rs` internal functions: adapter-aware architecture
+  inference (`infer_arch_from_adapter` — 9 tests covering NVIDIA SM70-SM120,
+  AMD RDNA2-3, unknown vendors/models), `resolve_arch` (3 tests — explicit,
+  inferred, fallback), `wave_size_for` (2 tests), `dispatch_hint_from_precision_advice`
+  (3 tests), `binary_format_for` (2 tests), `bytes_to_spirv_words` (2 tests),
+  `parse_fma_policy` (3 tests).
+- Test count: 3,596 → 3,644 (+48)
+
+#### Changed
+- Extracted `to_json` and `handler_result` helpers from `newline_jsonrpc.rs`,
+  eliminating 14 identical `serde_json::to_value(...).map_err(...)` patterns
+  (423 → 382 LOC, -41 lines).
+- Simplified `bytes_to_spirv_words` in `compile.rs`: replaced manual loop +
+  dead-code error path with iterator chain (validated `% 4 == 0` guarantees
+  infallible `try_into`).
 
 ### Wave 156l: Cast/Conversion Coverage & Visibility Narrowing (2026-08-06)
 

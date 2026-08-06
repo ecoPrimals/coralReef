@@ -3,7 +3,7 @@
 # coralReef — Compiler Evolution
 
 **Last updated**: Aug 6, 2026 (Phase 10 — Sprint 14 / Wave 156j)
-**Phase**: 10 — Sprint 14 / Wave 156l: Cast/conversion coverage (+16), visibility narrowing (pub→pub(super)), C2 dual-socket convention. 3,596 tests (3,590 passed, 6 ignored), zero failures, zero unsafe, zero clippy warnings.
+**Phase**: 10 — Sprint 14 / Wave 156m: Dispatch boilerplate extraction, adapter inference tests (+24), SPIR-V parser simplification. 3,644 tests (3,638 passed, 6 ignored), zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3,596 tests. Zero clippy warnings.
+Pure Rust. Zero unsafe. 3,644 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
@@ -537,7 +537,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 14 / Wave 156l: 3596 tests (3590 passing, 6 ignored). Zero unsafe. Zero clippy warnings.
+Sprint 14 / Wave 156m: 3644 tests (3638 passing, 6 ignored). Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.

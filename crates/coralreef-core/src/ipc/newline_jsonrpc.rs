@@ -45,6 +45,19 @@ struct JsonRpcError {
     message: String,
 }
 
+fn to_json(val: impl Serialize) -> Result<serde_json::Value, IpcServiceError> {
+    serde_json::to_value(val).map_err(|e| IpcServiceError::internal(e.to_string()))
+}
+
+fn handler_result<T: Serialize, E: std::fmt::Display>(
+    result: Result<T, E>,
+) -> Result<serde_json::Value, IpcServiceError> {
+    match result {
+        Ok(resp) => to_json(resp),
+        Err(e) => Err(IpcServiceError::handler(e.to_string())),
+    }
+}
+
 fn extract_params<T: serde::de::DeserializeOwned>(
     mut params: serde_json::Value,
 ) -> Result<T, IpcServiceError> {
@@ -74,91 +87,37 @@ pub fn dispatch_jsonrpc(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, IpcServiceError> {
     match method {
-        "shader.compile.status" => {
-            let health = service::handle_health();
-            serde_json::to_value(health).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "shader.compile.capabilities" => {
-            let caps = service::handle_compile_capabilities();
-            serde_json::to_value(caps).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
+        "shader.compile.status" => to_json(service::handle_health()),
+        "shader.compile.capabilities" => to_json(service::handle_compile_capabilities()),
         "shader.compile.wgsl" => {
             let req: service::CompileWgslRequest = extract_params(params)?;
-            match service::handle_compile_wgsl(&req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
-            }
+            handler_result(service::handle_compile_wgsl(&req))
         }
         "shader.compile.spirv" => {
             let req: service::CompileRequest = extract_params(params)?;
-            match service::handle_compile(&req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
-            }
+            handler_result(service::handle_compile(&req))
         }
         "shader.compile.wgsl.multi" => {
             let req: service::MultiDeviceCompileRequest = extract_params(params)?;
-            match service::handle_compile_wgsl_multi(req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
-            }
+            handler_result(service::handle_compile_wgsl_multi(req))
         }
-        "health.check" => {
-            let resp = service::handle_health_check();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "health.liveness" => {
-            let resp = service::handle_health_liveness();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "health.readiness" => {
-            let resp = service::handle_health_readiness();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "identity.get" => {
-            let resp = service::handle_identity_get();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
-        "capability.list" | "capabilities.list" => {
-            let resp = service::handle_capability_list();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
+        "health.check" => to_json(service::handle_health_check()),
+        "health.liveness" => to_json(service::handle_health_liveness()),
+        "health.readiness" => to_json(service::handle_health_readiness()),
+        "identity.get" => to_json(service::handle_identity_get()),
+        "capability.list" | "capabilities.list" => to_json(service::handle_capability_list()),
         "shader.compile.multi" => {
             let req: service::BatchCompileRequest = extract_params(params)?;
-            match service::handle_compile_multi(req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
-            }
+            handler_result(service::handle_compile_multi(req))
         }
         "shader.compile.gemm" => {
             let req: service::GemmCompileRequest = extract_params(params)?;
-            match service::handle_compile_gemm(&req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
-            }
+            handler_result(service::handle_compile_gemm(&req))
         }
-        "health.version" => {
-            let resp = service::handle_health_version();
-            serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-        }
+        "health.version" => to_json(service::handle_health_version()),
         "btsp.negotiate" => {
             let req: super::btsp_negotiate::NegotiateRequest = extract_params(params)?;
-            match super::btsp_negotiate::handle_negotiate(&req) {
-                Ok(resp) => {
-                    serde_json::to_value(resp).map_err(|e| IpcServiceError::internal(e.to_string()))
-                }
-                Err(e) => Err(IpcServiceError::handler(e.to_string())),
-            }
+            handler_result(super::btsp_negotiate::handle_negotiate(&req))
         }
         "auth.check" => {
             let gate = super::method_gate::gate();
