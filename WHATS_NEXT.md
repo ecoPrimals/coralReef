@@ -6,7 +6,7 @@
 
 **Last completed**: Wave 156j — binary ops coverage (+23 E2E tests for expr_binary.rs), redundant copy_src_ref removal, C2 dual-socket convention (`.tarpc.sock`), SPIR-V module extraction (lib.rs 820→717 LOC), control flow test coverage (+15 tests), Src::without_modifier, CFG block-id verify helper, double WGSL parse elimination, heap allocation reduction (Cow on hot paths), SM20 f64 test hardening. Full deep debt audit clean.
 
-**Tests**: 3,565 total (3,559 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,580 total (3,574 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 6, 2026.
 
@@ -692,7 +692,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,565 tests (3,559 passing, 6 ignored), zero failures. ~84% workspace coverage. Wave 156j.
+3,580 tests (3,574 passing, 6 ignored), zero failures. ~84% workspace coverage. Wave 156j.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
