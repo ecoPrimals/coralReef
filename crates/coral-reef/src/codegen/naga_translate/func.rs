@@ -114,6 +114,19 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
         self.current_instrs.clear();
     }
 
+    fn verify_block_id(&self, id: usize) -> Result<(), CompileError> {
+        if id != self.next_block_id {
+            return Err(CompileError::Internal(
+                format!(
+                    "CFG block id mismatch: expected {}, got {id}",
+                    self.next_block_id,
+                )
+                .into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) fn finish_block(&mut self) -> Result<usize, CompileError> {
         let bb = BasicBlock {
             label: self.current_label,
@@ -121,15 +134,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             instrs: std::mem::take(&mut self.current_instrs),
         };
         let id = self.cfg_builder.add_block(bb);
-        if id != self.next_block_id {
-            return Err(CompileError::InvalidInput(
-                format!(
-                    "CFG block id mismatch: expected {}, got {}",
-                    self.next_block_id, id
-                )
-                .into(),
-            ));
-        }
+        self.verify_block_id(id)?;
         self.next_block_id += 1;
         if let Some(prev) = self.current_block_id {
             self.add_cfg_edge(prev, id);
@@ -145,15 +150,7 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             instrs: std::mem::take(&mut self.current_instrs),
         };
         let id = self.cfg_builder.add_block(bb);
-        if id != self.next_block_id {
-            return Err(CompileError::InvalidInput(
-                format!(
-                    "CFG block id mismatch: expected {}, got {}",
-                    self.next_block_id, id
-                )
-                .into(),
-            ));
-        }
+        self.verify_block_id(id)?;
         self.next_block_id += 1;
         if let Some(prev) = self.current_block_id {
             self.add_cfg_edge(prev, id);

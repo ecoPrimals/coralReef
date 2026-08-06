@@ -23,8 +23,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpIAdd3 {
         let s1_neg = self.srcs[1].modifier == SrcMod::INeg;
 
         if s1_neg && !s0_neg {
-            let mut src1_plain = self.srcs[1].clone();
-            src1_plain.modifier = SrcMod::None;
+            let src1_plain = self.srcs[1].without_modifier();
             encode_vop2_from_srcs(
                 isa::vop2::V_SUB_NC_U32,
                 self.dst(),
@@ -33,8 +32,7 @@ impl EncodeOp<AmdOpEncoder<'_>> for OpIAdd3 {
                 e,
             )
         } else if s0_neg && !s1_neg {
-            let mut src0_plain = self.srcs[0].clone();
-            src0_plain.modifier = SrcMod::None;
+            let src0_plain = self.srcs[0].without_modifier();
             encode_vop2_from_srcs(
                 isa::vop2::V_SUB_NC_U32,
                 self.dst(),

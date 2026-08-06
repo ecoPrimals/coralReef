@@ -75,6 +75,16 @@ impl Src {
         self
     }
 
+    /// Clone this source with the modifier cleared to `SrcMod::None`.
+    #[must_use]
+    pub fn without_modifier(&self) -> Self {
+        Self {
+            reference: self.reference.clone(),
+            modifier: SrcMod::None,
+            swizzle: self.swizzle,
+        }
+    }
+
     pub const fn swizzle(mut self, swizzle: SrcSwizzle) -> Self {
         // Since we only have xx, yy, and xy, for any composition of swizzles,
         // the inner-most non-xy swizzle wins.
