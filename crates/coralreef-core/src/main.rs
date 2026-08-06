@@ -304,11 +304,13 @@ fn log_composition_env() {
 }
 
 #[cfg(feature = "tarpc-transport")]
+/// Separate a composition-supplied UDS path into dual-socket binds (C2 pattern).
+///
 /// When composition passes `--tarpc-bind unix:///path/coralreef-{family}.sock`,
 /// the ecosystem expects that socket to speak JSON-RPC 2.0 — not tarpc binary.
 /// This function separates the two:
 /// - JSON-RPC takes the composition-expected path (returned as the override)
-/// - tarpc moves to a `-tarpc` suffixed socket
+/// - tarpc gets a `.tarpc.sock` extension (C2 dual-socket convention)
 ///
 /// For TCP binds (or absent Unix prefix), both return the original bind string
 /// and no Unix override.
@@ -318,19 +320,20 @@ fn resolve_uds_binds(tarpc_bind: &str) -> (String, Option<std::path::PathBuf>) {
         return (tarpc_bind.to_owned(), None);
     };
     let path = std::path::PathBuf::from(path_str);
-    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-    if stem.ends_with("-tarpc") {
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    if file_name.contains(".tarpc.") {
         return (tarpc_bind.to_owned(), None);
     }
     let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let tarpc_path = path.extension().and_then(|e| e.to_str()).map_or_else(
-        || parent.join(format!("{stem}-tarpc")),
-        |ext| parent.join(format!("{stem}-tarpc.{ext}")),
-    );
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    let tarpc_path = parent.join(format!("{stem}.tarpc.sock"));
     tracing::info!(
         jsonrpc_uds = %path.display(),
         tarpc_uds = %tarpc_path.display(),
-        "separated UDS binds: JSON-RPC on main socket, tarpc on dedicated socket"
+        "separated UDS binds: JSON-RPC on .sock, tarpc on .tarpc.sock (C2)"
     );
     (format!("{UNIX_PREFIX}{}", tarpc_path.display()), Some(path))
 }

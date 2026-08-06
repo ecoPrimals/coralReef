@@ -207,12 +207,23 @@ pub fn capability_domain_socket_filename() -> String {
     format!("{stem}.sock")
 }
 
-/// Compute the socket filename for this primal per wateringHole standard.
+/// Compute the JSON-RPC socket filename for this primal per wateringHole standard.
 ///
 /// Format: `<primal>-<family_id>.sock`
 #[must_use]
 pub fn primal_socket_name() -> String {
     format!("{}-{}.sock", PRIMAL_NAME, family_id())
+}
+
+/// Compute the tarpc socket filename for this primal per C2 dual-socket convention.
+///
+/// Format: `<primal>-<family_id>.tarpc.sock`
+///
+/// The `.tarpc.sock` extension distinguishes the binary tarpc socket from
+/// the JSON-RPC `.sock` file, enabling port-agnostic capability routing.
+#[must_use]
+pub fn primal_tarpc_socket_name() -> String {
+    format!("{}-{}.tarpc.sock", PRIMAL_NAME, family_id())
 }
 
 /// 4-tier socket base directory resolution.
@@ -416,6 +427,26 @@ mod tests {
             Some("sock"),
         );
         assert!(name.contains('-'));
+    }
+
+    #[test]
+    fn test_primal_tarpc_socket_name_c2_convention() {
+        let name = primal_tarpc_socket_name();
+        assert!(
+            name.ends_with(".tarpc.sock"),
+            "tarpc socket should use .tarpc.sock extension (C2), got: {name}"
+        );
+        assert!(name.starts_with(PRIMAL_NAME));
+    }
+
+    #[test]
+    fn test_socket_names_share_primal_prefix() {
+        let jsonrpc = primal_socket_name();
+        let tarpc = primal_tarpc_socket_name();
+        let prefix = format!("{}-{}", PRIMAL_NAME, family_id());
+        assert!(jsonrpc.starts_with(&prefix));
+        assert!(tarpc.starts_with(&prefix));
+        assert_ne!(jsonrpc, tarpc, "JSON-RPC and tarpc sockets must differ");
     }
 
     #[test]

@@ -3,8 +3,9 @@
 //!
 //! All wateringHole health triad methods are implemented: `health_check`,
 //! `health_liveness`, `health_readiness`, plus `identity_get` and
-//! `capability_list`. The tarpc endpoint listens on a `-tarpc.sock` suffixed
-//! socket (via `resolve_uds_binds`), while the main socket speaks JSON-RPC.
+//! `capability_list`. The tarpc endpoint listens on a `.tarpc.sock` socket
+//! (C2 dual-socket convention via `resolve_uds_binds`), while the main
+//! `.sock` socket speaks JSON-RPC.
 //! GAP-04 (tarpc health) is resolved.
 
 use futures::StreamExt;

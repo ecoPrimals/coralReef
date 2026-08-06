@@ -329,7 +329,7 @@ mod tests {
             "provides": ["gpu.dispatch"],
             "transports": {
                 "jsonrpc": { "bind": "unix:///run/user/1000/ecoPrimals/gpu-provider.sock" },
-                "tarpc": { "bind": "unix:///run/user/1000/ecoPrimals/gpu-provider-tarpc.sock" }
+                "tarpc": { "bind": "unix:///run/user/1000/ecoPrimals/gpu-provider.tarpc.sock" }
             },
             "devices": [
                 {

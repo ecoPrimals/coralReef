@@ -166,11 +166,7 @@ pub fn default_tcp_bind() -> String {
 #[must_use]
 pub fn default_tarpc_bind() -> String {
     let dir = config::socket_base_dir().join(config::ecosystem_namespace());
-    let sock = dir.join(format!(
-        "{}-{}-tarpc.sock",
-        config::PRIMAL_NAME,
-        config::family_id(),
-    ));
+    let sock = dir.join(config::primal_tarpc_socket_name());
     format!("unix://{}", sock.display())
 }
 

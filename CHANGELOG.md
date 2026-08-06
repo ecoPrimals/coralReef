@@ -4,11 +4,27 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156i
+**Current status**: Phase 10 — Sprint 14 / Wave 156j
 
 ---
 
 ## [Unreleased]
+
+### Wave 156j: C2 Dual-Socket Convention & Import Cleanup (2026-08-06)
+
+#### Changed
+- Adopted C2 dual-socket naming convention: tarpc sockets now use `.tarpc.sock`
+  extension instead of `-tarpc.sock` dash-prefix (matching songBird/petalTongue pattern).
+  Updated `default_tarpc_bind()`, `resolve_uds_binds()`, `primal_tarpc_socket_name()`,
+  and discovery test fixtures.
+- Cleaned 6 stale unused imports (`ComputeShaderInfo`, `ShaderIoInfo`, `ShaderStageInfo`)
+  from test modules in `legalize`, `lower_f64`, `lower_fma`, `sm70_encode`, `opt_bar_prop`.
+  Zero test compilation warnings.
+
+#### Added
+- `config::primal_tarpc_socket_name()` — canonical tarpc socket filename per C2 convention.
+- 2 config tests: C2 `.tarpc.sock` extension assertion, socket name pair coherence.
+- Test count: 3,540 → 3,542 (+2)
 
 ### Wave 156i: SPIR-V Module Extraction & Control Flow Test Coverage (2026-08-06)
 

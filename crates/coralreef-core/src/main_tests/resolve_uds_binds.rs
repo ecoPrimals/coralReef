@@ -9,11 +9,11 @@ fn tcp_bind_passes_through() {
 }
 
 #[test]
-fn unix_composition_socket_redirects_tarpc() {
+fn unix_composition_socket_produces_c2_tarpc_extension() {
     let (tarpc, jsonrpc) = resolve_uds_binds("unix:///run/user/1000/biomeos/coralreef-alpha.sock");
     assert_eq!(
         tarpc,
-        "unix:///run/user/1000/biomeos/coralreef-alpha-tarpc.sock"
+        "unix:///run/user/1000/biomeos/coralreef-alpha.tarpc.sock"
     );
     assert_eq!(
         jsonrpc.as_ref().unwrap().to_str().unwrap(),
@@ -22,20 +22,20 @@ fn unix_composition_socket_redirects_tarpc() {
 }
 
 #[test]
-fn unix_tarpc_suffix_skips_redirect() {
+fn unix_tarpc_extension_skips_redirect() {
     let (tarpc, jsonrpc) =
-        resolve_uds_binds("unix:///run/user/1000/biomeos/coralreef-core-alpha-tarpc.sock");
+        resolve_uds_binds("unix:///run/user/1000/biomeos/coralreef-alpha.tarpc.sock");
     assert_eq!(
         tarpc,
-        "unix:///run/user/1000/biomeos/coralreef-core-alpha-tarpc.sock"
+        "unix:///run/user/1000/biomeos/coralreef-alpha.tarpc.sock"
     );
     assert!(jsonrpc.is_none());
 }
 
 #[test]
-fn unix_no_extension() {
+fn unix_no_extension_gets_tarpc_sock() {
     let (tarpc, jsonrpc) = resolve_uds_binds("unix:///tmp/coralreef");
-    assert_eq!(tarpc, "unix:///tmp/coralreef-tarpc");
+    assert_eq!(tarpc, "unix:///tmp/coralreef.tarpc.sock");
     assert_eq!(
         jsonrpc.as_ref().unwrap().to_str().unwrap(),
         "/tmp/coralreef"

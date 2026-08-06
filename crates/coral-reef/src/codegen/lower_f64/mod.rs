@@ -275,9 +275,8 @@ impl Shader<'_> {
 #[cfg(test)]
 mod tests {
     use super::super::ir::{
-        BasicBlock, ComputeShaderInfo, Function, Instr, LabelAllocator, Op, OpCopy, OpExit,
-        OpF64Exp2, OpF64Sqrt, PhiAllocator, RegFile, SSAValueAllocator, Shader, ShaderInfo,
-        ShaderIoInfo, ShaderModelInfo, ShaderStageInfo, Src,
+        BasicBlock, Function, Instr, LabelAllocator, Op, OpCopy, OpExit, OpF64Exp2, OpF64Sqrt,
+        PhiAllocator, RegFile, SSAValueAllocator, Shader, ShaderInfo, ShaderModelInfo, Src,
     };
     use coral_reef_stubs::cfg::CFGBuilder;
 

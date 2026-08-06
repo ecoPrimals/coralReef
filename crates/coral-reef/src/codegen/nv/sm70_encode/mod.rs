@@ -128,8 +128,8 @@ mod tests {
     #[test]
     fn test_encode_sm70_shader_minimal() {
         use crate::codegen::ir::{
-            BasicBlock, ComputeShaderInfo, Function, Instr, LabelAllocator, OpExit, OpNop,
-            PhiAllocator, Shader, ShaderInfo, ShaderIoInfo, ShaderStageInfo,
+            BasicBlock, Function, Instr, LabelAllocator, OpExit, OpNop, PhiAllocator, Shader,
+            ShaderInfo,
         };
         use coral_reef_stubs::cfg::CFGBuilder;
 
@@ -161,8 +161,8 @@ mod tests {
     #[test]
     fn test_encode_sm70_shader_with_bra() {
         use crate::codegen::ir::{
-            BasicBlock, ComputeShaderInfo, Function, Instr, LabelAllocator, OpBra, OpExit, OpNop,
-            PhiAllocator, Shader, ShaderInfo, ShaderIoInfo, ShaderStageInfo, Src,
+            BasicBlock, Function, Instr, LabelAllocator, OpBra, OpExit, OpNop, PhiAllocator,
+            Shader, ShaderInfo, Src,
         };
         use coral_reef_stubs::cfg::CFGBuilder;
 
