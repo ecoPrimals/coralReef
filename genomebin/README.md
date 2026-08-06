@@ -19,4 +19,4 @@ genomebin/
 **Active** — compiler pipeline fully operational (`cargo run -- compile`).
 Pure compiler primal — hardware dispatch delegated to toadStool (Sprint 9 excision).
 Sovereign SPIR-V emission, SM120 barrier fix, full math builtin coverage.
-3,525 tests, zero clippy warnings, zero FFI, zero unsafe. Sprint 14 / Wave 156g.
+3,540 tests, zero clippy warnings, zero FFI, zero unsafe. Sprint 14 / Wave 156i.

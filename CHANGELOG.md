@@ -4,11 +4,26 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156g
+**Current status**: Phase 10 — Sprint 14 / Wave 156i
 
 ---
 
 ## [Unreleased]
+
+### Wave 156i: SPIR-V Module Extraction & Control Flow Test Coverage (2026-08-06)
+
+#### Changed
+- Extracted SPIR-V functions (`wgsl_to_spirv`, `module_to_spirv`, `parse_wgsl_to_naga`,
+  `build_spirv_backend_options`) from `lib.rs` (820 LOC → 717 LOC) to new `spirv.rs`
+  module (117 LOC). Public API unchanged via re-exports.
+
+#### Added
+- `tests_control_flow.rs`: 15 E2E control flow translation tests covering if-only,
+  if/else with phis, nested if/else, loop with break, loop with continue, for loop,
+  while loop, switch with valued cases, switch default-only, combined if-in-loop,
+  loop-in-if, multi-variable phis, switch-in-loop, and early return dead code.
+  Exercises `func_control.rs` (670 LOC, previously zero dedicated tests).
+- Test count: 3,525 → 3,540 (+15)
 
 ### Wave 156g: Deep Debt — Alloc Elimination, Test Hardening & Error Reclassify (2026-08-05)
 
