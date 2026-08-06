@@ -8,18 +8,6 @@ use super::ir::*;
 use coral_reef_stubs::fxhash::FxHashMap;
 use types::{CBufRule, ConvBoolToInt, CopyEntry, CopyPropEntry, PrmtEntry};
 
-fn copy_src_ref(reference: &SrcRef) -> SrcRef {
-    match reference {
-        SrcRef::Zero => SrcRef::Zero,
-        SrcRef::True => SrcRef::True,
-        SrcRef::False => SrcRef::False,
-        SrcRef::Imm32(v) => SrcRef::Imm32(*v),
-        SrcRef::CBuf(cb) => SrcRef::CBuf(cb.clone()),
-        SrcRef::SSA(ssa) => SrcRef::SSA(ssa.clone()),
-        SrcRef::Reg(reg) => SrcRef::Reg(*reg),
-    }
-}
-
 struct CopyPropPass<'a> {
     sm: &'a dyn ShaderModel,
     ssa_map: FxHashMap<SSAValue, CopyPropEntry>,
@@ -255,7 +243,7 @@ impl<'a> CopyPropPass<'a> {
                         return;
                     }
 
-                    src.reference = copy_src_ref(&entry.src.reference);
+                    src.reference = entry.src.reference.clone();
                     src.modifier = entry.src.modifier.modify(src.modifier);
                 }
                 CopyPropEntry::Prmt(entry) => {
@@ -327,7 +315,7 @@ impl<'a> CopyPropPass<'a> {
                         }
                     };
 
-                    src.reference = copy_src_ref(&entry_src.reference);
+                    src.reference = entry_src.reference.clone();
                     src.modifier = entry_src.modifier.modify(src.modifier);
                     src.swizzle = new_swizzle;
                 }

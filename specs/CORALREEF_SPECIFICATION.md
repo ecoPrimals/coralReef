@@ -4,7 +4,7 @@
 
 **Version**: 0.2.0
 **Date**: Aug 3, 2026
-**Status**: Phase 10 — Sprint 14 / Wave 156j (Pure compiler primal, 3,542 tests, zero unsafe)
+**Status**: Phase 10 — Sprint 14 / Wave 156j (Pure compiler primal, 3,565 tests, zero unsafe)
 
 ---
 

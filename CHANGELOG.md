@@ -10,6 +10,28 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 156j (cont.): Binary Ops Coverage & Code Debt Cleanup (2026-08-06)
+
+#### Added
+- `tests_binary_ops.rs` — 23 E2E tests covering `expr_binary.rs` (692 LOC, previously
+  zero dedicated tests). Tests exercise f32/i32/u32 arithmetic, bitwise ops (AND/OR/XOR),
+  shifts, float/int comparisons, logical AND/OR, vector ops, and f32 modulo.
+- Test count: 3,542 → 3,565 (+23)
+
+#### Changed
+- Removed redundant `copy_src_ref()` function from `opt_copy_prop` — was manually
+  reimplementing `SrcRef::clone()`. Two callsites replaced with `.clone()`.
+
+#### Audited (no code changes needed)
+- **Hardcoded primal names**: Zero other-primal names in production code. `BEARDOG_SOCKET`
+  is a documented legacy env var alias with `btsp_provider_socket()` as preferred replacement.
+- **External dependencies**: All deps pure Rust. `libc` only transitive via tokio/getrandom.
+- **Mocks/stubs**: No mocks in production. `coral-reef-stubs` are complete pure-Rust impls.
+  `Cpu`/`Npu` compile targets are intentional future extension points.
+- **`.unwrap()` in library code**: Zero production unwraps confirmed.
+- **TODO/FIXME/HACK**: Zero instances in committed `.rs` code.
+- **Files >800 LOC**: All under 800 LOC.
+
 ### Wave 156j: C2 Dual-Socket Convention & Import Cleanup (2026-08-06)
 
 #### Changed

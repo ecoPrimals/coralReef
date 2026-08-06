@@ -1,7 +1,7 @@
 +++
 title = "coralReef Validation Summary"
-description = "Sovereign Rust GPU shader compiler — 3542 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), capability abstraction, PTX macro modernization, BTSP client handshake, zero unsafe, zero C deps"
-date = 2026-08-05
+description = "Sovereign Rust GPU shader compiler — 3565 tests, WGSL/SPIR-V/GLSL to native GPU binary (NVIDIA SM35-SM120, AMD RDNA2-4), capability abstraction, PTX macro modernization, BTSP client handshake, zero unsafe, zero C deps"
+date = 2026-08-06
 
 [taxonomies]
 primals = ["coralreef"]
@@ -10,8 +10,8 @@ springs = []
 
 ## Status
 
-- **3542 tests** (3536 passing, 6 ignored — hardware-gated)
-- **Version**: 0.2.0 — Sprint 14 / Wave 156j, 3,542 tests
+- **3565 tests** (3559 passing, 6 ignored — hardware-gated)
+- **Version**: 0.2.0 — Sprint 14 / Wave 156j, 3,565 tests
 - **Grade**: A++ (Multi-Vendor Sovereign GPU Compiler — Stadial Ready)
 - **License**: AGPL-3.0-or-later
 - **Binary**: `coralreef` (single UniBin, clap subcommands)

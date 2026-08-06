@@ -3,7 +3,7 @@
 # coralReef — Compiler Evolution
 
 **Last updated**: Aug 6, 2026 (Phase 10 — Sprint 14 / Wave 156j)
-**Phase**: 10 — Sprint 14 / Wave 156j: C2 dual-socket convention (`.tarpc.sock`), unused import cleanup. 3,542 tests (3,536 passed, 6 ignored), zero failures, zero unsafe, zero clippy warnings.
+**Phase**: 10 — Sprint 14 / Wave 156j: Binary ops coverage (+23 tests), redundant copy_src_ref removal, C2 dual-socket convention. 3,565 tests (3,559 passed, 6 ignored), zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
