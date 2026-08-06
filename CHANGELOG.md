@@ -10,13 +10,17 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Wave 156j (cont.): Binary Ops Coverage & Code Debt Cleanup (2026-08-06)
+### Wave 156j (cont.): Memory + Binary Ops Coverage & Code Debt Cleanup (2026-08-06)
 
 #### Added
+- `tests_memory_ops.rs` — 15 E2E tests covering `func_mem.rs` (381 LOC, previously
+  zero dedicated tests). Tests exercise global load/store, vec4 memory, shared memory
+  with barriers, atomics (add/max/exchange/CAS), dynamic array indexing, struct field
+  access, uniform buffers, local variables, local arrays, and arrayLength.
 - `tests_binary_ops.rs` — 23 E2E tests covering `expr_binary.rs` (692 LOC, previously
   zero dedicated tests). Tests exercise f32/i32/u32 arithmetic, bitwise ops (AND/OR/XOR),
   shifts, float/int comparisons, logical AND/OR, vector ops, and f32 modulo.
-- Test count: 3,542 → 3,565 (+23)
+- Test count: 3,542 → 3,580 (+38)
 
 #### Changed
 - Removed redundant `copy_src_ref()` function from `opt_copy_prop` — was manually

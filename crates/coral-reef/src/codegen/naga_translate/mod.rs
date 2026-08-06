@@ -214,6 +214,8 @@ mod tests_binary_ops;
 #[cfg(test)]
 mod tests_control_flow;
 #[cfg(test)]
+mod tests_memory_ops;
+#[cfg(test)]
 mod tests_expr_func_ops_coverage;
 #[cfg(test)]
 mod tests_interpolation_builtins;
