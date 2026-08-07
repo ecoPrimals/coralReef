@@ -597,18 +597,6 @@ async fn create_btsp_session(
     Ok((session_id, handshake_key))
 }
 
-#[cfg(not(unix))]
-#[allow(clippy::unused_async, reason = "signature parity with Unix variant")]
-async fn create_btsp_session(
-    _security_sock: &std::path::Path,
-    _family_id: &str,
-) -> Result<(String, Option<[u8; 32]>), BtspSessionError> {
-    Err(BtspSessionError::Protocol(
-        "BTSP handshake requires Unix domain sockets".into(),
-    ))
-}
-
-#[cfg(unix)]
 fn b64_encode(input: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
