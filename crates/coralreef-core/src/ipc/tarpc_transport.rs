@@ -322,7 +322,7 @@ fn start_tarpc_local_impl(
             tokio::select! {
                 result = listener.accept() => {
                     match result {
-                        Ok((stream, _addr)) => {
+                        Ok(stream) => {
                             let framed = LengthDelimitedBuilder::new().new_framed(stream);
                             let transport = tarpc::serde_transport::new(
                                 framed,

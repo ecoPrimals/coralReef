@@ -15,30 +15,21 @@ use std::path::{Path, PathBuf};
 // Client: connect
 // ---------------------------------------------------------------------------
 
-/// Async-connect to a local socket path.
+/// Async-connect to a local socket path via the G66 transport layer.
 ///
-/// Unix: `tokio::net::UnixStream::connect`.
-/// Non-Unix: returns [`std::io::ErrorKind::Unsupported`].
+/// Returns a [`TransportStream`] — callers operate on the abstracted byte
+/// pipe without knowing the underlying transport. On Unix this is a UDS
+/// connection; on non-Unix it returns `Unsupported` (future: TCP fallback).
 ///
 /// # Errors
 ///
 /// Returns an IO error if the socket does not exist, connection is refused,
-/// or (on non-Unix) local sockets are unsupported.
-#[cfg(unix)]
-pub async fn connect_local(path: &Path) -> std::io::Result<tokio::net::UnixStream> {
-    tokio::net::UnixStream::connect(path).await
-}
-
-/// Async-connect to a local socket path (non-Unix stub).
-///
-/// # Errors
-///
-/// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
-#[cfg(not(unix))]
-#[allow(clippy::unused_async, reason = "signature parity with Unix variant")]
-pub async fn connect_local(path: &Path) -> std::io::Result<tokio::net::TcpStream> {
-    let _ = path;
-    Err(unsupported("local socket connections"))
+/// or the transport is unavailable on this platform.
+pub async fn connect_local(path: &Path) -> std::io::Result<crate::ipc::transport::TransportStream> {
+    let endpoint = crate::ipc::transport::TransportEndpoint::Uds {
+        path: path.to_string_lossy().into_owned(),
+    };
+    crate::ipc::transport::connect_transport(&endpoint).await
 }
 
 /// Sync-connect to a local socket path.
@@ -87,18 +78,19 @@ pub fn prepare_local_bind(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Bind a local (Unix domain) socket listener.
+/// Bind a local listener via the G66 transport layer.
 ///
 /// Caller should call [`prepare_local_bind`] first. On Unix this creates a
-/// `tokio::net::UnixListener`; on non-Unix it returns `Unsupported`.
+/// UDS listener; on non-Unix it returns `Unsupported` (future: named pipe).
 ///
 /// # Errors
 ///
 /// Returns an IO error if the socket cannot be bound or (on non-Unix) local
 /// sockets are unsupported.
 #[cfg(unix)]
-pub fn bind_local(path: &Path) -> std::io::Result<tokio::net::UnixListener> {
-    tokio::net::UnixListener::bind(path)
+pub fn bind_local(path: &Path) -> std::io::Result<crate::ipc::transport::TransportListener> {
+    let listener = tokio::net::UnixListener::bind(path)?;
+    Ok(crate::ipc::transport::TransportListener::Unix(listener))
 }
 
 /// Bind a local socket listener (non-Unix stub).
@@ -107,7 +99,7 @@ pub fn bind_local(path: &Path) -> std::io::Result<tokio::net::UnixListener> {
 ///
 /// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
 #[cfg(not(unix))]
-pub fn bind_local(path: &Path) -> std::io::Result<std::net::TcpListener> {
+pub fn bind_local(path: &Path) -> std::io::Result<crate::ipc::transport::TransportListener> {
     let _ = path;
     Err(unsupported("local socket server"))
 }

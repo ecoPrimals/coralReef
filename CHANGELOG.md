@@ -4,11 +4,37 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156q
+**Current status**: Phase 10 — Sprint 14 / Wave 156s
 
 ---
 
 ## [Unreleased]
+
+### Wave 156s: G66 Transport Abstraction (2026-08-06)
+
+#### Added
+- **G66 transport abstraction** (silicon-agnostic IPC): `TransportStream` enum
+  (`Unix` + `Tcp`) with `AsyncRead + AsyncWrite` delegation, `TransportListener`
+  with `accept() → TransportStream`, `connect_transport()` bridge function, and
+  `TransportEndpoint::platform_default()` / `from_env_or_default()` for
+  environment-injected transport selection.
+- 13 new tests: `TransportStream` UDS/TCP roundtrips, `TransportListener` accept,
+  `connect_transport` error cases, `platform_default` behavior, debug formatting.
+- Test count: 3,689 → 3,702 (+13)
+
+#### Changed
+- Refactored G65 accept loop: `dispatch_connection()`, `handle_g65_connection()`,
+  `handle_brace_connection()` all operate on `TransportStream` — transport-agnostic
+  protocol negotiation and JSON-RPC dispatch.
+- Refactored BTSP client: `security_rpc()` and `create_btsp_session()` use
+  `connect_transport()` instead of direct `UnixStream::connect()`. Removed
+  `#[cfg(unix)]` gates from these functions.
+- Evolved `local_transport::connect_local()` to return `TransportStream` via
+  `connect_transport()`. Evolved `bind_local()` to return `TransportListener`.
+- Evolved tarpc local server to accept `TransportStream` from `TransportListener`.
+- **Silicon deism eliminated**: `tokio::net::UnixStream`/`UnixListener` confined
+  to `transport.rs` and the `#[cfg(unix)]` server bind. Zero unconditional Unix
+  imports in IPC business logic.
 
 ### Wave 156q: C3 Health Shim Verification (2026-08-06)
 

@@ -2,11 +2,11 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 156q.
+**Current position**: Phase 10 — Sprint 14 / Wave 156s.
 
-**Last completed**: Wave 156q — C3 health shim verification: 3 G65 E2E integration tests proving `health.liveness` works through negotiated JSON-RPC and backward-compat paths. Wave 156p — G65 protocol negotiation (Phase 3 cephalization), single-socket tarpc + JSON-RPC. Wave 156m — dispatch refactor, adapter inference tests. Wave 156l — cast/conversion coverage, visibility narrowing.
+**Last completed**: Wave 156s — G66 transport abstraction: `TransportStream`/`TransportListener` confine `#[cfg(unix)]` to the transport layer. G65 handlers, BTSP client, local_transport all evolved to silicon-agnostic types. Wave 156q — C3 health shim verification. Wave 156p — G65 protocol negotiation. Wave 156m — dispatch refactor, adapter inference tests.
 
-**Tests**: 3,689 total (3,683 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,702 total (3,696 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 6, 2026.
 

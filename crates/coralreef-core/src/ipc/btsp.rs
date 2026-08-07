@@ -347,7 +347,6 @@ where
     Ok(session_id)
 }
 
-#[cfg(unix)]
 async fn security_rpc(
     security_sock: &std::path::Path,
     method: &str,
@@ -355,8 +354,11 @@ async fn security_rpc(
 ) -> Result<serde_json::Value, BtspSessionError> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    let stream = tokio::net::UnixStream::connect(security_sock).await?;
-    let (reader, mut writer) = stream.into_split();
+    let endpoint = super::transport::TransportEndpoint::Uds {
+        path: security_sock.to_string_lossy().into_owned(),
+    };
+    let stream = super::transport::connect_transport(&endpoint).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
 
     let request = serde_json::json!({
         "jsonrpc": "2.0",
@@ -528,15 +530,17 @@ fn check_discovery_file_for_method(path: &std::path::Path, method: &str) -> Opti
 /// a base64-encoded 32-byte `handshake_key`. When present, this key enables real
 /// AEAD in Phase 3 negotiation. When absent (older provider), Phase 3 falls back
 /// to null cipher.
-#[cfg(unix)]
 async fn create_btsp_session(
     security_sock: &std::path::Path,
     family_id: &str,
 ) -> Result<(String, Option<[u8; 32]>), BtspSessionError> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    let stream = tokio::net::UnixStream::connect(security_sock).await?;
-    let (reader, mut writer) = stream.into_split();
+    let endpoint = super::transport::TransportEndpoint::Uds {
+        path: security_sock.to_string_lossy().into_owned(),
+    };
+    let stream = super::transport::connect_transport(&endpoint).await?;
+    let (reader, mut writer) = tokio::io::split(stream);
 
     let request = serde_json::json!({
         "jsonrpc": "2.0",

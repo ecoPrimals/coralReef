@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: Aug 6, 2026 (Phase 10 — Sprint 14 / Wave 156q)
-**Phase**: 10 — Sprint 14 / Wave 156q: G65 protocol negotiation + C3 health shim verified (full cephalization). Single-socket tarpc + JSON-RPC via `PROTOCOLS:` handshake. 3,689 tests (3,683 passed, 6 ignored), zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: Aug 6, 2026 (Phase 10 — Sprint 14 / Wave 156s)
+**Phase**: 10 — Sprint 14 / Wave 156s: G66 transport abstraction (silicon-agnostic IPC). `TransportStream` + `TransportListener` confine `#[cfg(unix)]` to the transport layer. G65 protocol negotiation + C3 health shim verified. 3,702 tests (3,696 passed, 6 ignored), zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
