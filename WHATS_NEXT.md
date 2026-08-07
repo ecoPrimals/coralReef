@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 156s.
+**Current position**: Phase 10 — Sprint 14 / Wave 157a.
 
-**Last completed**: Wave 156s — G66 transport abstraction: `TransportStream`/`TransportListener` confine `#[cfg(unix)]` to the transport layer. G65 handlers, BTSP client, local_transport all evolved to silicon-agnostic types. Wave 156q — C3 health shim verification. Wave 156p — G65 protocol negotiation. Wave 156m — dispatch refactor, adapter inference tests.
+**Last completed**: Wave 157a — G68 Platform Substrate L1 evolution: `create_local_symlink()` now uses `symlink_file` on Windows. G68 audit: 4 production files with `std::os::unix`, zero L2 (permissions), zero L3 (device backends). Depot rebuilt (musl 17/17, Windows 14/15). Wave 156s — G66 transport abstraction. Wave 156p — G65 protocol negotiation. Wave 156m — dispatch refactor.
 
-**Tests**: 3,702 total (3,696 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,672 total (3,672 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
-**Last updated**: Aug 6, 2026.
+**Last updated**: Aug 7, 2026.
 
-**Next focus**: Coverage push toward 90% (compiler backends are main gap). C3 JSON-RPC health shim (nestgate.io 13/13 — may be deployment config, not code). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
+**Next focus**: Deploy across NUCLEUS gates (depot ready). G68 convergence (sourDough leads, primals converge independently). Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
 
 ---
 

@@ -2,8 +2,8 @@
 
 # coralReef — Status
 
-**Last updated**: Aug 6, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 156s (G66 transport abstraction, G65 protocol negotiation, C3 health shim verified. 3,702 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
+**Last updated**: Aug 7, 2026  
+**Version**: 0.2.0 — Sprint 14 / Wave 157a (G68 Platform Substrate L1 evolved: `create_local_symlink()` uses `symlink_file` on Windows. G68 audit: 4 production files, zero L2/L3 exposure. Depot rebuilt. Cross-arch 15/15 PASS. 3,672 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
 
 ---
 

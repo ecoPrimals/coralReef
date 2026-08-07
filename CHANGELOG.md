@@ -4,11 +4,31 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 156s
+**Current status**: Phase 10 — Sprint 14 / Wave 157a
 
 ---
 
 ## [Unreleased]
+
+### Wave 157a: G68 Platform Substrate L1 + Depot Readiness (2026-08-07)
+
+#### Evolved (G68 L1: Platform Links)
+- `create_local_symlink()` in `transport.rs`: non-Unix stub now uses
+  `std::os::windows::fs::symlink_file` on Windows instead of returning
+  `Unsupported`. Falls back gracefully on targets without link support.
+  Silicon deism eliminated from capability-domain discovery links.
+- `primal-rpc-client/transport.rs`: unified `connect_local()` clippy
+  compliance for Windows (`unused_async` allowed with documented reason).
+
+#### G68 Audit Results (coralReef)
+- **4 production files** use `std::os::unix` (9 test-only excluded).
+- **L1 (Links)**: `create_local_symlink()` — evolved to G68 (symlink on Unix,
+  `symlink_file` on Windows).
+- **L2 (Permissions)**: zero `PermissionsExt`/`set_mode` usage.
+- **L3 (Device backends)**: zero `rustix`/`libc` direct usage.
+- **G66 transport**: already abstracted via `TransportStream` (Wave 156s).
+- coralReef's G68 exposure is minimal — primarily a compiler primal with no
+  hardware-direct APIs.
 
 ### Wave 156s: G66 Transport Abstraction (2026-08-06)
 

@@ -539,17 +539,24 @@ pub fn connect_transport_sync(
 }
 
 // ---------------------------------------------------------------------------
-// create_local_symlink — filesystem abstraction (G66)
+// create_local_symlink — platform link abstraction (G66 → G68 L1)
 // ---------------------------------------------------------------------------
 
-/// Create a symbolic link (Unix) or skip gracefully (non-Unix).
+/// Create a platform-native link for capability-domain discovery.
 ///
-/// Confines `std::os::unix::fs::symlink` to the transport layer.
+/// - **Unix**: symbolic link via `std::os::unix::fs::symlink`.
+/// - **Windows**: `std::os::windows::fs::symlink_file` (requires
+///   Developer Mode or `SeCreateSymbolicLinkPrivilege`). Falls back to
+///   `Unsupported` if the privilege is unavailable.
+///
+/// Capability-domain links enable primals to discover peers by domain
+/// (`shader.sock → coralreef-core-default.sock`). On Windows TCP-only
+/// deployments, discovery uses the JSON manifest instead.
 ///
 /// # Errors
 ///
-/// Returns an IO error if symlink creation fails (Unix) or if symlinks
-/// are unavailable (non-Unix returns `Unsupported`).
+/// Returns an IO error if link creation fails or the platform cannot
+/// create links with current privileges.
 pub fn create_local_symlink(
     target: &std::ffi::OsStr,
     link: &std::path::Path,
@@ -558,12 +565,16 @@ pub fn create_local_symlink(
     {
         std::os::unix::fs::symlink(target, link)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::symlink_file(target, link)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (target, link);
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
-            "symlinks not available on this platform",
+            "platform links not available on this target",
         ))
     }
 }

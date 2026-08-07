@@ -67,6 +67,10 @@ impl tokio::io::AsyncWrite for LocalStream {
 ///
 /// Unix: `tokio::net::UnixStream::connect`.
 /// Non-Unix: returns [`std::io::ErrorKind::Unsupported`].
+#[allow(
+    clippy::unused_async,
+    reason = "Unix path uses .await; async required for signature parity"
+)]
 async fn connect_local(path: &std::path::Path) -> std::io::Result<LocalStream> {
     #[cfg(unix)]
     {
