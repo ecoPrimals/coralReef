@@ -12,6 +12,19 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ### Wave 157a: G68 Platform Substrate Deep Evolution (2026-08-07)
 
+#### Added (AMD RDNA2 PLop3 Predicate Logic)
+- Implemented `PLop3` encoding for AMD RDNA2 backend. NVIDIA's native `PLOP3`
+  instruction (3-input predicate logic via truth-table LUT) is decomposed into
+  AMD SOP2/SOP1 scalar operations on VCC: `S_AND_B32`, `S_OR_B32`, `S_XOR_B32`,
+  `S_ANDN2_B32`, `S_ORN2_B32`, `S_NAND_B32`, `S_NOR_B32`, `S_NOT_B32`, `S_MOV_B32`.
+- Unblocks RDNA2 compilation of shaders using logical AND/OR/NOT on predicate
+  values (e.g., `if (a >= b || c >= d) { return; }`).
+- Removed `#[ignore]` from `deformed_wavefunction_f64_rdna2` — HFB wavefunction
+  shader now compiles for RDNA2.
+- Removed `#[ignore]` from `e2e_spawned_binary_jsonrpc_and_tarpc` — stale gate
+  (binary built by `cargo test`).
+- Test count: 3,699 passed (was 3,695 + 6 ignored, now 3,699 + 4 ignored).
+
 #### Evolved (G68 L1: Platform Links)
 - `create_local_symlink()` in `transport.rs`: non-Unix stub now uses
   `std::os::windows::fs::symlink_file` on Windows instead of returning

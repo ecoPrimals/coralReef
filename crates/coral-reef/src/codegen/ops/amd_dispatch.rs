@@ -123,6 +123,9 @@ macro_rules! op_encode_amd {
             Op::Bfe(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
             Op::BMsk(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
 
+            // ---- Predicate logic ops (ops/alu_int.rs) ----
+            Op::PLop3(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op.as_ref(), $enc),
+
             // ---- Control flow ops (ops/control.rs) ----
             Op::Exit(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op, $enc),
             Op::Nop(op) => EncodeOp::<AmdOpEncoder<'_>>::encode(op, $enc),

@@ -242,6 +242,7 @@ fn legalize_rdna2_op(b: &mut LegalizeBuilder, op: &mut Op) -> Result<(), Compile
             b.copy_alu_src_if_not_reg(op.src_mut(), gpr, SrcType::ALU);
         }
         Op::Bar(_) | Op::S2R(_) | Op::CS2R(_) => {}
+        Op::PLop3(_) => {}
         Op::Undef(_)
         | Op::PhiSrcs(_)
         | Op::PhiDsts(_)
@@ -433,6 +434,7 @@ fn estimate_instr_size(op: &Op) -> usize {
             1 + overhead
         }
         Op::Mov(_) => 1,
+        Op::PLop3(_) => 1, // SOP2 scalar logic (S_AND_B32, S_OR_B32, etc.)
         Op::Bra(_) | Op::Exit(_) | Op::Nop(_) | Op::Bar(_) => 1,
         Op::Ld(_) => 3, // FLAT_LOAD (2) + S_WAITCNT (1)
         Op::St(_) | Op::Atom(_) => 2,

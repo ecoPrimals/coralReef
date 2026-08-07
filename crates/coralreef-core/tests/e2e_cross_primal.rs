@@ -97,7 +97,6 @@ fn send_sigterm(pid: u32) {
 fn send_sigterm(_pid: u32) {}
 
 #[tokio::test]
-#[ignore = "requires built coralreef binary (cargo build -p coralreef-core --bin coralreef)"]
 async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
     let bin = env!("CARGO_BIN_EXE_coralreef");
     let mut child = tokio::process::Command::new(bin)

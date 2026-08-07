@@ -451,7 +451,6 @@ fn deformed_hamiltonian_f64_rdna2() {
 }
 
 #[test]
-#[ignore = "RDNA2 encoding not yet implemented for instruction used in HO recurrence"]
 fn deformed_wavefunction_f64_rdna2() {
     let r = compile_wgsl(DEFORMED_WAVEFUNCTION_F64_WGSL, &amd_opts());
     assert!(
