@@ -2,6 +2,28 @@
 //! Unit tests for the BTSP session negotiation module.
 
 use super::*;
+use super::super::transport::TransportEndpoint;
+
+/// Test helper: replicate `discover_security_socket` logic with an explicit
+/// directory instead of env-derived `resolve_socket_dir()`.
+fn discover_security_socket_in_dir(
+    sock_dir: &std::path::Path,
+    family_id: &str,
+) -> Option<TransportEndpoint> {
+    let scoped = sock_dir.join(format!("{SECURITY_DOMAIN}-{family_id}.sock"));
+    if scoped.exists() {
+        return Some(TransportEndpoint::Uds {
+            path: scoped.to_string_lossy().into_owned(),
+        });
+    }
+    let unscoped = sock_dir.join(format!("{SECURITY_DOMAIN}.sock"));
+    if unscoped.exists() {
+        return Some(TransportEndpoint::Uds {
+            path: unscoped.to_string_lossy().into_owned(),
+        });
+    }
+    discover_by_capability(sock_dir, "btsp.session.create")
+}
 
 #[test]
 fn development_mode_allows_all() {
@@ -163,7 +185,9 @@ fn discover_scoped_socket_preferred_over_unscoped() {
     let result = discover_security_socket_in_dir(sock_dir, family);
     assert_eq!(
         result,
-        Some(scoped),
+        Some(TransportEndpoint::Uds {
+            path: scoped.to_string_lossy().into_owned(),
+        }),
         "scoped socket should win over unscoped"
     );
 }
@@ -177,7 +201,12 @@ fn discover_falls_back_to_unscoped_socket() {
     std::fs::write(&unscoped, "").expect("create unscoped");
 
     let result = discover_security_socket_in_dir(sock_dir, "no-scoped-here");
-    assert_eq!(result, Some(unscoped));
+    assert_eq!(
+        result,
+        Some(TransportEndpoint::Uds {
+            path: unscoped.to_string_lossy().into_owned(),
+        })
+    );
 }
 
 #[test]
@@ -199,7 +228,12 @@ fn discover_by_capability_finds_matching_discovery_file() {
         .expect("write discovery");
 
     let result = discover_by_capability(sock_dir, "btsp.session.create");
-    assert_eq!(result, Some(mock_sock));
+    assert_eq!(
+        result,
+        Some(TransportEndpoint::Uds {
+            path: mock_sock.to_string_lossy().into_owned(),
+        })
+    );
 }
 
 #[test]
@@ -236,15 +270,23 @@ fn check_discovery_file_missing_methods_field() {
 }
 
 #[test]
-fn check_discovery_file_missing_transport_unix() {
+fn check_discovery_file_tcp_fallback_when_no_unix() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("no-transport.json");
+    let path = dir.path().join("tcp-only.json");
     let data = serde_json::json!({
         "methods": ["btsp.session.create"],
         "transports": {"tcp": "127.0.0.1:9999"}
     });
     std::fs::write(&path, data.to_string()).expect("write");
-    assert!(check_discovery_file_for_method(&path, "btsp.session.create").is_none());
+    let result = check_discovery_file_for_method(&path, "btsp.session.create");
+    assert_eq!(
+        result,
+        Some(TransportEndpoint::Tcp {
+            host: "127.0.0.1".into(),
+            port: 9999,
+        }),
+        "G68: TCP fallback should be returned when UDS is unavailable"
+    );
 }
 
 #[test]

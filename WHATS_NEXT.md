@@ -4,7 +4,7 @@
 
 **Current position**: Phase 10 — Sprint 14 / Wave 157a.
 
-**Last completed**: Wave 157a — G68 Platform Substrate L1 evolution: `create_local_symlink()` now uses `symlink_file` on Windows. G68 audit: 4 production files with `std::os::unix`, zero L2 (permissions), zero L3 (device backends). Depot rebuilt (musl 17/17, Windows 14/15). Wave 156s — G66 transport abstraction. Wave 156p — G65 protocol negotiation. Wave 156m — dispatch refactor.
+**Last completed**: Wave 157a — G68 Platform Substrate deep evolution: L1 links done, IPC silicon deism eliminated (18 sites evolved). Ecosystem registration, BTSP discovery, provenance signing, security provider handshake all use `TransportEndpoint` — TCP works on non-Unix when discovered. `TransportEndpoint::from_bind_string()` canonical parser. Zero L2/L3 exposure. Wave 156s — G66 transport abstraction.
 
 **Tests**: 3,672 total (3,672 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 

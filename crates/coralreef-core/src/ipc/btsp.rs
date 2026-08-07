@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use super::btsp_negotiate::register_session;
+use super::transport::TransportEndpoint;
 use crate::config;
 use crate::env_keys;
 
@@ -346,16 +347,13 @@ where
 }
 
 async fn security_rpc(
-    security_sock: &std::path::Path,
+    endpoint: &TransportEndpoint,
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, BtspSessionError> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    let endpoint = super::transport::TransportEndpoint::Uds {
-        path: security_sock.to_string_lossy().into_owned(),
-    };
-    let stream = super::transport::connect_transport(&endpoint).await?;
+    let stream = super::transport::connect_transport(endpoint).await?;
     let (reader, mut writer) = tokio::io::split(stream);
 
     let request = serde_json::json!({
@@ -429,7 +427,7 @@ async fn guard_connection_inner() -> BtspOutcome {
             let reason = format!(
                 "BTSP session creation failed (provider at {}): {e}. \
                  Accepting in degraded mode.",
-                security_sock.display()
+                security_sock.display_uri()
             );
             tracing::warn!("{reason}");
             BtspOutcome::Degraded { reason }
@@ -443,7 +441,10 @@ fn resolve_socket_dir() -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join(config::ecosystem_namespace()))
 }
 
-/// Discover the security-domain socket for BTSP handshake delegation.
+/// Discover the security-domain endpoint for BTSP handshake delegation.
+///
+/// **G68**: returns [`TransportEndpoint`] — UDS when a socket file exists,
+/// TCP when a discovery file advertises a TCP bind.
 ///
 /// Resolution chain (first match wins):
 /// 1. `$BTSP_PROVIDER_SOCKET` — explicit from composition launcher
@@ -455,52 +456,73 @@ fn resolve_socket_dir() -> PathBuf {
     clippy::redundant_pub_crate,
     reason = "crate-visible discovery helper shared by btsp handshake and service/provenance"
 )]
-pub(crate) fn discover_security_socket(family_id: &str) -> Option<PathBuf> {
+pub(crate) fn discover_security_socket(family_id: &str) -> Option<TransportEndpoint> {
     if let Some(path) = config::btsp_provider_socket().filter(|p| p.exists()) {
         tracing::debug!(path = %path.display(), "BTSP provider from $BTSP_PROVIDER_SOCKET");
-        return Some(path);
+        return Some(TransportEndpoint::Uds {
+            path: path.to_string_lossy().into_owned(),
+        });
     }
 
     if let Some(path) = config::security_provider_legacy_socket().filter(|p| p.exists()) {
         tracing::debug!(path = %path.display(), "BTSP provider from $BEARDOG_SOCKET (legacy alias)");
-        return Some(path);
+        return Some(TransportEndpoint::Uds {
+            path: path.to_string_lossy().into_owned(),
+        });
     }
 
     let sock_dir = resolve_socket_dir();
 
     let scoped = sock_dir.join(format!("{SECURITY_DOMAIN}-{family_id}.sock"));
     if scoped.exists() {
-        return Some(scoped);
+        return Some(TransportEndpoint::Uds {
+            path: scoped.to_string_lossy().into_owned(),
+        });
     }
 
     let unscoped = sock_dir.join(format!("{SECURITY_DOMAIN}.sock"));
     if unscoped.exists() {
-        return Some(unscoped);
+        return Some(TransportEndpoint::Uds {
+            path: unscoped.to_string_lossy().into_owned(),
+        });
     }
 
     discover_by_capability(&sock_dir, "btsp.session.create")
 }
 
 /// Scan discovery files for a primal advertising a specific method.
+///
+/// **G68**: returns [`TransportEndpoint`] — prefers UDS when the socket file
+/// exists, falls back to TCP bind strings from discovery JSON.
 #[allow(
     clippy::redundant_pub_crate,
     reason = "crate-visible discovery helper shared by btsp handshake and service/provenance"
 )]
-pub(crate) fn discover_by_capability(sock_dir: &std::path::Path, method: &str) -> Option<PathBuf> {
+pub(crate) fn discover_by_capability(
+    sock_dir: &std::path::Path,
+    method: &str,
+) -> Option<TransportEndpoint> {
     let entries = std::fs::read_dir(sock_dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "json")
-            && let Some(sock) = check_discovery_file_for_method(&path, method)
+            && let Some(ep) = check_discovery_file_for_method(&path, method)
         {
-            return Some(sock);
+            return Some(ep);
         }
     }
     None
 }
 
 /// Check a single discovery file for a primal advertising a given method.
-fn check_discovery_file_for_method(path: &std::path::Path, method: &str) -> Option<PathBuf> {
+///
+/// **G68**: extracts a [`TransportEndpoint`] from the discovery file.
+/// Prefers UDS (if socket exists on disk), falls back to TCP, then
+/// `transports.jsonrpc.bind` parsed through [`crate::ecosystem::parse_bind_to_endpoint`].
+fn check_discovery_file_for_method(
+    path: &std::path::Path,
+    method: &str,
+) -> Option<TransportEndpoint> {
     let content = std::fs::read_to_string(path).ok()?;
     let info: serde_json::Value = serde_json::from_str(&content).ok()?;
     let methods = info.get("methods")?.as_array()?;
@@ -510,34 +532,55 @@ fn check_discovery_file_for_method(path: &std::path::Path, method: &str) -> Opti
     if !has_method {
         return None;
     }
-    let unix_addr = info
+
+    if let Some(unix_addr) = info
         .get("transports")
         .and_then(|t| t.get("unix"))
         .and_then(|v| v.as_str())
-        .and_then(|s| s.strip_prefix("unix://"))?;
-    let sock = PathBuf::from(unix_addr);
-    sock.exists().then_some(sock)
+        .and_then(|s| s.strip_prefix("unix://"))
+    {
+        let sock = PathBuf::from(unix_addr);
+        if sock.exists() {
+            return Some(TransportEndpoint::Uds {
+                path: unix_addr.to_owned(),
+            });
+        }
+    }
+
+    if let Some(tcp_bind) = info
+        .get("transports")
+        .and_then(|t| t.get("tcp"))
+        .and_then(|v| v.as_str())
+    {
+        if let Some(ep) = TransportEndpoint::from_bind_string(tcp_bind) {
+            return Some(ep);
+        }
+    }
+
+    let jsonrpc_bind = info
+        .get("transports")
+        .and_then(|t| t.get("jsonrpc"))
+        .and_then(|j| j.get("bind"))
+        .and_then(serde_json::Value::as_str)?;
+    TransportEndpoint::from_bind_string(jsonrpc_bind)
 }
 
 /// Create a BTSP session via the security provider's `btsp.session.create` RPC.
 ///
-/// Connects over UDS, sends one newline-delimited JSON-RPC request, reads one
-/// response line. Returns `(session_id, Option<handshake_key>)`.
+/// **G68**: connects via [`TransportEndpoint`] — UDS or TCP depending on
+/// how the security provider was discovered.
 ///
 /// Per `BTSP_PROTOCOL_STANDARD` v1.0, the `btsp.session.create` response includes
 /// a base64-encoded 32-byte `handshake_key`. When present, this key enables real
 /// AEAD in Phase 3 negotiation. When absent (older provider), Phase 3 falls back
 /// to null cipher.
 async fn create_btsp_session(
-    security_sock: &std::path::Path,
+    endpoint: &TransportEndpoint,
     family_id: &str,
 ) -> Result<(String, Option<[u8; 32]>), BtspSessionError> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    let endpoint = super::transport::TransportEndpoint::Uds {
-        path: security_sock.to_string_lossy().into_owned(),
-    };
-    let stream = super::transport::connect_transport(&endpoint).await?;
+    let stream = super::transport::connect_transport(endpoint).await?;
     let (reader, mut writer) = tokio::io::split(stream);
 
     let request = serde_json::json!({

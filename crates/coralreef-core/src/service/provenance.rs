@@ -27,53 +27,56 @@
 use crate::config;
 use crate::ipc::{btsp, btsp_client};
 use crate::service::types::ArtifactProvenance;
+use crate::transport::TransportEndpoint;
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 use std::sync::OnceLock;
 
-/// Cached socket path for the `crypto.sign` provider.
+/// Cached endpoint for the `crypto.sign` provider.
 ///
+/// **G68**: stores a [`TransportEndpoint`] (UDS or TCP), not a filesystem path.
 /// Resolved once at first use. `None` means no provider was found.
 /// Re-discovery requires process restart — consistent with ecosystem
 /// primal lifecycle (primals restart on topology changes).
-static CRYPTO_SIGN_SOCKET: OnceLock<Option<PathBuf>> = OnceLock::new();
+static CRYPTO_SIGN_ENDPOINT: OnceLock<Option<TransportEndpoint>> = OnceLock::new();
 
-/// Discover and cache the `crypto.sign` provider socket.
-fn crypto_sign_socket() -> Option<&'static PathBuf> {
-    CRYPTO_SIGN_SOCKET
+/// Discover and cache the `crypto.sign` provider endpoint.
+fn crypto_sign_endpoint() -> Option<&'static TransportEndpoint> {
+    CRYPTO_SIGN_ENDPOINT
         .get_or_init(|| {
             let sock_dir = config::socket_base_dir();
-            let socket = btsp::discover_by_capability(&sock_dir, "crypto.sign");
-            if let Some(ref path) = socket {
+            let endpoint = btsp::discover_by_capability(&sock_dir, "crypto.sign");
+            if let Some(ref ep) = endpoint {
                 tracing::info!(
-                    path = %path.display(),
+                    endpoint = %ep.display_uri(),
                     "crypto.sign provider discovered — artifact signing enabled"
                 );
             } else {
                 tracing::debug!("no crypto.sign provider found — provenance will be unsigned");
             }
-            socket
+            endpoint
         })
         .as_ref()
 }
 
 /// Attempt to sign a content hash via the discovered `crypto.sign` provider.
 ///
-/// Sends a newline-delimited JSON-RPC request over the Unix socket and
-/// reads one response line. Returns `(signature_hex, key_id)` on success.
+/// **G68**: connects via [`TransportEndpoint`] — works over UDS or TCP
+/// depending on how the provider was discovered.
 ///
-/// Uses `std::os::unix::net::UnixStream` for synchronous I/O — the signing
-/// call is a single request/response exchange that completes in microseconds
-/// on a local socket.
+/// Returns `(signature_hex, key_id)` on success.
+#[allow(
+    clippy::missing_const_for_fn,
+    reason = "production path performs I/O; consistent signature required"
+)]
 fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
     use std::io::{BufRead, BufReader, Write};
 
-    let socket_path = crypto_sign_socket()?;
+    let endpoint = crypto_sign_endpoint()?;
 
-    let stream = crate::local_transport::connect_local_sync(socket_path)
+    let stream = crate::transport::connect_transport_sync(endpoint)
         .inspect_err(|e| {
             tracing::warn!(
-                path = %socket_path.display(),
+                endpoint = %endpoint.display_uri(),
                 error = %e,
                 "failed to connect to crypto.sign provider"
             );
@@ -90,11 +93,11 @@ fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
         .ok()?;
 
     if let btsp::BtspMode::Production { family_id } = btsp::btsp_mode() {
-        let Some(provider) = btsp::discover_security_socket(family_id) else {
+        let Some(provider_ep) = btsp::discover_security_socket(family_id) else {
             tracing::warn!("BTSP production mode but no security provider — provenance unsigned");
             return None;
         };
-        match btsp_client::handshake_on_stream_sync(&stream, &provider) {
+        match btsp_client::handshake_on_stream_sync(&stream, &provider_ep) {
             Ok(session) => {
                 tracing::debug!(
                     session_id = %session.session_id,
@@ -105,7 +108,7 @@ fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
             Err(e) => {
                 tracing::warn!(
                     error = %e,
-                    provider = %provider.display(),
+                    provider = %provider_ep.display_uri(),
                     "BTSP client handshake failed — provenance unsigned"
                 );
                 return None;
@@ -270,9 +273,9 @@ mod tests {
     }
 
     #[test]
-    fn crypto_sign_socket_caches() {
-        let first = crypto_sign_socket();
-        let second = crypto_sign_socket();
+    fn crypto_sign_endpoint_caches() {
+        let first = crypto_sign_endpoint();
+        let second = crypto_sign_endpoint();
         match (first, second) {
             (Some(a), Some(b)) => assert!(std::ptr::eq(a, b)),
             (None, None) => {}

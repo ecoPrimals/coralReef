@@ -433,16 +433,107 @@ fn discover_ecosystem_scans_dir_skips_non_json() {
     assert!(found, "should find registry from .json, not .txt or .yaml");
 }
 
+#[test]
+fn parse_bind_to_endpoint_unix_scheme() {
+    let ep = parse_bind_to_endpoint("unix:///run/biomeos/registry.sock");
+    assert!(matches!(
+        ep,
+        Some(crate::transport::TransportEndpoint::Uds { ref path }) if path == "/run/biomeos/registry.sock"
+    ));
+}
+
+#[test]
+fn parse_bind_to_endpoint_absolute_path() {
+    let ep = parse_bind_to_endpoint("/tmp/foo.sock");
+    assert!(matches!(
+        ep,
+        Some(crate::transport::TransportEndpoint::Uds { ref path }) if path == "/tmp/foo.sock"
+    ));
+}
+
+#[test]
+fn parse_bind_to_endpoint_tcp_scheme() {
+    let ep = parse_bind_to_endpoint("tcp://127.0.0.1:9100");
+    assert!(matches!(
+        ep,
+        Some(crate::transport::TransportEndpoint::Tcp { ref host, port }) if host == "127.0.0.1" && port == 9100
+    ));
+}
+
+#[test]
+fn parse_bind_to_endpoint_host_port() {
+    let ep = parse_bind_to_endpoint("192.168.1.5:8080");
+    assert!(matches!(
+        ep,
+        Some(crate::transport::TransportEndpoint::Tcp { ref host, port }) if host == "192.168.1.5" && port == 8080
+    ));
+}
+
+#[test]
+fn parse_bind_to_endpoint_empty() {
+    assert!(parse_bind_to_endpoint("").is_none());
+    assert!(parse_bind_to_endpoint("   ").is_none());
+}
+
+#[test]
+fn parse_bind_to_endpoint_empty_unix_scheme() {
+    assert!(parse_bind_to_endpoint("unix://").is_none());
+}
+
+#[test]
+fn parse_bind_to_endpoint_strips_whitespace() {
+    let ep = parse_bind_to_endpoint("  unix:///run/test.sock  ");
+    assert!(matches!(
+        ep,
+        Some(crate::transport::TransportEndpoint::Uds { ref path }) if path == "/run/test.sock"
+    ));
+}
+
+#[test]
+fn parse_bind_to_endpoint_rejects_relative_path() {
+    let ep = parse_bind_to_endpoint("relative/path.sock");
+    assert!(ep.is_none(), "relative paths are not valid bind strings");
+}
+
+#[test]
+fn parse_bind_to_endpoint_localhost() {
+    let ep = parse_bind_to_endpoint("localhost:9200");
+    assert!(matches!(
+        ep,
+        Some(crate::transport::TransportEndpoint::Tcp { ref host, port }) if host == "localhost" && port == 9200
+    ));
+}
+
+#[test]
+fn parse_bind_to_endpoint_invalid_port() {
+    assert!(
+        parse_bind_to_endpoint("127.0.0.1:notaport").is_none(),
+        "non-numeric port should fail"
+    );
+}
+
+#[tokio::test]
+async fn send_jsonrpc_line_tcp_connect_failure() {
+    let ep = crate::transport::TransportEndpoint::Tcp {
+        host: "127.0.0.1".into(),
+        port: 1,
+    };
+    let result = send_jsonrpc_line(&ep, "test.method", serde_json::json!({}), 1).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, EcosystemError::Transport(_)),
+        "TCP connect failure should produce Transport error: {err}"
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn send_jsonrpc_line_connect_failure() {
-    let result = send_jsonrpc_line(
-        Path::new("/nonexistent/socket.sock"),
-        "test.method",
-        serde_json::json!({}),
-        1,
-    )
-    .await;
+    let ep = crate::transport::TransportEndpoint::Uds {
+        path: "/nonexistent/socket.sock".into(),
+    };
+    let result = send_jsonrpc_line(&ep, "test.method", serde_json::json!({}), 1).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
@@ -460,7 +551,9 @@ async fn send_jsonrpc_line_happy_path_with_mock_listener() {
     let sock = dir.path().join("mock-registry.sock");
     let listener = tokio::net::UnixListener::bind(&sock).expect("bind mock registry");
 
-    let sock_clone = sock.clone();
+    let ep = crate::transport::TransportEndpoint::Uds {
+        path: sock.to_string_lossy().into_owned(),
+    };
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("accept");
         let mut reader = BufReader::new(stream);
@@ -482,7 +575,7 @@ async fn send_jsonrpc_line_happy_path_with_mock_listener() {
     });
 
     let result = send_jsonrpc_line(
-        &sock_clone,
+        &ep,
         "capability.register",
         serde_json::json!({"name": "test"}),
         1,
@@ -505,6 +598,9 @@ async fn send_capability_register_with_mock() {
     let sock = dir.path().join("cap-reg.sock");
     let listener = tokio::net::UnixListener::bind(&sock).expect("bind");
 
+    let ep = crate::transport::TransportEndpoint::Uds {
+        path: sock.to_string_lossy().into_owned(),
+    };
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("accept");
         let mut reader = BufReader::new(stream);
@@ -519,7 +615,7 @@ async fn send_capability_register_with_mock() {
     });
 
     let desc = crate::capability::self_description();
-    let result = send_capability_register(&sock, &desc).await;
+    let result = send_capability_register(&ep, &desc).await;
     assert!(
         result.is_ok(),
         "capability register should succeed: {result:?}"
@@ -537,6 +633,9 @@ async fn send_primal_announce_with_mock() {
     let sock = dir.path().join("announce.sock");
     let listener = tokio::net::UnixListener::bind(&sock).expect("bind");
 
+    let ep = crate::transport::TransportEndpoint::Uds {
+        path: sock.to_string_lossy().into_owned(),
+    };
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("accept");
         let mut reader = BufReader::new(stream);
@@ -552,7 +651,7 @@ async fn send_primal_announce_with_mock() {
             .expect("write");
     });
 
-    let result = send_primal_announce(&sock).await;
+    let result = send_primal_announce(&ep).await;
     assert!(result.is_ok(), "primal announce should succeed: {result:?}");
 
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), server).await;
@@ -567,6 +666,9 @@ async fn send_ipc_heartbeat_with_mock() {
     let sock = dir.path().join("heartbeat.sock");
     let listener = tokio::net::UnixListener::bind(&sock).expect("bind");
 
+    let ep = crate::transport::TransportEndpoint::Uds {
+        path: sock.to_string_lossy().into_owned(),
+    };
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("accept");
         let mut reader = BufReader::new(stream);
@@ -582,7 +684,7 @@ async fn send_ipc_heartbeat_with_mock() {
             .expect("write");
     });
 
-    let result = send_ipc_heartbeat(&sock).await;
+    let result = send_ipc_heartbeat(&ep).await;
     assert!(result.is_ok(), "heartbeat should succeed: {result:?}");
 
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), server).await;

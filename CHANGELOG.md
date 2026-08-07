@@ -10,7 +10,7 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Wave 157a: G68 Platform Substrate L1 + Depot Readiness (2026-08-07)
+### Wave 157a: G68 Platform Substrate Deep Evolution (2026-08-07)
 
 #### Evolved (G68 L1: Platform Links)
 - `create_local_symlink()` in `transport.rs`: non-Unix stub now uses
@@ -20,15 +20,37 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - `primal-rpc-client/transport.rs`: unified `connect_local()` clippy
   compliance for Windows (`unused_async` allowed with documented reason).
 
+#### Evolved (G68 IPC: Transport-Agnostic Discovery + Ecosystem)
+- **`ecosystem/mod.rs`**: entire module evolved from UDS-only to
+  `TransportEndpoint`-based. `spawn_registration()`, `send_jsonrpc_line()`,
+  `heartbeat_loop()`, `send_capability_register()`, `send_primal_announce()`,
+  and `send_ipc_heartbeat()` all use `connect_transport()` directly.
+  Registration works on non-Unix platforms via TCP.
+- **`TransportEndpoint::from_bind_string()`**: new canonical parser for
+  bind strings (`unix://`, `/absolute/path`, `tcp://host:port`, `host:port`).
+  Lives in `transport.rs` for lib+bin accessibility.
+- **`btsp.rs` discovery**: `discover_by_capability()` and
+  `discover_security_socket()` return `TransportEndpoint` instead of `PathBuf`.
+  `check_discovery_file_for_method()` now checks TCP and `jsonrpc.bind`
+  fallbacks when UDS socket doesn't exist.
+- **`btsp_client.rs`**: `handshake_on_stream_sync()` and `provider_rpc()`
+  accept `&TransportEndpoint` instead of `&Path`.
+- **`service/provenance.rs`**: `CRYPTO_SIGN_ENDPOINT` (was `CRYPTO_SIGN_SOCKET`)
+  caches `TransportEndpoint`. `try_sign()` uses `connect_transport_sync()`
+  directly.
+- **Pre-existing clippy fixes**: `protocol_negotiation.rs` items-after-statements
+  (3 tests), `tolerances.rs` assertions-on-constants (12 tests).
+
 #### G68 Audit Results (coralReef)
-- **4 production files** use `std::os::unix` (9 test-only excluded).
-- **L1 (Links)**: `create_local_symlink()` — evolved to G68 (symlink on Unix,
-  `symlink_file` on Windows).
+- **45 legitimate platform abstractions** — same thing done differently per platform.
+- **18 silicon deism sites** identified and evolved.
+- **L1 (Links)**: `create_local_symlink()` — evolved to G68.
 - **L2 (Permissions)**: zero `PermissionsExt`/`set_mode` usage.
 - **L3 (Device backends)**: zero `rustix`/`libc` direct usage.
-- **G66 transport**: already abstracted via `TransportStream` (Wave 156s).
-- coralReef's G68 exposure is minimal — primarily a compiler primal with no
-  hardware-direct APIs.
+- **IPC deism**: eliminated from ecosystem registration, BTSP discovery,
+  provenance signing, and security provider handshake.
+- Remaining `#[cfg(unix)]` is concentrated in `transport.rs` — the G66
+  substrate layer where platform gates belong.
 
 ### Wave 156s: G66 Transport Abstraction (2026-08-06)
 

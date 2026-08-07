@@ -143,6 +143,57 @@ impl TransportEndpoint {
     }
 }
 
+impl TransportEndpoint {
+    /// Parse a Phase-10 / ecosystem bind string into a transport endpoint.
+    ///
+    /// **G68**: handles all bind formats the ecosystem uses:
+    /// - `unix:///path/to/socket.sock` → [`TransportEndpoint::Uds`]
+    /// - `/absolute/path.sock` → [`TransportEndpoint::Uds`]
+    /// - `tcp://host:port` → [`TransportEndpoint::Tcp`]
+    /// - `host:port` → [`TransportEndpoint::Tcp`]
+    ///
+    /// Returns `None` if the string is empty or unrecognised.
+    #[must_use]
+    pub fn from_bind_string(bind: &str) -> Option<Self> {
+        let b = bind.trim();
+        if b.is_empty() {
+            return None;
+        }
+
+        if let Some(rest) = b.strip_prefix("unix://") {
+            return if rest.is_empty() {
+                None
+            } else {
+                Some(Self::Uds {
+                    path: rest.to_owned(),
+                })
+            };
+        }
+
+        if let Some(rest) = b.strip_prefix("tcp://") {
+            return Self::parse_host_port(rest);
+        }
+
+        if b.starts_with('/') {
+            return Some(Self::Uds { path: b.to_owned() });
+        }
+
+        Self::parse_host_port(b)
+    }
+
+    fn parse_host_port(s: &str) -> Option<Self> {
+        let (host, port_str) = s.rsplit_once(':')?;
+        let port: u16 = port_str.parse().ok()?;
+        if host.is_empty() {
+            return None;
+        }
+        Some(Self::Tcp {
+            host: host.to_owned(),
+            port,
+        })
+    }
+}
+
 impl std::fmt::Display for TransportEndpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.display_uri())

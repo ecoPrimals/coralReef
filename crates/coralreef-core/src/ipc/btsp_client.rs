@@ -34,7 +34,7 @@
     reason = "BTSP client outbound handshake API used by provenance signing and integration tests; parent module also cfg-gates dead_code for non-Unix"
 )]
 
-use std::path::Path;
+use super::transport::TransportEndpoint;
 
 /// Result of a successful BTSP client handshake.
 #[derive(Debug, Clone)]
@@ -67,8 +67,12 @@ const PROVIDER_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// Perform a synchronous BTSP client handshake on an already-connected stream.
 ///
 /// `target` is the connection to the peer primal (e.g., a `crypto.sign`
-/// provider). `provider_socket` is the path to the security provider for
-/// session management RPCs (`btsp.session.create`, `btsp.session.verify`).
+/// provider). `provider_endpoint` is the transport endpoint for the security
+/// provider for session management RPCs (`btsp.session.create`,
+/// `btsp.session.verify`).
+///
+/// **G68**: accepts [`TransportEndpoint`] — works over UDS or TCP depending
+/// on how the security provider was discovered.
 ///
 /// After successful return, `target` is authenticated and the caller can
 /// send application-level JSON-RPC on it.
@@ -81,10 +85,10 @@ const PROVIDER_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// the target rejects the handshake, or any wire protocol step fails.
 pub fn handshake_on_stream_sync(
     target: &super::transport::SyncTransportStream,
-    provider_socket: &Path,
+    provider_endpoint: &TransportEndpoint,
 ) -> Result<BtspSession, BtspClientError> {
     let create_result = provider_rpc(
-        provider_socket,
+        provider_endpoint,
         "btsp.session.create",
         &serde_json::json!({
             "family_seed_ref": "env:FAMILY_SEED",
@@ -119,7 +123,7 @@ pub fn handshake_on_stream_sync(
         .ok_or_else(|| BtspClientError::Protocol("missing challenge".into()))?;
 
     let verify_result = provider_rpc(
-        provider_socket,
+        provider_endpoint,
         "btsp.session.verify",
         &serde_json::json!({
             "session_id": session_ref,
@@ -173,15 +177,17 @@ pub fn handshake_on_stream_sync(
 // ---------------------------------------------------------------------------
 
 /// Send a sync JSON-RPC request to the security provider and extract `result`.
+///
+/// **G68**: connects via [`TransportEndpoint`] — UDS or TCP.
 fn provider_rpc(
-    socket: &Path,
+    endpoint: &TransportEndpoint,
     method: &str,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value, BtspClientError> {
-    let stream = crate::local_transport::connect_local_sync(socket).map_err(|e| {
+    let stream = crate::transport::connect_transport_sync(endpoint).map_err(|e| {
         BtspClientError::Protocol(format!(
             "security provider at {} unreachable: {e}",
-            socket.display()
+            endpoint.display_uri()
         ))
     })?;
     stream.set_read_timeout(Some(PROVIDER_RPC_TIMEOUT)).ok();
@@ -342,7 +348,10 @@ mod tests {
     fn handshake_fails_on_nonexistent_provider() {
         let (target, _peer) = std::os::unix::net::UnixStream::pair().expect("stream pair");
         let target = super::super::transport::SyncTransportStream::Unix(target);
-        let err = handshake_on_stream_sync(&target, Path::new("/nonexistent/btsp-provider.sock"));
+        let ep = TransportEndpoint::Uds {
+            path: "/nonexistent/btsp-provider.sock".into(),
+        };
+        let err = handshake_on_stream_sync(&target, &ep);
         assert!(err.is_err(), "should fail with nonexistent provider");
         let msg = err.expect_err("err").to_string();
         assert!(

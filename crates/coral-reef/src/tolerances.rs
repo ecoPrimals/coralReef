@@ -126,31 +126,33 @@ mod tests {
 
     #[test]
     fn df64_ulp_within_reasonable_bound() {
-        assert!(DF64_ULP_TOLERANCE <= 16, "DF64 ULP should be tight");
-        assert!(DF64_ULP_TOLERANCE > 0);
+        let ulp = DF64_ULP_TOLERANCE;
+        assert!(ulp <= 16, "DF64 ULP should be tight");
+        assert!(ulp > 0);
     }
 
     #[test]
     fn transcendental_ulp_within_reasonable_bound() {
-        assert!(F64_TRANSCENDENTAL_ULP <= 16);
-        assert!(F64_TRANSCENDENTAL_ULP > 0);
+        let ulp = F64_TRANSCENDENTAL_ULP;
+        assert!(ulp <= 16);
+        assert!(ulp > 0);
     }
 
     #[test]
     fn sqrt_rcp_is_tightest() {
+        let sqrt_ulp = F64_SQRT_RCP_ULP;
+        let df64_ulp = DF64_ULP_TOLERANCE;
         assert!(
-            F64_SQRT_RCP_ULP <= DF64_ULP_TOLERANCE,
+            sqrt_ulp <= df64_ulp,
             "sqrt/rcp should be at least as tight as general DF64"
         );
     }
 
     #[test]
     fn f32_rel_tol_is_meaningful() {
-        assert!(F32_TRANSCENDENTAL_REL_TOL > 0.0);
-        assert!(
-            F32_TRANSCENDENTAL_REL_TOL < 0.01,
-            "f32 rel tolerance should be sub-percent"
-        );
+        let tol = F32_TRANSCENDENTAL_REL_TOL;
+        assert!(tol > 0.0);
+        assert!(tol < 0.01, "f32 rel tolerance should be sub-percent");
     }
 
     #[test]
@@ -163,14 +165,19 @@ mod tests {
 
     #[test]
     fn scheduler_thresholds_are_positive() {
-        assert!(SCHED_TARGET_FREE_GPRS > 0);
-        assert!(SCHED_SW_RESERVED_GPRS > 0);
-        assert!(SCHED_SW_RESERVED_GPRS_SPILL >= SCHED_SW_RESERVED_GPRS);
+        let target_free = SCHED_TARGET_FREE_GPRS;
+        let reserved = SCHED_SW_RESERVED_GPRS;
+        let reserved_spill = SCHED_SW_RESERVED_GPRS_SPILL;
+        assert!(target_free > 0);
+        assert!(reserved > 0);
+        assert!(reserved_spill >= reserved);
     }
 
     #[test]
     fn binary_size_limits_are_at_least_1mb() {
-        assert!(BINARY_SIZE_LIMIT_NV >= 1024 * 1024);
-        assert!(BINARY_SIZE_LIMIT_AMD >= 1024 * 1024);
+        let nv_limit = BINARY_SIZE_LIMIT_NV;
+        let amd_limit = BINARY_SIZE_LIMIT_AMD;
+        assert!(nv_limit >= 1024 * 1024);
+        assert!(amd_limit >= 1024 * 1024);
     }
 }

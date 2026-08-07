@@ -77,7 +77,6 @@ fn discover_ecosystem_jsonrpc_bind_skips_malformed_json_files() {
     assert!(got.is_none());
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn spawn_registration_no_registry_returns_without_panic() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -95,9 +94,8 @@ async fn spawn_registration_no_registry_returns_without_panic() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 }
 
-#[cfg(unix)]
 #[tokio::test]
-async fn spawn_registration_non_unix_bind_skips_background_tasks() {
+async fn spawn_registration_tcp_bind_attempts_connection() {
     {
         let _guard = ENV_LOCK.lock().unwrap();
         let mut bio = EnvGuard::capture("BIOMEOS_ECOSYSTEM_REGISTRY");

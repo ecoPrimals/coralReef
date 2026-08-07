@@ -4,11 +4,15 @@
 //! Sends `capability.register` once, `primal.announce` once (Neural API routing
 //! metadata for biomeOS), and `ipc.heartbeat` on an interval. coralReef does
 //! **not** implement those methods as a server; they belong to the ecosystem
-//! registry primal’s domain. This module only discovers that peer via the shared
-//! capability directory (`capability.register` in `provides`) and connects with
-//! a line-delimited JSON-RPC request over Unix (`send_jsonrpc_line` in this module).
+//! registry primal's domain. This module discovers that peer via the shared
+//! capability directory (`capability.register` in `provides`) and connects via
+//! the G66 transport layer — UDS on Unix, TCP when a TCP bind is discovered.
 //! That client role is intentional T6 compliance: call
 //! other primals by capability, do not own their namespaces.
+//!
+//! **G68 evolution (Wave 157a)**: all IPC paths go through
+//! [`TransportEndpoint`] → [`connect_transport`]. No `#[cfg(unix)]` gates
+//! remain; non-Unix platforms work whenever a TCP registry is available.
 //!
 //! Best-effort integration with the registry discovered at runtime under
 //! `$XDG_RUNTIME_DIR/biomeos/` (or `BIOMEOS_ECOSYSTEM_REGISTRY`). No hardcoded
@@ -22,6 +26,7 @@ use thiserror::Error;
 use crate::capability::SelfDescription;
 use crate::config;
 use crate::env_keys;
+use crate::transport::TransportEndpoint;
 
 mod announce_hints {
     pub const COST_COMPILE: f64 = 60.0;
@@ -50,8 +55,11 @@ pub enum EcosystemError {
 
 /// Spawn background tasks: one-shot `capability.register` and `ipc.heartbeat` every 45s.
 ///
-/// Invokes the registry primal’s methods over JSON-RPC; coralReef does not expose
+/// Invokes the registry primal's methods over JSON-RPC; coralReef does not expose
 /// these methods. If no registry is discovered, logs at debug and returns immediately.
+///
+/// **G68**: works on all platforms — UDS when the bind is `unix://…`, TCP when
+/// the bind is `host:port`.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "desc is moved into tokio::spawn; by-value signature required"
@@ -63,34 +71,34 @@ pub fn spawn_registration(desc: SelfDescription) {
         );
         return;
     };
-    let Some(unix_path) = jsonrpc_bind_to_unix_path(&bind) else {
+    let Some(endpoint) = parse_bind_to_endpoint(&bind) else {
         tracing::debug!(
             bind,
-            "ecosystem bind is not a Unix socket; skipping registration"
+            "ecosystem bind string is not a recognised transport; skipping registration"
         );
         return;
     };
 
-    let path_register = unix_path.clone();
-    let path_announce = unix_path.clone();
+    let ep_register = endpoint.clone();
+    let ep_announce = endpoint.clone();
     tokio::spawn(async move {
-        if let Err(e) = send_capability_register(&path_register, &desc).await {
+        if let Err(e) = send_capability_register(&ep_register, &desc).await {
             tracing::debug!(error = %e, "capability.register failed");
         }
     });
 
     tokio::spawn(async move {
-        if let Err(e) = send_primal_announce(&path_announce).await {
+        if let Err(e) = send_primal_announce(&ep_announce).await {
             tracing::debug!(error = %e, "primal.announce failed");
         }
     });
 
     tokio::spawn(async move {
-        heartbeat_loop(unix_path).await;
+        heartbeat_loop(endpoint).await;
     });
 }
 
-async fn heartbeat_loop(path: PathBuf) {
+async fn heartbeat_loop(endpoint: TransportEndpoint) {
     use std::time::Duration;
     use tokio::time::{MissedTickBehavior, interval};
 
@@ -104,7 +112,7 @@ async fn heartbeat_loop(path: PathBuf) {
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        if let Err(e) = send_ipc_heartbeat(&path).await {
+        if let Err(e) = send_ipc_heartbeat(&endpoint).await {
             tracing::debug!(error = %e, "ipc.heartbeat failed");
         }
     }
@@ -177,7 +185,21 @@ fn registry_bind_from_json_file(path: &Path) -> Option<String> {
     from_transports.or(from_endpoint)
 }
 
+/// Parse a Phase-10 / ecosystem bind string into a transport endpoint.
+///
+/// Delegates to [`TransportEndpoint::from_bind_string`] — the canonical
+/// parser lives in the G66 transport layer so it's accessible from both
+/// lib and bin targets.
+#[must_use]
+pub fn parse_bind_to_endpoint(bind: &str) -> Option<TransportEndpoint> {
+    TransportEndpoint::from_bind_string(bind)
+}
+
 /// Convert a Phase-10 style bind string to a local Unix path.
+///
+/// **Deprecated in favour of [`parse_bind_to_endpoint`]** which handles both
+/// UDS and TCP binds. Retained for backward compatibility with callers that
+/// require a filesystem path.
 #[must_use]
 pub fn jsonrpc_bind_to_unix_path(bind: &str) -> Option<PathBuf> {
     let b = bind.trim();
@@ -204,12 +226,11 @@ fn resolve_own_socket_path() -> PathBuf {
     config::default_socket_path()
 }
 
-/// Connect-probe a Unix socket to determine if a listener is alive.
+/// Connect-probe to determine if a listener is alive at `path`.
 ///
 /// Per `CAPABILITY_BASED_DISCOVERY_STANDARD` v1.3.0 §5: use a connect attempt
 /// instead of `path.exists()` to avoid discovering stale sockets left by
-/// crashed primals. Local Unix connect is effectively instant (no network
-/// round-trip), so a blocking probe is acceptable here.
+/// crashed primals.
 fn socket_is_alive(path: &Path) -> bool {
     if !path.exists() {
         return false;
@@ -233,7 +254,7 @@ struct RegisterParams<'a> {
 }
 
 async fn send_capability_register(
-    path: &Path,
+    endpoint: &TransportEndpoint,
     desc: &SelfDescription,
 ) -> Result<(), EcosystemError> {
     let params = RegisterParams {
@@ -244,7 +265,7 @@ async fn send_capability_register(
         transports: &desc.transports,
     };
     send_jsonrpc_line(
-        path,
+        endpoint,
         "capability.register",
         serde_json::to_value(&params)?,
         1_u64,
@@ -252,7 +273,7 @@ async fn send_capability_register(
     .await
 }
 
-async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
+async fn send_primal_announce(endpoint: &TransportEndpoint) -> Result<(), EcosystemError> {
     use serde_json::json;
     let socket_path = resolve_own_socket_path();
     let params = json!({
@@ -274,21 +295,25 @@ async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
             "gpu": LATENCY_GPU_DISPATCH_MS
         }
     });
-    send_jsonrpc_line(path, "primal.announce", params, 3_u64).await
+    send_jsonrpc_line(endpoint, "primal.announce", params, 3_u64).await
 }
 
-async fn send_ipc_heartbeat(path: &Path) -> Result<(), EcosystemError> {
+async fn send_ipc_heartbeat(endpoint: &TransportEndpoint) -> Result<(), EcosystemError> {
     use serde_json::json;
     let params = json!({
         "name": config::PRIMAL_NAME,
         "version": config::PRIMAL_VERSION,
         "pid": std::process::id(),
     });
-    send_jsonrpc_line(path, "ipc.heartbeat", params, 2_u64).await
+    send_jsonrpc_line(endpoint, "ipc.heartbeat", params, 2_u64).await
 }
 
+/// Send a single line-delimited JSON-RPC request to a registry endpoint.
+///
+/// **G68**: connects via [`crate::transport::connect_transport`] which
+/// handles UDS, TCP, or any future transport backend.
 async fn send_jsonrpc_line(
-    path: &Path,
+    endpoint: &TransportEndpoint,
     method: &str,
     params: serde_json::Value,
     id: u64,
@@ -297,7 +322,7 @@ async fn send_jsonrpc_line(
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::time::timeout;
 
-    let mut stream = crate::local_transport::connect_local(path)
+    let mut stream = crate::transport::connect_transport(endpoint)
         .await
         .map_err(|e| EcosystemError::Transport(e.to_string()))?;
 

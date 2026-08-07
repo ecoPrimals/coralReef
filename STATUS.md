@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 7, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 157a (G68 Platform Substrate L1 evolved: `create_local_symlink()` uses `symlink_file` on Windows. G68 audit: 4 production files, zero L2/L3 exposure. Depot rebuilt. Cross-arch 15/15 PASS. 3,672 tests, zero unsafe, zero clippy warnings on Linux + Windows.)
+**Version**: 0.2.0 — Sprint 14 / Wave 157a (G68 Platform Substrate deep evolution: L1 links done, IPC deism eliminated from ecosystem registration, BTSP discovery, provenance signing. 18 silicon deism sites evolved to `TransportEndpoint`-based transport-agnostic paths. Zero L2/L3 exposure. Cross-arch PASS. Zero unsafe, zero clippy warnings on Linux + Windows.)
 
 ---
 

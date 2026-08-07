@@ -284,10 +284,10 @@ mod tests {
 
     #[tokio::test]
     async fn negotiate_server_after_p_tarpc() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
         let (mut client, mut server) = tokio::io::duplex(4096);
         let server_supported = IpcProtocol::supported();
-
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let client_task = tokio::spawn(async move {
             client
@@ -322,10 +322,10 @@ mod tests {
 
     #[tokio::test]
     async fn negotiate_server_after_p_jsonrpc_only() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
         let (mut client, mut server) = tokio::io::duplex(4096);
         let server_supported = vec![IpcProtocol::JsonRpc];
-
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let client_task = tokio::spawn(async move {
             client
@@ -360,10 +360,10 @@ mod tests {
 
     #[tokio::test]
     async fn negotiate_server_after_p_malformed_falls_back() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
         let (mut client, mut server) = tokio::io::duplex(4096);
         let server_supported = IpcProtocol::supported();
-
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let client_task = tokio::spawn(async move {
             client.write_all(b"ROTOCOLS: garbage\n").await.unwrap();
