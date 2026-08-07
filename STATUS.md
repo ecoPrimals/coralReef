@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 7, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 157a (G68 Platform Substrate deep evolution: L1 links done, IPC deism eliminated from ecosystem registration, BTSP discovery, provenance signing. 18 silicon deism sites evolved to `TransportEndpoint`-based transport-agnostic paths. Zero L2/L3 exposure. Cross-arch PASS. Zero unsafe, zero clippy warnings on Linux + Windows.)
+**Version**: 0.2.0 — Sprint 14 / Wave 157a (G68 deep evolution: L1 links done, 18 IPC deism sites evolved to `TransportEndpoint`-based transport-agnostic paths. Zero L2/L3 exposure (56 scanner L2 reports are false positives — GPU texture `offset_mode` field names, not `PermissionsExt`). G66 raw 8% — all in transport substrate. Cross-arch PASS. Zero unsafe, zero clippy warnings on Linux + Windows.)
 
 ---
 
