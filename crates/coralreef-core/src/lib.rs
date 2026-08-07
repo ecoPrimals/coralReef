@@ -41,6 +41,7 @@ pub mod lifecycle;
 pub mod local_transport;
 pub mod or_exit;
 pub mod server_lifecycle;
+pub mod transport;
 
 /// IPC and service — exposed for integration tests (tests/e2e_ipc.rs).
 #[cfg(any(test, feature = "e2e"))]

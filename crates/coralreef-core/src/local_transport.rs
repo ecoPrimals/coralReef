@@ -25,37 +25,28 @@ use std::path::{Path, PathBuf};
 ///
 /// Returns an IO error if the socket does not exist, connection is refused,
 /// or the transport is unavailable on this platform.
-pub async fn connect_local(path: &Path) -> std::io::Result<crate::ipc::transport::TransportStream> {
-    let endpoint = crate::ipc::transport::TransportEndpoint::Uds {
+pub async fn connect_local(path: &Path) -> std::io::Result<crate::transport::TransportStream> {
+    let endpoint = crate::transport::TransportEndpoint::Uds {
         path: path.to_string_lossy().into_owned(),
     };
-    crate::ipc::transport::connect_transport(&endpoint).await
+    crate::transport::connect_transport(&endpoint).await
 }
 
-/// Sync-connect to a local socket path.
+/// Sync-connect to a local socket path via the G66 transport layer.
 ///
-/// Used by provenance signing where async is not available.
-/// Unix: `std::os::unix::net::UnixStream::connect`.
-/// Non-Unix: returns [`std::io::ErrorKind::Unsupported`].
+/// Returns a [`SyncTransportStream`] — callers operate on the abstracted
+/// byte pipe. Used by provenance signing and BTSP client handshake where
+/// async is not available.
 ///
 /// # Errors
 ///
 /// Returns an IO error if the socket does not exist, connection is refused,
-/// or (on non-Unix) local sockets are unsupported.
-#[cfg(unix)]
-pub fn connect_local_sync(path: &Path) -> std::io::Result<std::os::unix::net::UnixStream> {
-    std::os::unix::net::UnixStream::connect(path)
-}
-
-/// Sync-connect to a local socket path (non-Unix stub).
-///
-/// # Errors
-///
-/// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
-#[cfg(not(unix))]
-pub fn connect_local_sync(path: &Path) -> std::io::Result<std::net::TcpStream> {
-    let _ = path;
-    Err(unsupported("local socket connections"))
+/// or the transport is unavailable on this platform.
+pub fn connect_local_sync(path: &Path) -> std::io::Result<crate::transport::SyncTransportStream> {
+    let endpoint = crate::transport::TransportEndpoint::Uds {
+        path: path.to_string_lossy().into_owned(),
+    };
+    crate::transport::connect_transport_sync(&endpoint)
 }
 
 // ---------------------------------------------------------------------------
@@ -87,21 +78,11 @@ pub fn prepare_local_bind(path: &Path) -> std::io::Result<()> {
 ///
 /// Returns an IO error if the socket cannot be bound or (on non-Unix) local
 /// sockets are unsupported.
-#[cfg(unix)]
-pub fn bind_local(path: &Path) -> std::io::Result<crate::ipc::transport::TransportListener> {
-    let listener = tokio::net::UnixListener::bind(path)?;
-    Ok(crate::ipc::transport::TransportListener::Unix(listener))
-}
-
-/// Bind a local socket listener (non-Unix stub).
-///
-/// # Errors
-///
-/// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
-#[cfg(not(unix))]
-pub fn bind_local(path: &Path) -> std::io::Result<crate::ipc::transport::TransportListener> {
-    let _ = path;
-    Err(unsupported("local socket server"))
+pub fn bind_local(path: &Path) -> std::io::Result<crate::transport::TransportListener> {
+    let endpoint = crate::transport::TransportEndpoint::Uds {
+        path: path.to_string_lossy().into_owned(),
+    };
+    crate::transport::bind_transport(&endpoint)
 }
 
 // ---------------------------------------------------------------------------
@@ -134,8 +115,7 @@ pub fn install_capability_symlink(bound_path: &Path) -> Option<PathBuf> {
     if link.exists() {
         let _ = std::fs::remove_file(&link);
     }
-    #[cfg(unix)]
-    match std::os::unix::fs::symlink(target_name, &link) {
+    match crate::transport::create_local_symlink(target_name, &link) {
         Ok(()) => return Some(link),
         Err(e) => {
             tracing::warn!(
@@ -146,24 +126,7 @@ pub fn install_capability_symlink(bound_path: &Path) -> Option<PathBuf> {
             );
         }
     }
-    #[cfg(not(unix))]
-    {
-        let _ = (target_name, &link);
-        tracing::debug!("capability-domain symlink skipped on non-Unix platform");
-    }
     None
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-#[cfg(not(unix))]
-fn unsupported(what: &str) -> std::io::Error {
-    std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        format!("{what} not available on this platform"),
-    )
 }
 
 #[cfg(test)]

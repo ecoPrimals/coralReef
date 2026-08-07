@@ -24,7 +24,6 @@ use std::sync::OnceLock;
 
 use super::btsp_negotiate::register_session;
 use crate::config;
-#[cfg(unix)]
 use crate::env_keys;
 
 /// Domain stem for security capability discovery.
@@ -210,7 +209,6 @@ pub async fn guard_from_first_line_after_brace(first_line: &str) -> BtspOutcome 
 ///
 /// Returns an error when BTSP is disabled, the security provider is unreachable,
 /// handshake messages are malformed, or family verification fails.
-#[cfg(unix)]
 pub async fn relay_json_line_handshake<W, R>(
     client_hello_line: &str,
     reader: &mut R,

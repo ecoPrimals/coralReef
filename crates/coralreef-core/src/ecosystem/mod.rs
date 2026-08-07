@@ -16,7 +16,6 @@
 
 use std::path::{Path, PathBuf};
 
-#[cfg(unix)]
 use serde::Serialize;
 use thiserror::Error;
 
@@ -24,9 +23,6 @@ use crate::capability::SelfDescription;
 use crate::config;
 use crate::env_keys;
 
-// biomeOS dispatch graph cost/latency hints for `primal.announce`.
-// These are approximate performance metadata — not SLA guarantees.
-#[cfg(unix)]
 mod announce_hints {
     pub const COST_COMPILE: f64 = 60.0;
     pub const COST_SHADER_COMPILE: f64 = 80.0;
@@ -35,7 +31,6 @@ mod announce_hints {
     pub const LATENCY_SHADER_COMPILE_MS: u32 = 800;
     pub const LATENCY_GPU_DISPATCH_MS: u32 = 50;
 }
-#[cfg(unix)]
 use announce_hints::{
     COST_COMPILE, COST_GPU_DISPATCH, COST_SHADER_COMPILE, LATENCY_COMPILE_MS,
     LATENCY_GPU_DISPATCH_MS, LATENCY_SHADER_COMPILE_MS,
@@ -59,51 +54,42 @@ pub enum EcosystemError {
 /// these methods. If no registry is discovered, logs at debug and returns immediately.
 #[allow(
     clippy::needless_pass_by_value,
-    reason = "desc is moved into tokio::spawn on Unix; by-value signature required"
+    reason = "desc is moved into tokio::spawn; by-value signature required"
 )]
 pub fn spawn_registration(desc: SelfDescription) {
-    #[cfg(unix)]
-    {
-        let Some(bind) = discover_ecosystem_jsonrpc_bind() else {
-            tracing::debug!(
-                "no ecosystem registry with capability.register discovered; skipping registration"
-            );
-            return;
-        };
-        let Some(unix_path) = jsonrpc_bind_to_unix_path(&bind) else {
-            tracing::debug!(
-                bind,
-                "ecosystem bind is not a Unix socket; skipping registration"
-            );
-            return;
-        };
+    let Some(bind) = discover_ecosystem_jsonrpc_bind() else {
+        tracing::debug!(
+            "no ecosystem registry with capability.register discovered; skipping registration"
+        );
+        return;
+    };
+    let Some(unix_path) = jsonrpc_bind_to_unix_path(&bind) else {
+        tracing::debug!(
+            bind,
+            "ecosystem bind is not a Unix socket; skipping registration"
+        );
+        return;
+    };
 
-        let path_register = unix_path.clone();
-        let path_announce = unix_path.clone();
-        tokio::spawn(async move {
-            if let Err(e) = send_capability_register(&path_register, &desc).await {
-                tracing::debug!(error = %e, "capability.register failed");
-            }
-        });
+    let path_register = unix_path.clone();
+    let path_announce = unix_path.clone();
+    tokio::spawn(async move {
+        if let Err(e) = send_capability_register(&path_register, &desc).await {
+            tracing::debug!(error = %e, "capability.register failed");
+        }
+    });
 
-        tokio::spawn(async move {
-            if let Err(e) = send_primal_announce(&path_announce).await {
-                tracing::debug!(error = %e, "primal.announce failed");
-            }
-        });
+    tokio::spawn(async move {
+        if let Err(e) = send_primal_announce(&path_announce).await {
+            tracing::debug!(error = %e, "primal.announce failed");
+        }
+    });
 
-        tokio::spawn(async move {
-            heartbeat_loop(unix_path).await;
-        });
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = desc;
-        tracing::debug!("ecosystem registration not available on this platform");
-    }
+    tokio::spawn(async move {
+        heartbeat_loop(unix_path).await;
+    });
 }
 
-#[cfg(unix)]
 async fn heartbeat_loop(path: PathBuf) {
     use std::time::Duration;
     use tokio::time::{MissedTickBehavior, interval};
@@ -214,7 +200,6 @@ pub fn jsonrpc_bind_to_unix_path(bind: &str) -> Option<PathBuf> {
 /// Delegates to [`config::default_socket_path`] — the single canonical
 /// source of truth for socket path resolution. This guarantees the
 /// advertised path in `primal.announce` matches the actual bind path.
-#[cfg(unix)]
 fn resolve_own_socket_path() -> PathBuf {
     config::default_socket_path()
 }
@@ -238,7 +223,6 @@ fn socket_is_alive(path: &Path) -> bool {
     )
 }
 
-#[cfg(unix)]
 #[derive(Serialize)]
 struct RegisterParams<'a> {
     name: &'static str,
@@ -248,7 +232,6 @@ struct RegisterParams<'a> {
     transports: &'a [crate::capability::Transport],
 }
 
-#[cfg(unix)]
 async fn send_capability_register(
     path: &Path,
     desc: &SelfDescription,
@@ -269,7 +252,6 @@ async fn send_capability_register(
     .await
 }
 
-#[cfg(unix)]
 async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
     use serde_json::json;
     let socket_path = resolve_own_socket_path();
@@ -295,7 +277,6 @@ async fn send_primal_announce(path: &Path) -> Result<(), EcosystemError> {
     send_jsonrpc_line(path, "primal.announce", params, 3_u64).await
 }
 
-#[cfg(unix)]
 async fn send_ipc_heartbeat(path: &Path) -> Result<(), EcosystemError> {
     use serde_json::json;
     let params = json!({
@@ -306,7 +287,6 @@ async fn send_ipc_heartbeat(path: &Path) -> Result<(), EcosystemError> {
     send_jsonrpc_line(path, "ipc.heartbeat", params, 2_u64).await
 }
 
-#[cfg(unix)]
 async fn send_jsonrpc_line(
     path: &Path,
     method: &str,

@@ -14,11 +14,9 @@
 //! Protocol: each request is a single JSON-RPC 2.0 object terminated
 //! by `\n`. Responses are also newline-terminated.
 
-#[cfg(unix)]
 mod inner {
     use std::path::{Path, PathBuf};
 
-    use tokio::net::UnixListener;
     use tokio::sync::watch;
     use tokio::task::JoinHandle;
 
@@ -37,44 +35,6 @@ mod inner {
 
     /// G65 timeout for first-byte protocol negotiation detection.
     const G65_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
-
-    /// `true` when the bound socket path uses the shared ecosystem directory segment.
-    fn path_in_ecosystem_namespace(socket_path: &Path) -> bool {
-        socket_path
-            .iter()
-            .any(|c| c == std::ffi::OsStr::new(crate::config::ecosystem_namespace()))
-    }
-
-    /// After a successful bind, install `{domain}.sock` → instance socket (relative symlink).
-    ///
-    /// Returns the symlink path when created, for shutdown cleanup. Skipped when the socket
-    /// is not under the ecosystem layout or when symlink creation fails (caller logs).
-    fn install_capability_domain_symlink(bound_path: &Path) -> Option<PathBuf> {
-        if !path_in_ecosystem_namespace(bound_path) {
-            return None;
-        }
-        let parent = bound_path.parent()?;
-        let link = parent.join(crate::config::capability_domain_socket_filename());
-        if link.as_path() == bound_path {
-            return None;
-        }
-        let target_name = bound_path.file_name()?;
-        if link.exists() {
-            let _ = std::fs::remove_file(&link);
-        }
-        match std::os::unix::fs::symlink(target_name, &link) {
-            Ok(()) => Some(link),
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    link = %link.display(),
-                    target = %target_name.to_string_lossy(),
-                    "failed to create capability-domain symlink (non-fatal)"
-                );
-                None
-            }
-        }
-    }
 
     /// Build the socket path from an explicit base directory.
     ///
@@ -101,7 +61,7 @@ mod inner {
         crate::config::default_socket_path()
     }
 
-    /// Start a Unix socket JSON-RPC server.
+    /// Start a local socket JSON-RPC server via the G66 transport layer.
     ///
     /// Returns the socket path and a join handle. The server runs until
     /// `shutdown_rx` receives a signal.
@@ -113,18 +73,14 @@ mod inner {
         path: &Path,
         mut shutdown_rx: watch::Receiver<()>,
     ) -> Result<(PathBuf, JoinHandle<()>), std::io::Error> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        if path.exists() {
-            std::fs::remove_file(path)?;
-        }
-        let listener = UnixListener::bind(path)?;
+        crate::local_transport::prepare_local_bind(path)?;
+        let listener = crate::local_transport::bind_local(path)?;
         let bound_path = path.to_path_buf();
         let cleanup_path = bound_path.clone();
-        let cleanup_capability_link = install_capability_domain_symlink(&bound_path);
+        let cleanup_capability_link =
+            crate::local_transport::install_capability_symlink(&bound_path);
 
-        tracing::info!(path = %bound_path.display(), "Unix JSON-RPC server listening");
+        tracing::info!(path = %bound_path.display(), "local JSON-RPC server listening");
 
         #[cfg(feature = "tarpc-transport")]
         let tarpc_available = true;
@@ -136,8 +92,7 @@ mod inner {
                 tokio::select! {
                     accept = listener.accept() => {
                         match accept {
-                            Ok((stream, _addr)) => {
-                                let transport = TransportStream::Unix(stream);
+                            Ok(transport) => {
                                 dispatch_connection(transport, tarpc_available).await;
                             }
                             Err(e) => {
@@ -276,7 +231,6 @@ mod inner {
 ///
 /// Without a `session_id` (or after negotiation returns `"null"`), the handler
 /// falls through to plain newline-delimited JSON-RPC.
-#[cfg(unix)]
 #[allow(
     dead_code,
     reason = "pub API for tests and e2e Phase 3 encrypted transport"
@@ -379,7 +333,6 @@ where
 }
 
 /// Read encrypted frames, dispatch JSON-RPC, write encrypted responses.
-#[cfg(unix)]
 #[allow(
     dead_code,
     reason = "pub API for tests and e2e Phase 3 encrypted transport"
@@ -456,44 +409,5 @@ async fn process_encrypted_frames<R, W>(
     }
 }
 
-#[cfg(unix)]
 pub use inner::unix_socket_path_for_base;
-#[cfg(unix)]
 pub use inner::{default_unix_socket_path, start_unix_jsonrpc_server};
-
-/// Returns a fallback socket path on non-Unix platforms.
-///
-/// On Windows, this returns a nominal path since UDS is unavailable.
-/// The server bind will fail with `Unsupported` if actually invoked.
-#[cfg(not(unix))]
-#[must_use]
-pub fn default_unix_socket_path() -> std::path::PathBuf {
-    std::path::PathBuf::from("coralreef-core.sock")
-}
-
-/// Non-Unix stub: returns `Unsupported` since UDS is unavailable.
-///
-/// # Errors
-///
-/// Always returns [`std::io::ErrorKind::Unsupported`] on non-Unix platforms.
-#[cfg(not(unix))]
-pub async fn start_unix_jsonrpc_server(
-    _path: &std::path::Path,
-    _shutdown: tokio::sync::watch::Receiver<()>,
-) -> Result<(std::path::PathBuf, tokio::task::JoinHandle<()>), std::io::Error> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "Unix domain sockets are not available on this platform",
-    ))
-}
-
-/// Non-Unix stub: computes a nominal socket path for the given base.
-#[cfg(not(unix))]
-#[must_use]
-#[allow(
-    dead_code,
-    reason = "pub API parity with Unix; used by integration tests"
-)]
-pub fn unix_socket_path_for_base(base: &std::path::Path, _family_id: &str) -> std::path::PathBuf {
-    base.join("coralreef-core.sock")
-}

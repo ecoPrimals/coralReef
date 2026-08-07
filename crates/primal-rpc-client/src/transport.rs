@@ -7,24 +7,80 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+/// Platform-abstracted local stream for the RPC client.
+enum LocalStream {
+    #[cfg(unix)]
+    Unix(tokio::net::UnixStream),
+    #[allow(dead_code, reason = "variant for non-Unix platforms")]
+    Tcp(tokio::net::TcpStream),
+}
+
+impl tokio::io::AsyncRead for LocalStream {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            #[cfg(unix)]
+            Self::Unix(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Self::Tcp(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl tokio::io::AsyncWrite for LocalStream {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            #[cfg(unix)]
+            Self::Unix(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            Self::Tcp(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+        }
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            #[cfg(unix)]
+            Self::Unix(s) => std::pin::Pin::new(s).poll_flush(cx),
+            Self::Tcp(s) => std::pin::Pin::new(s).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            #[cfg(unix)]
+            Self::Unix(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            Self::Tcp(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
+
 /// Connect to a local socket path (platform-dispatched).
 ///
 /// Unix: `tokio::net::UnixStream::connect`.
 /// Non-Unix: returns [`std::io::ErrorKind::Unsupported`].
-#[cfg(unix)]
-async fn connect_local(path: &std::path::Path) -> std::io::Result<tokio::net::UnixStream> {
-    tokio::net::UnixStream::connect(path).await
-}
-
-/// Connect to a local socket path (non-Unix stub).
-#[cfg(not(unix))]
-#[allow(clippy::unused_async, reason = "signature parity with Unix variant")]
-async fn connect_local(path: &std::path::Path) -> std::io::Result<tokio::net::TcpStream> {
-    let _ = path;
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "local socket connections not available on this platform",
-    ))
+async fn connect_local(path: &std::path::Path) -> std::io::Result<LocalStream> {
+    #[cfg(unix)]
+    {
+        let stream = tokio::net::UnixStream::connect(path).await?;
+        Ok(LocalStream::Unix(stream))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "local socket connections not available on this platform",
+        ))
+    }
 }
 
 /// How the client reaches the JSON-RPC server.

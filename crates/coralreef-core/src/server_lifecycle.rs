@@ -121,32 +121,14 @@ pub fn remove_pid_file() {
 
 /// Wait for SIGTERM or SIGINT. Returns which signal was received.
 ///
+/// Delegates to [`crate::transport::wait_for_shutdown`] — all platform-specific
+/// signal handling is confined to the G66 transport layer.
+///
 /// # Panics
 ///
 /// Panics if signal registration fails (e.g. tokio runtime or OS limits).
 pub async fn wait_for_shutdown_signal() -> &'static str {
-    use crate::or_exit::OrExit;
-
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
-
-        let mut sigterm = signal(SignalKind::terminate()).or_exit("failed to register SIGTERM");
-        let mut sigint = signal(SignalKind::interrupt()).or_exit("failed to register SIGINT");
-
-        tokio::select! {
-            _ = sigterm.recv() => "SIGTERM",
-            _ = sigint.recv() => "SIGINT",
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        tokio::signal::ctrl_c()
-            .await
-            .or_exit("failed to register Ctrl+C");
-        "SIGINT"
-    }
+    crate::transport::wait_for_shutdown().await
 }
 
 #[cfg(test)]

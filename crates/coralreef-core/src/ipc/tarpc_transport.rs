@@ -302,7 +302,6 @@ pub fn start_tarpc_unix_server(
     start_tarpc_local_impl(path, shutdown_rx)
 }
 
-#[cfg(unix)]
 fn start_tarpc_local_impl(
     path: &std::path::Path,
     shutdown_rx: watch::Receiver<()>,
@@ -349,18 +348,6 @@ fn start_tarpc_local_impl(
 
     tracing::info!(%bound, "tarpc server listening (local)");
     Ok((bound, handle))
-}
-
-#[cfg(not(unix))]
-fn start_tarpc_local_impl(
-    path: &std::path::Path,
-    shutdown_rx: watch::Receiver<()>,
-) -> Result<(BoundAddr, tokio::task::JoinHandle<()>), IpcError> {
-    let _ = (path, shutdown_rx);
-    Err(IpcError::Tarpc(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "local socket server not available on this platform",
-    )))
 }
 
 /// Start a tarpc server, automatically selecting transport from the bind string.

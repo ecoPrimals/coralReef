@@ -73,13 +73,14 @@ const PROVIDER_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// After successful return, `target` is authenticated and the caller can
 /// send application-level JSON-RPC on it.
 ///
+/// Transport-agnostic: operates on [`SyncTransportStream`] from the G66 layer.
+///
 /// # Errors
 ///
 /// Returns [`BtspClientError`] if the security provider is unreachable,
 /// the target rejects the handshake, or any wire protocol step fails.
-#[cfg(unix)]
 pub fn handshake_on_stream_sync(
-    target: &std::os::unix::net::UnixStream,
+    target: &super::transport::SyncTransportStream,
     provider_socket: &Path,
 ) -> Result<BtspSession, BtspClientError> {
     let create_result = provider_rpc(
@@ -167,28 +168,11 @@ pub fn handshake_on_stream_sync(
     })
 }
 
-/// Non-Unix stub — BTSP client handshake requires Unix domain sockets.
-///
-/// # Errors
-///
-/// Always returns [`BtspClientError::Io`] with [`std::io::ErrorKind::Unsupported`].
-#[cfg(not(unix))]
-pub fn handshake_on_stream_sync(
-    _target: &std::net::TcpStream,
-    _provider_socket: &Path,
-) -> Result<BtspSession, BtspClientError> {
-    Err(BtspClientError::Io(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "BTSP client handshake requires Unix domain sockets",
-    )))
-}
-
 // ---------------------------------------------------------------------------
 // Security provider RPC
 // ---------------------------------------------------------------------------
 
 /// Send a sync JSON-RPC request to the security provider and extract `result`.
-#[cfg(unix)]
 fn provider_rpc(
     socket: &Path,
     method: &str,
@@ -357,6 +341,7 @@ mod tests {
     #[test]
     fn handshake_fails_on_nonexistent_provider() {
         let (target, _peer) = std::os::unix::net::UnixStream::pair().expect("stream pair");
+        let target = super::super::transport::SyncTransportStream::Unix(target);
         let err = handshake_on_stream_sync(&target, Path::new("/nonexistent/btsp-provider.sock"));
         assert!(err.is_err(), "should fail with nonexistent provider");
         let msg = err.expect_err("err").to_string();

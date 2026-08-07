@@ -34,6 +34,11 @@ mod local_transport {
     pub use coralreef_core::local_transport::*;
 }
 
+mod transport {
+    #[allow(unused_imports)]
+    pub use coralreef_core::transport::*;
+}
+
 mod ipc;
 mod service;
 

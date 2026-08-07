@@ -25,13 +25,10 @@
 )]
 
 use crate::config;
-#[cfg(unix)]
 use crate::ipc::{btsp, btsp_client};
 use crate::service::types::ArtifactProvenance;
 use sha2::{Digest, Sha256};
-#[cfg(unix)]
 use std::path::PathBuf;
-#[cfg(unix)]
 use std::sync::OnceLock;
 
 /// Cached socket path for the `crypto.sign` provider.
@@ -39,11 +36,9 @@ use std::sync::OnceLock;
 /// Resolved once at first use. `None` means no provider was found.
 /// Re-discovery requires process restart — consistent with ecosystem
 /// primal lifecycle (primals restart on topology changes).
-#[cfg(unix)]
 static CRYPTO_SIGN_SOCKET: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// Discover and cache the `crypto.sign` provider socket.
-#[cfg(unix)]
 fn crypto_sign_socket() -> Option<&'static PathBuf> {
     CRYPTO_SIGN_SOCKET
         .get_or_init(|| {
@@ -70,124 +65,107 @@ fn crypto_sign_socket() -> Option<&'static PathBuf> {
 /// Uses `std::os::unix::net::UnixStream` for synchronous I/O — the signing
 /// call is a single request/response exchange that completes in microseconds
 /// on a local socket.
-#[allow(
-    clippy::missing_const_for_fn,
-    reason = "Unix variant performs I/O; consistent signature required"
-)]
 fn try_sign(content_hash: &str) -> Option<(String, Option<String>)> {
-    #[cfg(not(unix))]
-    {
-        let _ = content_hash;
-        None
-    }
+    use std::io::{BufRead, BufReader, Write};
 
-    #[cfg(unix)]
-    {
-        use std::io::{BufRead, BufReader, Write};
+    let socket_path = crypto_sign_socket()?;
 
-        let socket_path = crypto_sign_socket()?;
+    let stream = crate::local_transport::connect_local_sync(socket_path)
+        .inspect_err(|e| {
+            tracing::warn!(
+                path = %socket_path.display(),
+                error = %e,
+                "failed to connect to crypto.sign provider"
+            );
+        })
+        .ok()?;
 
-        let stream = crate::local_transport::connect_local_sync(socket_path)
-            .inspect_err(|e| {
-                tracing::warn!(
-                    path = %socket_path.display(),
-                    error = %e,
-                    "failed to connect to crypto.sign provider"
+    stream
+        .set_read_timeout(Some(config::CRYPTO_SIGN_READ_TIMEOUT))
+        .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: set_read_timeout failed"))
+        .ok()?;
+    stream
+        .set_write_timeout(Some(config::CRYPTO_SIGN_WRITE_TIMEOUT))
+        .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: set_write_timeout failed"))
+        .ok()?;
+
+    if let btsp::BtspMode::Production { family_id } = btsp::btsp_mode() {
+        let Some(provider) = btsp::discover_security_socket(family_id) else {
+            tracing::warn!("BTSP production mode but no security provider — provenance unsigned");
+            return None;
+        };
+        match btsp_client::handshake_on_stream_sync(&stream, &provider) {
+            Ok(session) => {
+                tracing::debug!(
+                    session_id = %session.session_id,
+                    cipher = %session.cipher,
+                    "BTSP handshake succeeded for crypto.sign"
                 );
-            })
-            .ok()?;
-
-        stream
-            .set_read_timeout(Some(config::CRYPTO_SIGN_READ_TIMEOUT))
-            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: set_read_timeout failed"))
-            .ok()?;
-        stream
-            .set_write_timeout(Some(config::CRYPTO_SIGN_WRITE_TIMEOUT))
-            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: set_write_timeout failed"))
-            .ok()?;
-
-        if let btsp::BtspMode::Production { family_id } = btsp::btsp_mode() {
-            let Some(provider) = btsp::discover_security_socket(family_id) else {
+            }
+            Err(e) => {
                 tracing::warn!(
-                    "BTSP production mode but no security provider — provenance unsigned"
+                    error = %e,
+                    provider = %provider.display(),
+                    "BTSP client handshake failed — provenance unsigned"
                 );
                 return None;
-            };
-            match btsp_client::handshake_on_stream_sync(&stream, &provider) {
-                Ok(session) => {
-                    tracing::debug!(
-                        session_id = %session.session_id,
-                        cipher = %session.cipher,
-                        "BTSP handshake succeeded for crypto.sign"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        provider = %provider.display(),
-                        "BTSP client handshake failed — provenance unsigned"
-                    );
-                    return None;
-                }
             }
         }
-
-        let request = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "crypto.sign",
-            "params": {
-                "algorithm": "ed25519",
-                "data": content_hash,
-            },
-            "id": 1,
-        });
-
-        let mut payload = serde_json::to_vec(&request)
-            .inspect_err(
-                |e| tracing::warn!(error = %e, "crypto.sign: request serialization failed"),
-            )
-            .ok()?;
-        payload.push(b'\n');
-
-        let mut stream_ref = &stream;
-        stream_ref
-            .write_all(&payload)
-            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: write failed"))
-            .ok()?;
-        stream_ref
-            .flush()
-            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: flush failed"))
-            .ok()?;
-
-        let mut reader = BufReader::new(&stream);
-        let mut line = String::new();
-        reader
-            .read_line(&mut line)
-            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: read response failed"))
-            .ok()?;
-
-        let resp: serde_json::Value = serde_json::from_str(line.trim())
-            .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: response parse failed"))
-            .ok()?;
-
-        if let Some(err) = resp.get("error") {
-            tracing::warn!(
-                error = %err,
-                "crypto.sign returned error — provenance unsigned"
-            );
-            return None;
-        }
-
-        let result = resp.get("result")?;
-        let signature = result.get("signature")?.as_str()?.to_owned();
-        let key_id = result
-            .get("key_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
-
-        tracing::debug!(key_id = ?key_id, "artifact signed by crypto.sign provider");
-        Some((signature, key_id))
     }
+
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "crypto.sign",
+        "params": {
+            "algorithm": "ed25519",
+            "data": content_hash,
+        },
+        "id": 1,
+    });
+
+    let mut payload = serde_json::to_vec(&request)
+        .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: request serialization failed"))
+        .ok()?;
+    payload.push(b'\n');
+
+    let mut stream_ref = &stream;
+    stream_ref
+        .write_all(&payload)
+        .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: write failed"))
+        .ok()?;
+    stream_ref
+        .flush()
+        .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: flush failed"))
+        .ok()?;
+
+    let mut reader = BufReader::new(&stream);
+    let mut line = String::new();
+    reader
+        .read_line(&mut line)
+        .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: read response failed"))
+        .ok()?;
+
+    let resp: serde_json::Value = serde_json::from_str(line.trim())
+        .inspect_err(|e| tracing::warn!(error = %e, "crypto.sign: response parse failed"))
+        .ok()?;
+
+    if let Some(err) = resp.get("error") {
+        tracing::warn!(
+            error = %err,
+            "crypto.sign returned error — provenance unsigned"
+        );
+        return None;
+    }
+
+    let result = resp.get("result")?;
+    let signature = result.get("signature")?.as_str()?.to_owned();
+    let key_id = result
+        .get("key_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+
+    tracing::debug!(key_id = ?key_id, "artifact signed by crypto.sign provider");
+    Some((signature, key_id))
 }
 
 /// Build artifact provenance for a compiled binary.
