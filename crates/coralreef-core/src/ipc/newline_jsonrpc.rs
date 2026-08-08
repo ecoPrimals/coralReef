@@ -122,14 +122,14 @@ pub fn dispatch_jsonrpc(
         "auth.check" => {
             let gate = super::method_gate::gate();
             Ok(serde_json::json!({
-                "mode": gate.mode().as_str(),
+                "mode": gate.enforcement().as_str(),
                 "authenticated": false,
             }))
         }
         "auth.mode" => {
             let gate = super::method_gate::gate();
             Ok(serde_json::json!({
-                "mode": gate.mode().as_str(),
+                "mode": gate.enforcement().as_str(),
             }))
         }
         "auth.peer_info" => Ok(serde_json::json!({
