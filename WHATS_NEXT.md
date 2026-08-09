@@ -627,9 +627,10 @@ the full Spring absorption map.
 
 ### P2 — barraCuda integration
 - [x] `GpuContext::from_vfio()` convenience API — unblocks `CoralReefDevice::from_vfio_device()` stub in barraCuda
-- [ ] `CoralReefDevice` fully wired (barraCuda-side: currently stub, needs `from_vfio` call)
-- [ ] SovereignCompiler → coralReef routing (replace PTXAS/NAK)
-- [ ] `PrecisionRoutingAdvice` support (F64Native, F64NativeNoSharedMem, Df64Only, F32Only)
+- [x] ~~`PrecisionRoutingAdvice` support~~ — **DELIVERED** as `Fp64Strategy` enum (Native/DoubleFloat/F32Only) in `CompileOptions`. barraCuda passes strategy via `shader.compile.wgsl` params. `F64NativeNoSharedMem` folded into `Native` (shared memory is orthogonal to f64 strategy).
+- [ ] `CoralReefDevice` fully wired — **barraCuda-side**: stub exists, needs to call `shader.compile.wgsl` via IPC instead of direct crate import. coralReef IPC is live.
+- [ ] SovereignCompiler → coralReef routing — **barraCuda-side**: replace PTXAS/NAK calls with `shader.compile.wgsl` IPC dispatch. coralReef IPC is live.
+- [ ] GEMM tiling Phase 1 — **coralReef-side**: `compile_gemm` emits correct `mma.sync` opcodes but kernel needs `%tid`/`%ctaid` mapping, shared memory, `ldmatrix`, M/N output loops. Blocks functional tensor-core dispatch.
 
 ### P1 — Debt reduction (Iteration 6)
 - [x] Error types → `Cow<'static, str>` (zero-allocation static error paths)
