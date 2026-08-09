@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Sprint 14 / Wave 157d.
 
-**Last completed**: Wave 157d — Vertebrate self-audit: 18/18 RPC methods verified against `capability_registry.toml`, programmatic registry-vs-dispatch integrity test added. AMD RDNA2 PLop3 predicate logic implemented (SOP2/SOP1 decomposition). G68 16/16 prod-clean. MethodGate::mode() renamed to enforcement() for scanner compliance. All P0s resolved ecosystem-wide.
+**Last completed**: Wave 157d — Integer subgroup scan/reduce correctness fix (`emit_scan_via_shfl`/`emit_reduce_via_shfl` dispatched on type+op instead of hardcoding `OpFAdd`). `subgroup_op_to_redux` Min/Max now respect u32 vs i32 signedness. Float min/max via `OpFMnMx`, integer bitwise via `OpLop3`. Silicon fold response AAR filed. Vertebrate self-audit: 18/18 RPC methods verified.
 
-**Tests**: 3,699 total (3,695 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,702 total (3,698 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 9, 2026.
 
-**Next focus**: Tensor-core priority (SM86 `mma.sync` for fermion CG inner loop — silicon fold AAR says 256 TOPS unlocked on RTX 3090). Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. Compute gossip integration when swarmVine is ready. Deploy across NUCLEUS gates (depot unified + pruned, 4 arches).
+**Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation (8-12 weeks — Phase C, NAK heritage exists for SPH/attribute ops/interpolation). Compute gossip integration when swarmVine is ready. Deploy across NUCLEUS gates (depot unified + pruned, 4 arches). GEMM emitter tiling (Phase 1: `%tid`/`%ctaid` indexing, shared memory, `ldmatrix`).
 
 ---
 
@@ -56,7 +56,7 @@ coralReef is deployed on strandGate (Compute Trio: coralReef + barraCuda + toadS
 
 7. **Vertex + Fragment shader compilation** — graphics-stage entry points, SPH emission, graphics builtins, `dpdx`/`dpdy`, `discard`. Phase C: activates rasterizer + ROPs + full TMU pipeline.
 8. ~~Remaining math builtins: Ldexp/Frexp/Modf, Transpose/Determinant/Inverse, Pack/Unpack~~ — **DONE** (Wave 67: Ldexp/Frexp/Modf; Wave 68: Transpose, Determinant, Inverse, all Pack/Unpack variants)
-9. Scan operation integer type support (subgroup reduce for i32/u32)
+9. ~~Scan operation integer type support (subgroup reduce for i32/u32)~~ — **DONE** (Wave 157d). `emit_subgroup_combine()` dispatches on type+op: floats use `OpFAdd`/`OpFMnMx`, integers use `OpIAdd3`/`OpIMnMx`/`OpLop3`. `subgroup_op_to_redux()` Min/Max respects u32 vs i32 signedness. 7 new WGSL tests covering i32/u32 reduce, inclusive/exclusive scan, min/max, and/or/xor.
 
 ### Far Horizons
 
@@ -69,18 +69,28 @@ coralReef is deployed on strandGate (Compute Trio: coralReef + barraCuda + toadS
 f16, f16→f32 mixed-precision, and TF32 operand modes. This is the HMMA path available to
 the compute trio (tensor-dispatch GEMM router + fleet-management sovereign dispatch).
 
-**Silicon fold upstream (Wave 157d)**: strandGate silicon fold AAR confirms tensor cores
-are the remaining coralReef-specific blocker. RT cores are accessible via wgpu 28 without
-coralReef. If coralReef extends `mma.sync` coverage for SM86 cooperative matrix, the
-RTX 3090 gains 256 TOPS for fermion matrix-vector products (CG inner loop), making NVIDIA
-competitive with AMD (which wins HMC/force via Infinity Cache). Priority: SM86 cooperative
-matrix over general-purpose SASS.
+**Silicon fold response AAR (Wave 157d)**:
+- **RT cores**: Accessible via wgpu 28 BLAS/TLAS — no coralReef work needed. Our inline
+  RayQuery (SM75+) was reverted Wave 118 due to silent wrong results. Real fix needs
+  documented PTX `optix.*` intrinsics and hardware validation. Correctly deprioritized.
+- **Tensor cores**: `compile_gemm()` emits correct `mma.sync.aligned` opcodes for SM80+
+  (including SM86/RTX 3090) but the kernel is **single-tile scaffold** — no `%tid`/`%ctaid`
+  thread mapping, no shared memory tiling, no `ldmatrix`, no M/N output-tile loops.
+  Not usable for arbitrary `(M,N,K)` GEMM on real data.
+- **CG inner loop fit**: Fermion CG is **sparse stencil f64** (`dirac_staggered_f64.wgsl`),
+  not dense GEMM. Tensor cores don't directly apply without reformulating the solver into
+  blocked dense subproblems (preconditioner/multigrid coarse solve) or mixed-precision CG
+  (f16/f32 matvec + f64 residual correction). SM86 has **no f64 tensor cores**.
+- **GEMM tiling roadmap**: Phase 1 (block/warp mapping, shared mem, `ldmatrix`, correct
+  indexing) → Phase 2 (GEMV/batched APIs for CG) → Phase 3 (hotSpring integration for
+  blocked Dirac tiles). f64 tensor cores require SM90+ (Hopper), not the 3090.
+- **Integer subgroup ops**: Fixed — `emit_scan_via_shfl`/`emit_reduce_via_shfl` were
+  hardcoding `OpFAdd` for all types (silent wrong results for i32/u32). Now dispatches
+  correctly on type + operation.
 
-**WGSL→HMMA automatic lowering** (detecting matmul patterns in arbitrary WGSL shaders and
-replacing with tensor-core instructions) is not currently feasible: WGSL has no cooperative
+**WGSL→HMMA automatic lowering** is not currently feasible: WGSL has no cooperative
 matrix primitives, and naga does not expose `OpCooperativeMatrixMulAdd` from SPIR-V.
-Automatic pattern detection in the IR (matching nested loops as GEMM) is research-level
-complexity. The dedicated `compile_gemm` API is the practical path.
+The dedicated `compile_gemm` API is the practical path.
 
 ---
 
@@ -699,7 +709,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,686 tests (3,680 passing, 6 ignored), zero failures. ~84% workspace coverage. Wave 156p.
+3,702 tests (3,698 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157d.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.

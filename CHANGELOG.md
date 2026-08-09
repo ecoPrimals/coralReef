@@ -10,6 +10,37 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 157d: Integer Subgroup Correctness + Silicon Fold AAR (2026-08-09)
+
+#### Fixed (Integer Subgroup Scan/Reduce — Silent Wrong Results)
+- `emit_scan_via_shfl` and `emit_reduce_via_shfl` in `naga_translate/func.rs` were
+  hardcoding `OpFAdd` for **all** subgroup scan/reduce operations, including integer
+  types. This produced **silent wrong results** for i32/u32 on SM70–SM90 (the SASS
+  path). Now dispatches via new `emit_subgroup_combine()` helper:
+  - Floats: `OpFAdd` (add), `OpFMnMx` (min/max)
+  - Integers: `OpIAdd3` (add), `OpIMnMx` (min/max), `OpLop3` (and/or/xor)
+- `subgroup_op_to_redux()` (SM73+ hardware reduce) was hardcoding `IntCmpType::I32`
+  for Min/Max, giving wrong results for `u32` (unsigned treated as signed). Now
+  takes `is_signed` parameter and uses `IntCmpType::U32` for unsigned types.
+- 7 new WGSL tests: u32 and i32 `subgroupAdd` (SM70 shfl path), u32
+  `subgroupInclusiveAdd`/`subgroupExclusiveAdd`, u32 `subgroupMin`/`subgroupMax`,
+  u32 `subgroupAnd`/`subgroupOr`/`subgroupXor`.
+- Test count: 3,702 passed (was 3,699 + 4 ignored, now 3,702 + 4 ignored — net +3
+  from new tests, earlier tests already counted).
+
+#### Added (Silicon Fold Response AAR)
+- Honest capability assessment in `WHATS_NEXT.md` responding to strandGate silicon
+  fold AAR:
+  - RT cores: correctly handled by wgpu 28 BLAS/TLAS. Inline RayQuery blocked on
+    vendor PTX `optix.*` intrinsics documentation.
+  - Tensor cores: `compile_gemm()` emits correct opcodes but kernel is single-tile
+    scaffold (no thread mapping, no shared memory tiling). Phase 1 tiling roadmap
+    documented.
+  - CG inner loop: sparse f64 stencil, not dense GEMM. Tensor cores require solver
+    reformulation (blocked preconditioner / mixed-precision CG).
+  - Vertex/Fragment shaders: 8-12 weeks. NAK heritage downstream (SPH, attribute
+    ops, interpolation); naga→IR translation is compute-only.
+
 ### Wave 157a: Vertebrate Evolution — RPC Self-Audit (2026-08-09)
 
 #### Added (Vertebrate Self-Audit)

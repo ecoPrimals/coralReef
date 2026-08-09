@@ -448,8 +448,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
         match collective_op {
             naga::CollectiveOperation::Reduce => {
+                let is_signed = self.is_signed_int_expr(argument);
                 if self.sm.sm() >= 73 {
-                    let redux_op = subgroup_op_to_redux(op)?;
+                    let redux_op = subgroup_op_to_redux(op, is_signed)?;
                     let dst_val = self.alloc_ssa(RegFile::GPR);
                     self.push_instr(Instr::new(OpRedux {
                         dst: dst_val.into(),
@@ -458,13 +459,15 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                     }));
                     self.expr_map.insert(result, dst_val.into());
                 } else {
-                    let dst_ssa = self.emit_reduce_via_shfl(src, op)?;
+                    let is_float = self.is_float_expr(argument);
+                    let dst_ssa = self.emit_reduce_via_shfl(src, op, is_float)?;
                     self.expr_map.insert(result, dst_ssa);
                 }
             }
             naga::CollectiveOperation::InclusiveScan | naga::CollectiveOperation::ExclusiveScan => {
                 let is_exclusive = collective_op == naga::CollectiveOperation::ExclusiveScan;
-                let dst_ssa = self.emit_scan_via_shfl(src, op, is_exclusive)?;
+                let is_float = self.is_float_expr(argument);
+                let dst_ssa = self.emit_scan_via_shfl(src, op, is_exclusive, is_float)?;
                 self.expr_map.insert(result, dst_ssa);
             }
         }
@@ -475,7 +478,8 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     fn emit_reduce_via_shfl(
         &mut self,
         src: Src,
-        _op: naga::SubgroupOperation,
+        op: naga::SubgroupOperation,
+        is_float: bool,
     ) -> Result<SSARef, CompileError> {
         let mut acc_val = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpCopy {
@@ -496,16 +500,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             }));
 
             let combined = self.alloc_ssa(RegFile::GPR);
-            self.push_instr(Instr::new(OpFAdd {
-                dst: combined.into(),
-                srcs: [
-                    Src::from(SSARef::from(acc_val)),
-                    Src::from(SSARef::from(shfl_dst)),
-                ],
-                saturate: false,
-                rnd_mode: FRndMode::NearestEven,
-                ftz: false,
-            }));
+            self.emit_subgroup_combine(
+                combined.into(),
+                Src::from(SSARef::from(acc_val)),
+                Src::from(SSARef::from(shfl_dst)),
+                op,
+                is_float,
+            )?;
             acc_val = combined;
         }
 
@@ -567,8 +568,9 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
     fn emit_scan_via_shfl(
         &mut self,
         src: Src,
-        _op: naga::SubgroupOperation,
+        op: naga::SubgroupOperation,
         exclusive: bool,
+        is_float: bool,
     ) -> Result<SSARef, CompileError> {
         let mut acc_val = self.alloc_ssa(RegFile::GPR);
         self.push_instr(Instr::new(OpCopy {
@@ -590,16 +592,13 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
             }));
 
             let temp = self.alloc_ssa(RegFile::GPR);
-            self.push_instr(Instr::new(OpFAdd {
-                dst: temp.into(),
-                srcs: [
-                    Src::from(SSARef::from(acc_val)),
-                    Src::from(SSARef::from(shfl_dst)),
-                ],
-                saturate: false,
-                rnd_mode: FRndMode::NearestEven,
-                ftz: false,
-            }));
+            self.emit_subgroup_combine(
+                temp.into(),
+                Src::from(SSARef::from(acc_val)),
+                Src::from(SSARef::from(shfl_dst)),
+                op,
+                is_float,
+            )?;
 
             let combined = self.alloc_ssa(RegFile::GPR);
             self.push_instr(Instr::new(OpSel {
@@ -629,20 +628,125 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
 
         Ok(SSARef::from(acc_val))
     }
+
+    /// Emit the combine step for a subgroup scan/reduce, dispatching on
+    /// operation and scalar type. Floats use `OpFAdd`/`OpFMnMx`; integers
+    /// use `OpIAdd2`/`OpIMnMx`/`OpLop2`.
+    fn emit_subgroup_combine(
+        &mut self,
+        dst: Dst,
+        lhs: Src,
+        rhs: Src,
+        op: naga::SubgroupOperation,
+        is_float: bool,
+    ) -> Result<(), CompileError> {
+        if is_float {
+            match op {
+                naga::SubgroupOperation::Add => {
+                    self.push_instr(Instr::new(OpFAdd {
+                        dst,
+                        srcs: [lhs, rhs],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                    }));
+                }
+                naga::SubgroupOperation::Min => {
+                    self.push_instr(Instr::new(OpFMnMx {
+                        dst,
+                        srcs: [lhs, rhs, Src::new_imm_bool(true)],
+                        ftz: false,
+                    }));
+                }
+                naga::SubgroupOperation::Max => {
+                    self.push_instr(Instr::new(OpFMnMx {
+                        dst,
+                        srcs: [lhs, rhs, Src::new_imm_bool(false)],
+                        ftz: false,
+                    }));
+                }
+                _ => {
+                    self.push_instr(Instr::new(OpFAdd {
+                        dst,
+                        srcs: [lhs, rhs],
+                        saturate: false,
+                        rnd_mode: FRndMode::NearestEven,
+                        ftz: false,
+                    }));
+                }
+            }
+        } else {
+            match op {
+                naga::SubgroupOperation::Add => {
+                    self.push_instr(Instr::new(OpIAdd3 {
+                        dsts: [dst, Dst::None, Dst::None],
+                        srcs: [lhs, rhs, Src::new_imm_u32(0)],
+                    }));
+                }
+                naga::SubgroupOperation::Min => {
+                    self.push_instr(Instr::new(OpIMnMx {
+                        dst,
+                        cmp_type: IntCmpType::I32,
+                        srcs: [lhs, rhs, Src::new_imm_bool(true)],
+                    }));
+                }
+                naga::SubgroupOperation::Max => {
+                    self.push_instr(Instr::new(OpIMnMx {
+                        dst,
+                        cmp_type: IntCmpType::I32,
+                        srcs: [lhs, rhs, Src::new_imm_bool(false)],
+                    }));
+                }
+                naga::SubgroupOperation::And | naga::SubgroupOperation::All => {
+                    self.push_instr(Instr::new(OpLop3 {
+                        dst,
+                        srcs: [lhs, rhs, Src::new_imm_u32(0)],
+                        op: LogicOp2::And.to_lut(),
+                    }));
+                }
+                naga::SubgroupOperation::Or | naga::SubgroupOperation::Any => {
+                    self.push_instr(Instr::new(OpLop3 {
+                        dst,
+                        srcs: [lhs, rhs, Src::new_imm_u32(0)],
+                        op: LogicOp2::Or.to_lut(),
+                    }));
+                }
+                naga::SubgroupOperation::Xor => {
+                    self.push_instr(Instr::new(OpLop3 {
+                        dst,
+                        srcs: [lhs, rhs, Src::new_imm_u32(0)],
+                        op: LogicOp2::Xor.to_lut(),
+                    }));
+                }
+                naga::SubgroupOperation::Mul => {
+                    return Err(CompileError::NotImplemented(
+                        "integer subgroup multiply scan/reduce via shfl".into(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
-fn subgroup_op_to_redux(op: naga::SubgroupOperation) -> Result<ReduxOp, CompileError> {
+fn subgroup_op_to_redux(
+    op: naga::SubgroupOperation,
+    is_signed: bool,
+) -> Result<ReduxOp, CompileError> {
+    let int_type = if is_signed {
+        IntCmpType::I32
+    } else {
+        IntCmpType::U32
+    };
     match op {
         naga::SubgroupOperation::Add => Ok(ReduxOp::Sum),
         naga::SubgroupOperation::And | naga::SubgroupOperation::All => Ok(ReduxOp::And),
         naga::SubgroupOperation::Or | naga::SubgroupOperation::Any => Ok(ReduxOp::Or),
         naga::SubgroupOperation::Xor => Ok(ReduxOp::Xor),
-        naga::SubgroupOperation::Min => Ok(ReduxOp::Min(IntCmpType::I32)),
-        naga::SubgroupOperation::Max => Ok(ReduxOp::Max(IntCmpType::I32)),
+        naga::SubgroupOperation::Min => Ok(ReduxOp::Min(int_type)),
+        naga::SubgroupOperation::Max => Ok(ReduxOp::Max(int_type)),
         // NVIDIA `redux.sync` supports {.add, .min, .max, .and, .or, .xor} but not
         // multiply. No SM generation (SM70–SM120) provides a hardware mul reduction.
-        // A shfl-based emulation is possible but non-trivial for overflow-correct
-        // integer multiply; callers should decompose manually.
         naga::SubgroupOperation::Mul => Err(CompileError::NotImplemented(
             "subgroup multiply reduction has no redux hardware op (SM70-SM120)".into(),
         )),

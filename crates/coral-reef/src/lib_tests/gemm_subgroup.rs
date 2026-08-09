@@ -378,3 +378,183 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
         "f64 subgroup reduction with SubgroupSize should compile: {result:?}"
     );
 }
+
+// --- Integer subgroup scan/reduce tests (WHATS_NEXT #59) ---
+
+#[test]
+fn test_subgroup_add_u32_reduce_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let sum = subgroupAdd(val);
+    data[gid.x] = sum;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "u32 subgroupAdd should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_add_i32_reduce_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<i32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let sum = subgroupAdd(val);
+    data[gid.x] = sum;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "i32 subgroupAdd should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_add_u32_reduce_sm86() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let sum = subgroupAdd(val);
+    data[gid.x] = sum;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "u32 subgroupAdd should compile for SM70 (shfl path): {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_inclusive_scan_u32_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let prefix = subgroupInclusiveAdd(val);
+    data[gid.x] = prefix;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "u32 subgroupInclusiveAdd should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_exclusive_scan_u32_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let prefix = subgroupExclusiveAdd(val);
+    data[gid.x] = prefix;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "u32 subgroupExclusiveAdd should compile for SM70: {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_min_max_u32_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> mins: array<u32>;
+@group(0) @binding(1) var<storage, read_write> maxs: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = mins[gid.x];
+    mins[gid.x] = subgroupMin(val);
+    maxs[gid.x] = subgroupMax(val);
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "u32 subgroupMin/Max should compile for SM70 (shfl path): {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_and_or_xor_u32_sm70() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let a = subgroupAnd(val);
+    let o = subgroupOr(val);
+    let x = subgroupXor(val);
+    data[gid.x] = a ^ o ^ x;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm70),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "u32 subgroupAnd/Or/Xor should compile for SM70 (shfl path): {result:?}"
+    );
+}
