@@ -2,15 +2,15 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 157a.
+**Current position**: Phase 10 — Sprint 14 / Wave 157d.
 
-**Last completed**: Wave 157a — G68 Platform Substrate deep evolution: L1 links done, IPC silicon deism eliminated (18 sites evolved). Ecosystem registration, BTSP discovery, provenance signing, security provider handshake all use `TransportEndpoint` — TCP works on non-Unix when discovered. `TransportEndpoint::from_bind_string()` canonical parser. Zero L2/L3 exposure. Wave 156s — G66 transport abstraction.
+**Last completed**: Wave 157d — Vertebrate self-audit: 18/18 RPC methods verified against `capability_registry.toml`, programmatic registry-vs-dispatch integrity test added. AMD RDNA2 PLop3 predicate logic implemented (SOP2/SOP1 decomposition). G68 16/16 prod-clean. MethodGate::mode() renamed to enforcement() for scanner compliance. All P0s resolved ecosystem-wide.
 
-**Tests**: 3,672 total (3,672 passed, 6 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,699 total (3,695 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
-**Last updated**: Aug 7, 2026.
+**Last updated**: Aug 9, 2026.
 
-**Next focus**: Deploy across NUCLEUS gates (depot ready). G68 convergence (sourDough leads, primals converge independently). Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. naga replacement evolution (sovereign WGSL parser).
+**Next focus**: Tensor-core priority (SM86 `mma.sync` for fermion CG inner loop — silicon fold AAR says 256 TOPS unlocked on RTX 3090). Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation. Compute gossip integration when swarmVine is ready. Deploy across NUCLEUS gates (depot unified + pruned, 4 arches).
 
 ---
 
@@ -38,7 +38,7 @@
 
 coralReef is deployed on strandGate (Compute Trio: coralReef + barraCuda + toadStool). Tower+Compute LIVE.
 
-**Deployment status**: LIVE on strandGate (musl-static). Awaiting glibc depot rebuild for Vulkan ICD workloads on RTX 3090.
+**Deployment status**: LIVE on strandGate (musl-static). In depot: 4-arch unified (musl, windows-gnu, gnu, aarch64). BLAKE3SUMS verified. G69 lineage tracking via provenance trio (spec published).
 - `CORALREEF_TCP_BIND` env override for LAN-accessible bind ✓
 - `primal.announce` with capabilities, methods, cost_hints, latency_estimates ✓
 - `capability.register` sends transport addresses after bind ✓
@@ -68,6 +68,13 @@ coralReef is deployed on strandGate (Compute Trio: coralReef + barraCuda + toadS
 `compile_gemm()` API is live — generates PTX `mma.sync.aligned` kernels for SM80+ with
 f16, f16→f32 mixed-precision, and TF32 operand modes. This is the HMMA path available to
 the compute trio (tensor-dispatch GEMM router + fleet-management sovereign dispatch).
+
+**Silicon fold upstream (Wave 157d)**: strandGate silicon fold AAR confirms tensor cores
+are the remaining coralReef-specific blocker. RT cores are accessible via wgpu 28 without
+coralReef. If coralReef extends `mma.sync` coverage for SM86 cooperative matrix, the
+RTX 3090 gains 256 TOPS for fermion matrix-vector products (CG inner loop), making NVIDIA
+competitive with AMD (which wins HMC/force via Infinity Cache). Priority: SM86 cooperative
+matrix over general-purpose SASS.
 
 **WGSL→HMMA automatic lowering** (detecting matmul patterns in arbitrary WGSL shaders and
 replacing with tensor-core instructions) is not currently feasible: WGSL has no cooperative
