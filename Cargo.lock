@@ -391,6 +391,7 @@ dependencies = [
  "tokio",
  "tokio-serde",
  "tokio-util",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "zeroize",

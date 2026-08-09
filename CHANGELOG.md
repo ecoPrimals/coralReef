@@ -10,6 +10,19 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 157a: Vertebrate Evolution — RPC Self-Audit (2026-08-09)
+
+#### Added (Vertebrate Self-Audit)
+- Programmatic registry-vs-dispatch self-audit test suite
+  (`tests_registry_audit.rs`, 5 tests). Parses `capability_registry.toml` at
+  compile time and verifies:
+  - Every declared method is handled by `dispatch_jsonrpc` (no phantom methods).
+  - Every dispatched method appears in the registry (no undeclared methods).
+  - Unknown methods return `method not found` error (no silent health fallback).
+  - No declared method returns a bearDog-style generic health stub.
+  - Registry version matches crate version.
+- `toml` added as dev-dependency for registry parsing in tests.
+
 ### Wave 157a: G68 Platform Substrate Deep Evolution (2026-08-07)
 
 #### Added (AMD RDNA2 PLop3 Predicate Logic)

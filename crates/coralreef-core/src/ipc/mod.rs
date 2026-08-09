@@ -185,6 +185,8 @@ mod tests_fault;
 mod tests_jsonrpc;
 #[cfg(test)]
 mod tests_newline_jsonrpc;
+#[cfg(test)]
+mod tests_registry_audit;
 #[cfg(all(test, feature = "tarpc-transport"))]
 mod tests_tarpc;
 #[cfg(all(test, feature = "tarpc-transport"))]
