@@ -451,13 +451,18 @@ impl<'a, 'b> FuncTranslator<'a, 'b> {
                 let is_signed = self.is_signed_int_expr(argument);
                 if self.sm.sm() >= 73 {
                     let redux_op = subgroup_op_to_redux(op, is_signed)?;
-                    let dst_val = self.alloc_ssa(RegFile::GPR);
+                    let udst = self.alloc_ssa(RegFile::UGPR);
                     self.push_instr(Instr::new(OpRedux {
-                        dst: dst_val.into(),
+                        dst: udst.into(),
                         src,
                         op: redux_op,
                     }));
-                    self.expr_map.insert(result, dst_val.into());
+                    let gpr_dst = self.alloc_ssa(RegFile::GPR);
+                    self.push_instr(Instr::new(OpCopy {
+                        dst: gpr_dst.into(),
+                        src: udst.into(),
+                    }));
+                    self.expr_map.insert(result, gpr_dst.into());
                 } else {
                     let is_float = self.is_float_expr(argument);
                     let dst_ssa = self.emit_reduce_via_shfl(src, op, is_float)?;

@@ -504,13 +504,89 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 ";
     let opts = CompileOptions {
-        target: GpuTarget::Nvidia(NvArch::Sm70),
+        target: GpuTarget::Nvidia(NvArch::Sm86),
         ..CompileOptions::default()
     };
     let result = compile_wgsl(wgsl, &opts);
     assert!(
         result.is_ok(),
-        "u32 subgroupAdd should compile for SM70 (shfl path): {result:?}"
+        "u32 subgroupAdd should compile for SM86 (redux path → SASS): {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_add_i32_reduce_sm86_sass() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<i32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let sum = subgroupAdd(val);
+    data[gid.x] = sum;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm86),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "i32 subgroupAdd should compile for SM86 (redux path → SASS): {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_min_max_u32_reduce_sm80_sass() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let mn = subgroupMin(val);
+    let mx = subgroupMax(val);
+    data[gid.x] = mn + mx;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm80),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "u32 subgroupMin/Max should compile for SM80 (redux → SASS): {result:?}"
+    );
+}
+
+#[test]
+fn test_subgroup_add_f32_reduce_sm80_sass() {
+    let wgsl = r"
+enable subgroups;
+
+@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let val = data[gid.x];
+    let sum = subgroupAdd(val);
+    data[gid.x] = sum;
+}
+";
+    let opts = CompileOptions {
+        target: GpuTarget::Nvidia(NvArch::Sm80),
+        ..CompileOptions::default()
+    };
+    let result = compile_wgsl(wgsl, &opts);
+    assert!(
+        result.is_ok(),
+        "f32 subgroupAdd should compile for SM80 (redux → SASS): {result:?}"
     );
 }
 

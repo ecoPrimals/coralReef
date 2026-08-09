@@ -10,6 +10,34 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 157d: SM80+ OpRedux Scheduler Fix (2026-08-09)
+
+#### Fixed (OpRedux UGPR Allocation)
+- `OpRedux` destination changed from `RegFile::GPR` to `RegFile::UGPR` in
+  `naga_translate/func.rs` — `redux.sync` hardware writes to a uniform register,
+  but the compiler was allocating a GPR, causing ICE ("Illegal R2UR") when the
+  SM80+ instruction scheduler tried to model the GPR write latency.
+- Uniform latency models (SM75 `uniform.rs`, SM80 `uniform.rs`, SM120
+  `sm120_instr_latencies.rs`) extended to handle all instruction types reading
+  from UGPR: memory (St/Ld/Atom), texture (Tex/Tld/Tld4/Tmml/Txd), surface
+  (SuLd/SuSt/SuAtom), MMA (Hmma/Imma), and control-flow (Bar/Bra/BSSy/etc.).
+  Previously these fell through to ICE in the catch-all.
+- `OpCopy` (UGPR→GPR) inserted after `OpRedux` to provide GPR value for
+  non-uniform consumers. Copy propagation may fold this away — the extended
+  latency model handles the resulting UGPR reads.
+
+#### Fixed (Test Targeting)
+- `test_subgroup_add_u32_reduce_sm86` was targeting SM70 (shfl path), not SM86
+  (redux path). Now correctly targets `NvArch::Sm86` to exercise the SASS
+  scheduler with `OpRedux`.
+
+#### Added (SM80 SASS Path Tests)
+- `test_subgroup_add_i32_reduce_sm86_sass`: i32 subgroupAdd through SM86 SASS.
+- `test_subgroup_min_max_u32_reduce_sm80_sass`: u32 subgroupMin/Max through SM80 SASS.
+- `test_subgroup_add_f32_reduce_sm80_sass`: f32 subgroupAdd through SM80 SASS.
+
+**Tests**: 3,715 (3,711 passed, 4 ignored). Clippy clean. Zero unsafe.
+
 ### Wave 157d: GEMM Tiling Phase 1 (2026-08-09)
 
 #### Added (Tiled GEMM Kernel)

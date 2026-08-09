@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Sprint 14 / Wave 157d.
 
-**Last completed**: Wave 157d — GEMM tiling Phase 1: `emit_gemm_ptx` now generates fully tiled PTX kernels with `%tid.x`/`%ctaid.x`/`%ctaid.y` thread/block mapping, `.reqntid 32`, per-thread MMA fragment addressing (groupID/threadID_in_group lane decomposition), strided A/B global loads with precomputed base pointers, row-major C store with correct N-stride indexing. Covers f16, f16→f32, and TF32 precisions. Grid is `(N/8, M/16, 1)` with 1 warp per CTA. M/N alignment validation enforced. Previous: integer subgroup scan/reduce fix, silicon fold AAR.
+**Last completed**: Wave 157d — SM80+ `OpRedux` scheduler fix: `redux.sync` destination changed from GPR to UGPR (matching hardware ISA), uniform latency models (SM75/SM80/SM120) extended to handle all instruction types reading from uniform registers (stores, loads, texture, surface, MMA, control-flow). Fixes "Illegal R2UR" ICE on integer subgroup reductions compiled through SASS scheduler. SM86 test corrected (was targeting SM70). Previous: GEMM tiling Phase 1, integer subgroup scan/reduce fix, silicon fold AAR.
 
-**Tests**: 3,712 total (3,708 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,715 total (3,711 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 9, 2026.
 
-**Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation (8-12 weeks — Phase C, NAK heritage exists for SPH/attribute ops/interpolation). Compute gossip integration when swarmVine is ready. Deploy across NUCLEUS gates (depot unified + pruned, 4 arches). GEMM Phase 2: shared memory tiling + `ldmatrix` + `bar.sync` pipeline stages (performance evolution — functional correctness is Phase 1 complete). SM80+ `OpRedux` scheduler fix for integer subgroup reductions.
+**Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation (8-12 weeks — Phase C, NAK heritage exists for SPH/attribute ops/interpolation). Compute gossip integration when swarmVine is ready. Deploy across NUCLEUS gates (depot unified + pruned, 4 arches). GEMM Phase 2: shared memory tiling + `ldmatrix` + `bar.sync` pipeline stages (performance evolution — functional correctness is Phase 1 complete).
 
 ---
 
@@ -714,7 +714,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,712 tests (3,708 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157d.
+3,715 tests (3,711 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157d.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
