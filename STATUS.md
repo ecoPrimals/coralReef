@@ -110,7 +110,7 @@
 | Shutdown observability | `coralreef-core/main.rs`: `.ok()` on task join handles replaced with `tracing::warn!` on `Err`; `discovery_dir().ok()` replaced with `tracing::debug!` |
 | SAFETY comments | Added `// SAFETY:` to all `unsafe {}` blocks in `config_env.rs`, `config_and_paths.rs`, `unix_jsonrpc_default_socket_path_env.rs` |
 | Capability-based showcase | `02-full-compute-triangle`: `ecosystem_socket("toadstool.jsonrpc")` → `discover_provider("gpu.orchestrate")` scanning discovery directory by capability |
-| Identifier quality | `dummy` → `placeholder` in `naga_translate/expr.rs`; verified zero `todo!()`, zero `unimplemented!()`, `MockWritesMutexPoisoned` is `#[cfg(test)]` |
+| Identifier quality | `dummy` → `placeholder` → `ptr_undef` in `naga_translate/expr.rs` (Wave 157d); verified zero `todo!()`, zero `unimplemented!()`, `MockWritesMutexPoisoned` is `#[cfg(test)]` |
 | Specs sync | `CORALREEF_SPECIFICATION.md` v0.7.0, `SOVEREIGN_MULTI_GPU_EVOLUTION.md` v0.3.0 — iteration/date aligned |
 
 ### Iteration 80: Wire Contract, CompilationInfo IPC, Socket Alignment, Deep Debt (Apr 12, 2026)
