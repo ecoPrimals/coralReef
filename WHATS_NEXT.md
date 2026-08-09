@@ -4,7 +4,7 @@
 
 **Current position**: Phase 10 — Sprint 14 / Wave 157d.
 
-**Last completed**: Wave 157d — SM80+ `OpRedux` scheduler fix: `redux.sync` destination changed from GPR to UGPR (matching hardware ISA), uniform latency models (SM75/SM80/SM120) extended to handle all instruction types reading from uniform registers (stores, loads, texture, surface, MMA, control-flow). Fixes "Illegal R2UR" ICE on integer subgroup reductions compiled through SASS scheduler. SM86 test corrected (was targeting SM70). Previous: GEMM tiling Phase 1, integer subgroup scan/reduce fix, silicon fold AAR.
+**Last completed**: Wave 157d — Deep debt evolution: `transport.rs` split (1285→4 files, max 460 LOC, only 1000-line violation eliminated), `compile.rs` refactored (834→569 LOC, batch handlers extracted to `compile_batch.rs` 285 LOC), `songBird` hardcoded primal name → capability-based reference, 12 primal-name references in docs/comments → capability-domain references, `placeholder` SSA variable names → `ptr_undef` semantic naming in `naga_translate`. Previous: SM80+ OpRedux scheduler fix, GEMM tiling Phase 1, integer subgroup scan/reduce fix, silicon fold AAR.
 
 **Tests**: 3,715 total (3,711 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
@@ -123,10 +123,11 @@ All files under 1000 LOC. Wave 143 additionally resolved 3 files >800 LOC (tests
 | `vfio_compute/mod.rs` | 1018 | 855 + `gr_engine_status.rs` (173) | **Resolved (Iter 70)** |
 | `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
+| `transport.rs` | 1285 | `transport/` (4 files, max 460) | **Resolved (Wave 157d)** |
 
-**Approaching 800 (monitor):** `sm20/encoder.rs` (795), `amd/encoding.rs` (795) — near threshold, split candidates by instruction/encoding category. Auto-generated ISA files (`vop3/mod.rs` 929, `mimg/table.rs` 801) are acceptable exceptions. All previous >800 LOC files resolved: Wave 143 splits (`codegen_coverage_extended`, `spring_absorption`, `codegen_coverage_targeted` → 6 focused modules), Wave 145 `main.rs` dedup (788→627). Former monitors (`tests_unix_edge.rs` 935→625, `nv_metal.rs`, `vfio/memory.rs`) are excised Sprint 9 / no longer in workspace.
+**Approaching 800 (monitor):** `sm20/encoder.rs` (795), `alu_int.rs` (827) — near threshold, split candidates by instruction/encoding category. Auto-generated ISA files (`table_arith.rs` 948, `table_cmp_f32_f64.rs` 836, `mimg/table.rs` 801) are acceptable exceptions (generator output). Wave 157d: `compile.rs` 834→569 (batch handlers extracted).
 
-**Songbird / ecosystem:** Songbird registration is now implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`) — no longer a “not wired” gap for ecosystem handshakes.
+**Ecosystem registration:** Implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`). Zero hardcoded primal names in production code.
 
 ### Sovereign Pipeline — Layer 7 (GR/FECS) Status
 
@@ -719,5 +720,5 @@ Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorp
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
 C2 dual-socket convention (`.tarpc.sock`). Binary ops coverage. SPIR-V module extraction.
-Zero files over 800 LOC. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
+Zero hand-written files over 1000 LOC. Zero hardcoded primal names. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.
 All pure Rust. Sovereignty is a compile choice.*

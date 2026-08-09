@@ -10,6 +10,37 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 157d: Deep Debt Evolution (2026-08-09)
+
+#### Changed (File Structure)
+- `transport.rs` (1285 LOC) split into directory module `transport/`:
+  `mod.rs` (460), `stream.rs` (318), `sync_stream.rs` (207), `resolve.rs` (359).
+  Only file violating the 1000-line standard — now all under 460.
+- `compile.rs` (834 LOC) refactored: batch/multi-device handlers extracted to
+  `compile_batch.rs` (285 LOC). `compile.rs` now 569 LOC.
+
+#### Fixed (Hardcoded Primal Names)
+- `transport.rs:383`: `"mesh relay transport requires songBird routing"` →
+  `"mesh relay transport requires a mesh routing capability provider"` — last
+  production runtime reference to another primal by name.
+- 12 doc-comment references to other primals by name (`BearDog`, `biomeOS`,
+  `squirrel`, `sourDough`, `nestGate`, `sporePrint`, `BarraCUDA`) evolved to
+  capability-domain references (`crypto`-domain provider, ecosystem orchestrator,
+  `capability.call` forwarding, CAS, G65 reference, Node Atomic).
+
+#### Changed (Semantic Naming)
+- `placeholder` SSA variable names in `naga_translate/expr.rs` (6 instances) and
+  `func_ops.rs` (1 instance) renamed to `ptr_undef` — clarifies these are
+  intentional `OpUndef` markers for pointer/reference slots, not unfinished code.
+- Module doc updated: "placeholders" → "markers".
+
+#### Investigated (Dependencies)
+- `blake3` `cc` build dependency: confirmed inert with `features = ["pure"]`.
+  Build script unconditionally declares `cc` in `[build-dependencies]` but does
+  not compile any C code. Upstream limitation — no C toolchain invoked at runtime.
+
+**Tests**: 3,715 (3,711 passed, 4 ignored). Clippy clean. Zero unsafe. Zero hardcoded primal names.
+
 ### Wave 157d: SM80+ OpRedux Scheduler Fix (2026-08-09)
 
 #### Fixed (OpRedux UGPR Allocation)

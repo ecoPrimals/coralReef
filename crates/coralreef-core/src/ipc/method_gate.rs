@@ -143,8 +143,8 @@ impl CallerContext {
 
     /// Extract caller context from JSON-RPC params.
     ///
-    /// Looks for a `_bearer_token` field in the params object (per biomeOS
-    /// convention). If present, the token is extracted and the field is
+    /// Looks for a `_bearer_token` field in the params object (per ecosystem
+    /// `capability.call` forwarding convention). If present, the token is extracted and the field is
     /// consumed. If params is not an object or the field is absent, returns
     /// a loopback context with no token.
     #[must_use]

@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 9, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 157d (SM80+ `OpRedux` scheduler fix: `redux.sync` destination now correctly UGPR, uniform latency models extended for all UGPR-reading instructions. GEMM tiling Phase 1: fully tiled `mma.sync.aligned` kernels. Integer subgroup scan/reduce fix. Silicon fold AAR. Self-audit: 18/18 RPC methods match `capability_registry.toml`. G68 16/16 prod-clean. Zero P0s. 3,715 tests. Zero unsafe, zero clippy warnings on Linux + Windows.)
+**Version**: 0.2.0 — Sprint 14 / Wave 157d (Deep debt evolution: `transport.rs` 1285→4 files (only 1000-line violation eliminated), `compile.rs` 834→569 (batch handlers extracted), zero hardcoded primal names in production code, 12 doc references evolved to capability-domain, `placeholder` SSA→`ptr_undef` semantic naming. Previous: SM80+ OpRedux scheduler fix, GEMM tiling Phase 1, integer subgroup fix. Self-audit: 18/18 RPC. G68 16/16 prod-clean. Zero P0s. 3,715 tests. Zero unsafe, zero clippy warnings.)
 
 ---
 

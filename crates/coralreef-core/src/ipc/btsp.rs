@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! BTSP (biomeOS Transport Security Protocol) Phase 2: `BearDog` delegation.
+//! BTSP (Transport Security Protocol) Phase 2: `crypto` domain delegation.
 //!
 //! Per wateringHole `BTSP_PROTOCOL_STANDARD` v1.0 and `PRIMAL_SELF_KNOWLEDGE_STANDARD`
 //! v1.1: when `FAMILY_ID` is set (production mode), every incoming socket connection
@@ -7,16 +7,16 @@
 //!
 //! ## Architecture
 //!
-//! Consumer primals (coralReef) delegate the handshake to the security-domain
-//! provider (`BearDog`) via `btsp.session.create` over newline-delimited JSON-RPC
-//! on a Unix socket. Discovery is capability-based: we look for a `crypto` domain
-//! socket, never hardcoding a primal name.
+//! Consumer primals delegate the handshake to the `crypto`-domain provider via
+//! `btsp.session.create` over newline-delimited JSON-RPC on a Unix socket.
+//! Discovery is capability-based: we look for a `crypto` domain socket, never
+//! hardcoding a primal name.
 //!
 //! ## Degraded Mode
 //!
 //! When `FAMILY_ID` is set but the security provider is unreachable or its
 //! session layer is incomplete, the guard logs a warning and **accepts** the
-//! connection. This prevents a hard dependency on `BearDog` availability during
+//! connection. This prevents a hard dependency on provider availability during
 //! the Phase 2 rollout window.
 
 use std::path::PathBuf;
@@ -128,8 +128,8 @@ impl BtspOutcome {
 
 /// First byte that indicates plain JSON-RPC (no BTSP handshake expected).
 ///
-/// Per bearDog `ProtocolDetector` convention: a leading `{` means the peer
-/// is sending newline-delimited JSON-RPC directly (e.g. biomeOS capability.call
+/// Per the `ProtocolDetector` convention: a leading `{` means the peer
+/// is sending newline-delimited JSON-RPC directly (e.g. `capability.call`
 /// forwarding). Any other leading byte triggers BTSP handshake.
 const PLAIN_JSONRPC_MARKER: u8 = b'{';
 
@@ -202,7 +202,7 @@ pub async fn guard_from_first_line_after_brace(first_line: &str) -> BtspOutcome 
 /// Full JSON-line BTSP handshake relay on the client's stream.
 ///
 /// Performs the complete 4-step handshake: reads the already-consumed `ClientHello`,
-/// relays through `BearDog` `btsp.session.create` / `btsp.session.verify`, and
+/// relays through the `crypto`-domain provider's `btsp.session.create` / `btsp.session.verify`, and
 /// writes `ServerHello` + `HandshakeComplete` back to the client. Returns `Ok(session_id)`
 /// on success or `Err` on failure (caller should close the connection).
 ///
@@ -385,7 +385,7 @@ async fn security_rpc(
 /// Out-of-band BTSP guard — legacy API for accept loops without stream access.
 ///
 /// Prefer [`guard_from_first_byte`] which inspects the actual stream and avoids
-/// BTSP rejection of plain JSON-RPC peers (e.g. biomeOS).
+/// BTSP rejection of plain JSON-RPC peers (e.g. `capability.call` forwarding).
 #[allow(
     dead_code,
     reason = "retained for tarpc/HTTP paths that lack stream peek access"

@@ -18,7 +18,7 @@
 //! If the client does not send a `PROTOCOLS:` line (first byte is not `P`),
 //! the server falls back to JSON-RPC. Existing clients work with zero changes.
 //!
-//! Convergent evolution from squirrel/sourDough G65 reference implementation.
+//! Convergent evolution from the G65 reference implementation.
 //! See `wateringHole/specs/PROTOCOL_NEGOTIATION_SPEC.md`.
 
 use super::ipc_protocol::IpcProtocol;

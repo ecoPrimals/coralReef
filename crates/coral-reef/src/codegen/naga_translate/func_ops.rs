@@ -450,8 +450,8 @@ impl FuncTranslator<'_, '_> {
                     match var_ref {
                         VarRef::Full(slot) => {
                             ptr_arg_slots.insert(i as u32, slot);
-                            let placeholder = self.alloc_ssa(RegFile::GPR);
-                            by_value_args.push(placeholder.into());
+                            let ptr_undef = self.alloc_ssa(RegFile::GPR);
+                            by_value_args.push(ptr_undef.into());
                         }
                         VarRef::Component(_, _) => {
                             return Err(CompileError::NotImplemented(

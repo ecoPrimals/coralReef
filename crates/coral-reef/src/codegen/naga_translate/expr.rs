@@ -4,7 +4,7 @@
 //! ## OpUndef for pointer/reference slots
 //!
 //! Naga expressions that represent memory locations (pointers, references,
-//! uniform bindings) are translated into `OpUndef` placeholders. These SSA
+//! uniform bindings) are translated into `OpUndef` markers. These SSA
 //! values act as keys in `expr_map` to identify the memory location, but
 //! carry no runtime data — actual values are read via `Load` / written via
 //! `Store`. This is intentional: Naga's type system distinguishes value and
@@ -78,11 +78,11 @@ impl FuncTranslator<'_, '_> {
                     if let Some(&slot) = self.inline_ptr_arg_slots.get(&idx) {
                         self.expr_to_var
                             .insert(handle, super::func::VarRef::Full(slot));
-                        let placeholder = self.alloc_ssa(RegFile::GPR);
+                        let ptr_undef = self.alloc_ssa(RegFile::GPR);
                         self.push_instr(Instr::new(OpUndef {
-                            dst: placeholder.into(),
+                            dst: ptr_undef.into(),
                         }));
-                        Ok(placeholder.into())
+                        Ok(ptr_undef.into())
                     } else {
                         Ok(args[idx as usize].clone())
                     }
@@ -139,11 +139,11 @@ impl FuncTranslator<'_, '_> {
                 if let Some(&slot_id) = self.local_var_slots.get(&lv) {
                     self.expr_to_var
                         .insert(handle, super::func::VarRef::Full(slot_id));
-                    let placeholder = self.alloc_ssa(RegFile::GPR);
+                    let ptr_undef = self.alloc_ssa(RegFile::GPR);
                     self.push_instr(Instr::new(OpUndef {
-                        dst: placeholder.into(),
+                        dst: ptr_undef.into(),
                     }));
-                    Ok(placeholder.into())
+                    Ok(ptr_undef.into())
                 } else {
                     let lv_ty = self.func.local_variables[lv].ty;
                     let comps = self.type_reg_comps(lv_ty);
@@ -159,11 +159,11 @@ impl FuncTranslator<'_, '_> {
                         self.var_storage.push(ssa);
                         self.expr_to_var
                             .insert(handle, super::func::VarRef::Full(slot_id));
-                        let placeholder = self.alloc_ssa(RegFile::GPR);
+                        let ptr_undef = self.alloc_ssa(RegFile::GPR);
                         self.push_instr(Instr::new(OpUndef {
-                            dst: placeholder.into(),
+                            dst: ptr_undef.into(),
                         }));
-                        Ok(placeholder.into())
+                        Ok(ptr_undef.into())
                     } else {
                         let dst = self.alloc_ssa(RegFile::GPR);
                         self.push_instr(Instr::new(OpUndef { dst: dst.into() }));
@@ -219,11 +219,11 @@ impl FuncTranslator<'_, '_> {
                     let field_offset = self.uniform_field_byte_offset(base, index)?;
                     let total_offset = base_offset + field_offset;
                     self.uniform_refs.insert(handle, (addr, total_offset));
-                    let placeholder = self.alloc_ssa(RegFile::GPR);
+                    let ptr_undef = self.alloc_ssa(RegFile::GPR);
                     self.push_instr(Instr::new(OpUndef {
-                        dst: placeholder.into(),
+                        dst: ptr_undef.into(),
                     }));
-                    Ok(placeholder.into())
+                    Ok(ptr_undef.into())
                 } else if let Some(var_ref) = self.expr_to_var.get(&base).copied() {
                     let sub_ref = match var_ref {
                         super::func::VarRef::Full(slot) => {
@@ -234,11 +234,11 @@ impl FuncTranslator<'_, '_> {
                         }
                     };
                     self.expr_to_var.insert(handle, sub_ref);
-                    let placeholder = self.alloc_ssa(RegFile::GPR);
+                    let ptr_undef = self.alloc_ssa(RegFile::GPR);
                     self.push_instr(Instr::new(OpUndef {
-                        dst: placeholder.into(),
+                        dst: ptr_undef.into(),
                     }));
-                    Ok(placeholder.into())
+                    Ok(ptr_undef.into())
                 } else {
                     self.emit_access_index(base_val, index, base)
                 }

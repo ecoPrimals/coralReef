@@ -2,7 +2,7 @@
 //! Ecosystem registration — JSON-RPC **client** calls to a registry primal.
 //!
 //! Sends `capability.register` once, `primal.announce` once (Neural API routing
-//! metadata for biomeOS), and `ipc.heartbeat` on an interval. coralReef does
+//! metadata for the ecosystem orchestrator), and `ipc.heartbeat` on an interval. coralReef does
 //! **not** implement those methods as a server; they belong to the ecosystem
 //! registry primal's domain. This module discovers that peer via the shared
 //! capability directory (`capability.register` in `provides`) and connects via

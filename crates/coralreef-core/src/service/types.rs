@@ -209,9 +209,8 @@ pub struct ArtifactProvenance {
     pub hash_algorithm: String,
     /// BLAKE3 hash of the compiled binary (hex-encoded) for Nest provenance.
     ///
-    /// Content-addressed storage (sporePrint / nestGate) uses BLAKE3 as the
-    /// canonical hash for artifact identity. Dual-hashing avoids re-computation
-    /// at the storage layer.
+    /// Content-addressed storage (CAS) uses BLAKE3 as the canonical hash for
+    /// artifact identity. Dual-hashing avoids re-computation at the storage layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sporeprint_hash: Option<String>,
     /// Gate that performed the compilation.

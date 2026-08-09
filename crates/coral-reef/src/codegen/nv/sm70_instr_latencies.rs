@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright © 2025-2026 ecoPrimals
-// Derived from BarraCUDA / ecoPrimals contributors (2026)
+// Derived from ecoPrimals Node Atomic contributors (2026)
 use super::sm75_instr_latencies::pred;
 use crate::codegen::ir::*;
 use tracing::warn;
