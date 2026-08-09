@@ -10,6 +10,29 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 157d: GEMM Tiling Phase 1 (2026-08-09)
+
+#### Added (Tiled GEMM Kernel)
+- `emit_gemm_ptx` in `codegen/nv/ptx_emit/gemm.rs` now generates **fully tiled** PTX
+  kernels with correct thread/block mapping. Phase 1 transforms the scaffold into a
+  functional kernel for arbitrary aligned (M,N,K) GEMM:
+  - `%tid.x`, `%ctaid.x`, `%ctaid.y` — thread and block identity
+  - `.reqntid 32` — 1 warp (32 threads) per CTA
+  - Per-thread MMA fragment lane decomposition: `groupID = lane >> 2`,
+    `threadID_in_group = lane & 3`
+  - Precomputed A/B base addresses with row/column strides
+  - Unrolled K-loop with correct fragment load offsets (+16 bytes for k+8 half)
+  - Row-major C store with N-stride indexing (f32 accumulator: 4 scalar stores,
+    f16 accumulator: 2 packed stores)
+  - Grid: `(N/8, M/16, 1)` — each CTA handles one 16×8 MMA output tile
+- Separate emitter functions for f16/f16f32 (`emit_f16_gemm`, m16n8k16) and TF32
+  (`emit_tf32_gemm`, m16n8k8) with precision-specific fragment addressing
+- M/N alignment validation: M must be multiple of 16, N must be multiple of 8
+- `CompilationInfo.local_size` now correctly reports `[32, 1, 1]` (1 warp per CTA)
+- 7 new tests: thread mapping validation, grid comment correctness, C store stride
+  verification, large shape (128×128×64), M/N alignment rejection
+- Test count: 3,712 total (3,708 passed + 4 ignored)
+
 ### Wave 157d: Integer Subgroup Correctness + Silicon Fold AAR (2026-08-09)
 
 #### Fixed (Integer Subgroup Scan/Reduce — Silent Wrong Results)

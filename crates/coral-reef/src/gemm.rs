@@ -28,9 +28,6 @@ const MMA_TILE_COLS: u32 = 8;
 /// Threads per warp (NVIDIA architecture constant).
 const THREADS_PER_WARP: u32 = 32;
 
-/// Maximum workgroup size for GEMM kernels.
-const MAX_WORKGROUP_SIZE: u32 = 256;
-
 /// Default GPR estimate for GEMM metadata (conservative).
 const GEMM_DEFAULT_GPR_COUNT: u32 = 32;
 
@@ -95,6 +92,24 @@ pub fn compile_gemm(
         ));
     }
 
+    if shape.m % MMA_TILE_ROWS != 0 {
+        return Err(CompileError::InvalidInput(
+            format!(
+                "M dimension ({}) must be a multiple of {} for tiled GEMM",
+                shape.m, MMA_TILE_ROWS
+            )
+            .into(),
+        ));
+    }
+    if shape.n % MMA_TILE_COLS != 0 {
+        return Err(CompileError::InvalidInput(
+            format!(
+                "N dimension ({}) must be a multiple of {} for tiled GEMM",
+                shape.n, MMA_TILE_COLS
+            )
+            .into(),
+        ));
+    }
     let tile_k: u32 = match precision {
         GemmPrecision::F16 | GemmPrecision::F16F32 => TILE_K_F16,
         GemmPrecision::Tf32 => TILE_K_TF32,
@@ -119,9 +134,6 @@ pub fn compile_gemm(
     );
 
     let ptx = codegen::nv::ptx_emit::gemm::emit_gemm_ptx(shape, precision, nv.sm_version())?;
-    let warps_along_m = shape.m.div_ceil(MMA_TILE_ROWS);
-    let warps_along_n = shape.n.div_ceil(MMA_TILE_COLS);
-    let threads = warps_along_m * warps_along_n * THREADS_PER_WARP;
 
     Ok(backend::CompiledBinary {
         binary: ptx.into_bytes(),
@@ -130,7 +142,7 @@ pub fn compile_gemm(
             instr_count: 0,
             shared_mem_bytes: 0,
             barrier_count: 0,
-            local_size: [threads.min(MAX_WORKGROUP_SIZE), 1, 1],
+            local_size: [THREADS_PER_WARP, 1, 1],
             local_mem_bytes: 0,
         },
         format: backend::BinaryFormat::Ptx,

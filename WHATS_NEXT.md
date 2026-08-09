@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Sprint 14 / Wave 157d.
 
-**Last completed**: Wave 157d — Integer subgroup scan/reduce correctness fix (`emit_scan_via_shfl`/`emit_reduce_via_shfl` dispatched on type+op instead of hardcoding `OpFAdd`). `subgroup_op_to_redux` Min/Max now respect u32 vs i32 signedness. Float min/max via `OpFMnMx`, integer bitwise via `OpLop3`. Silicon fold response AAR filed. Vertebrate self-audit: 18/18 RPC methods verified.
+**Last completed**: Wave 157d — GEMM tiling Phase 1: `emit_gemm_ptx` now generates fully tiled PTX kernels with `%tid.x`/`%ctaid.x`/`%ctaid.y` thread/block mapping, `.reqntid 32`, per-thread MMA fragment addressing (groupID/threadID_in_group lane decomposition), strided A/B global loads with precomputed base pointers, row-major C store with correct N-stride indexing. Covers f16, f16→f32, and TF32 precisions. Grid is `(N/8, M/16, 1)` with 1 warp per CTA. M/N alignment validation enforced. Previous: integer subgroup scan/reduce fix, silicon fold AAR.
 
-**Tests**: 3,702 total (3,698 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,712 total (3,708 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 9, 2026.
 
-**Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation (8-12 weeks — Phase C, NAK heritage exists for SPH/attribute ops/interpolation). Compute gossip integration when swarmVine is ready. Deploy across NUCLEUS gates (depot unified + pruned, 4 arches). GEMM emitter tiling (Phase 1: `%tid`/`%ctaid` indexing, shared memory, `ldmatrix`).
+**Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation (8-12 weeks — Phase C, NAK heritage exists for SPH/attribute ops/interpolation). Compute gossip integration when swarmVine is ready. Deploy across NUCLEUS gates (depot unified + pruned, 4 arches). GEMM Phase 2: shared memory tiling + `ldmatrix` + `bar.sync` pipeline stages (performance evolution — functional correctness is Phase 1 complete). SM80+ `OpRedux` scheduler fix for integer subgroup reductions.
 
 ---
 
@@ -73,17 +73,20 @@ the compute trio (tensor-dispatch GEMM router + fleet-management sovereign dispa
 - **RT cores**: Accessible via wgpu 28 BLAS/TLAS — no coralReef work needed. Our inline
   RayQuery (SM75+) was reverted Wave 118 due to silent wrong results. Real fix needs
   documented PTX `optix.*` intrinsics and hardware validation. Correctly deprioritized.
-- **Tensor cores**: `compile_gemm()` emits correct `mma.sync.aligned` opcodes for SM80+
-  (including SM86/RTX 3090) but the kernel is **single-tile scaffold** — no `%tid`/`%ctaid`
-  thread mapping, no shared memory tiling, no `ldmatrix`, no M/N output-tile loops.
-  Not usable for arbitrary `(M,N,K)` GEMM on real data.
+- **Tensor cores**: `compile_gemm()` emits **fully tiled** `mma.sync.aligned` kernels for
+  SM80+ with correct `%tid.x`/`%ctaid.x`/`%ctaid.y` thread mapping, per-thread MMA fragment
+  addressing, strided A/B global loads, and row-major C store with N-stride indexing.
+  Grid `(N/8, M/16, 1)` — 1 warp (32 threads) per CTA. M must be multiple of 16, N must
+  be multiple of 8. Phase 1 complete: functional for arbitrary aligned `(M,N,K)`.
+  Phase 2 (shared memory + `ldmatrix` + `bar.sync`) will improve performance.
 - **CG inner loop fit**: Fermion CG is **sparse stencil f64** (`dirac_staggered_f64.wgsl`),
   not dense GEMM. Tensor cores don't directly apply without reformulating the solver into
   blocked dense subproblems (preconditioner/multigrid coarse solve) or mixed-precision CG
   (f16/f32 matvec + f64 residual correction). SM86 has **no f64 tensor cores**.
-- **GEMM tiling roadmap**: Phase 1 (block/warp mapping, shared mem, `ldmatrix`, correct
-  indexing) → Phase 2 (GEMV/batched APIs for CG) → Phase 3 (hotSpring integration for
-  blocked Dirac tiles). f64 tensor cores require SM90+ (Hopper), not the 3090.
+- **GEMM tiling roadmap**: ~~Phase 1~~ **DONE** (block/warp mapping, fragment addressing,
+  correct indexing) → Phase 2 (shared mem, `ldmatrix`, `bar.sync` pipeline stages) →
+  Phase 3 (GEMV/batched APIs for CG) → Phase 4 (hotSpring integration for blocked Dirac
+  tiles). f64 tensor cores require SM90+ (Hopper), not the 3090.
 - **Integer subgroup ops**: Fixed — `emit_scan_via_shfl`/`emit_reduce_via_shfl` were
   hardcoding `OpFAdd` for all types (silent wrong results for i32/u32). Now dispatches
   correctly on type + operation.
@@ -630,7 +633,8 @@ the full Spring absorption map.
 - [x] ~~`PrecisionRoutingAdvice` support~~ — **DELIVERED** as `Fp64Strategy` enum (Native/DoubleFloat/F32Only) in `CompileOptions`. barraCuda passes strategy via `shader.compile.wgsl` params. `F64NativeNoSharedMem` folded into `Native` (shared memory is orthogonal to f64 strategy).
 - [ ] `CoralReefDevice` fully wired — **barraCuda-side**: stub exists, needs to call `shader.compile.wgsl` via IPC instead of direct crate import. coralReef IPC is live.
 - [ ] SovereignCompiler → coralReef routing — **barraCuda-side**: replace PTXAS/NAK calls with `shader.compile.wgsl` IPC dispatch. coralReef IPC is live.
-- [ ] GEMM tiling Phase 1 — **coralReef-side**: `compile_gemm` emits correct `mma.sync` opcodes but kernel needs `%tid`/`%ctaid` mapping, shared memory, `ldmatrix`, M/N output loops. Blocks functional tensor-core dispatch.
+- [x] ~~GEMM tiling Phase 1~~ — **DONE** (Wave 157d): `emit_gemm_ptx` now generates fully tiled kernels with `%tid`/`%ctaid` thread mapping, per-thread MMA fragment loads, strided A/B addressing, row-major C store. 1 warp per CTA, grid covers full M×N.
+- [ ] GEMM tiling Phase 2 — **coralReef-side**: shared memory tile buffers + `ldmatrix` + `bar.sync` pipeline stages for performance. Functional correctness shipped in Phase 1.
 
 ### P1 — Debt reduction (Iteration 6)
 - [x] Error types → `Cow<'static, str>` (zero-allocation static error paths)
@@ -710,7 +714,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,702 tests (3,698 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157d.
+3,712 tests (3,708 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157d.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
