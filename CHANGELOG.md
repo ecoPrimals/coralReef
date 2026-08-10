@@ -10,7 +10,17 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Wave 157g: BTSP Test Recovery + Doc Sync (2026-08-10)
+### Wave 157g: G72 Dependency Pandemic + BTSP Test Recovery + Doc Sync (2026-08-10)
+
+#### G72 Dependency Pandemic — Tier 1 trims
+- `futures` + `tokio-util` gated behind `tarpc-transport` feature in `coralreef-core`
+  (previously unconditional despite only being used in tarpc transport code).
+- Dead `tracing` dependency removed from `primal-rpc-client` (zero usage in source).
+- Duplicate `tokio` dev-dependency removed from `primal-rpc-client`.
+- `tokio/process` feature moved from production to dev-dependencies in `coralreef-core`
+  (only used in e2e/integration tests, not production code).
+- Redundant tokio feature re-declarations removed (workspace already provides `net`,
+  `io-util`, `time`; crate only needs `fs` as additional feature).
 
 #### Fixed
 - 46 orphaned BTSP session tests re-wired into module tree (`tests_btsp.rs` and

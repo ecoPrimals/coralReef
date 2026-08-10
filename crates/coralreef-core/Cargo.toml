@@ -33,18 +33,18 @@ workspace = true
 
 [dependencies]
 coral-reef = { workspace = true }
-tokio = { workspace = true, features = ["process", "fs", "net", "io-util", "time"] }
+tokio = { workspace = true, features = ["fs"] }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tarpc = { workspace = true, optional = true }
 tokio-serde = { workspace = true, optional = true }
-futures = { workspace = true }
+futures = { workspace = true, optional = true }
 thiserror = { workspace = true }
 bytes = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tokio-util = { workspace = true }
+tokio-util = { workspace = true, optional = true }
 rand = { workspace = true }
 base64 = { workspace = true }
 hkdf = { workspace = true }
@@ -57,7 +57,7 @@ zeroize = { workspace = true }
 [features]
 default = ["tarpc-transport"]
 e2e = []
-tarpc-transport = ["dep:tarpc", "dep:tokio-serde"]
+tarpc-transport = ["dep:tarpc", "dep:tokio-serde", "dep:futures", "dep:tokio-util"]
 
 [[test]]
 name = "unix_jsonrpc_default_socket_path_env"
@@ -68,3 +68,4 @@ naga = { workspace = true, features = ["wgsl-in", "spv-in", "spv-out"] }
 primal-rpc-client = { path = "../primal-rpc-client" }
 tempfile.workspace = true
 toml = "1.1"
+tokio = { workspace = true, features = ["process"] }
