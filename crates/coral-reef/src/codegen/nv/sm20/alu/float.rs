@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 use super::*;
 
+#[cfg(test)]
+#[path = "float_tests.rs"]
+mod tests;
+
 impl SM20Op for OpFAdd {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;

@@ -404,6 +404,10 @@ fn discover_security_socket_returns_none_in_clean_env() {
     if std::env::var("BTSP_PROVIDER_SOCKET").is_ok() {
         return;
     }
+    #[allow(deprecated, reason = "testing backward-compat $BEARDOG_SOCKET guard")]
+    if std::env::var(crate::config::env_keys::BEARDOG_SOCKET).is_ok() {
+        return;
+    }
 
     let sock_dir = resolve_socket_dir();
     let has_discovery_files = std::fs::read_dir(&sock_dir).ok().map_or(false, |entries| {
@@ -419,6 +423,26 @@ fn discover_security_socket_returns_none_in_clean_env() {
     assert!(
         result.is_none(),
         "should be None when no sockets exist for a fake family"
+    );
+}
+
+#[test]
+fn btsp_provider_socket_takes_precedence_over_legacy() {
+    let provider_val = std::env::var("BTSP_PROVIDER_SOCKET");
+    #[allow(deprecated, reason = "testing backward-compat precedence")]
+    let legacy_val = std::env::var(crate::config::env_keys::BEARDOG_SOCKET);
+
+    if provider_val.is_ok() || legacy_val.is_ok() {
+        return;
+    }
+
+    assert!(
+        crate::config::btsp_provider_socket().is_none(),
+        "modern path should be None when unset"
+    );
+    assert!(
+        crate::config::security_provider_legacy_socket().is_none(),
+        "legacy path should be None when unset"
     );
 }
 

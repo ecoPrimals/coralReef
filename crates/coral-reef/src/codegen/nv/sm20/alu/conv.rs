@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 use super::*;
 
+#[cfg(test)]
+#[path = "conv_tests.rs"]
+mod tests;
+
 impl SM20Op for OpF2F {
     fn legalize(&mut self, b: &mut LegalizeBuilder) {
         use RegFile::GPR;

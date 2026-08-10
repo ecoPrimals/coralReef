@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 use super::*;
 
+#[cfg(test)]
+#[path = "misc_tests.rs"]
+mod tests;
+
 impl SM20Op for OpMov {
     fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
 

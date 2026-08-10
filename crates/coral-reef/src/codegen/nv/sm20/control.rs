@@ -5,6 +5,10 @@
 
 use super::encoder::*;
 
+#[cfg(test)]
+#[path = "control_tests.rs"]
+mod tests;
+
 impl SM20Op for OpBra {
     fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
 

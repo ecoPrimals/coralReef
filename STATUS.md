@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 10, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 157f (GEMM Phase 2 IPC wiring: `shader.compile.gemm` accepts `tiling` param, auto/global/smem dispatch. barraCuda P1 unblocked. 18/18 RPC. G68 16/16. 3,822 tests. Zero unsafe, zero clippy warnings.)
+**Version**: 0.2.0 — Sprint 14 / Wave 157f (GEMM Phase 2 IPC wiring + SM20 encoder coverage push + BEARDOG_SOCKET test guard. 18/18 RPC. G68 16/16. 3,871 tests. Zero unsafe, zero clippy warnings.)
 
 ---
 

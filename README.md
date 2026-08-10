@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 157f (GEMM Phase 2 IPC wiring — barraCuda P1 unblocked. 3,822 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 157f (GEMM Phase 2 IPC wiring + SM20 encoder coverage push. 3,871 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---

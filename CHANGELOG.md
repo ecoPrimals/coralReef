@@ -25,6 +25,14 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 - barraCuda P1 unblocked: `dispatch_gemm()` can now call `shader.compile.gemm` with
   `"tiling": "smem"` to receive high-performance shared-memory HMMA kernels.
 
+#### Coverage
+- 49 new SM20 encoder unit tests across 4 previously untested files:
+  `alu/float_tests.rs` (17), `control_tests.rs` (14), `alu/conv_tests.rs` (11),
+  `alu/misc_tests.rs` (9). Covers float ALU, control flow, type conversion, and
+  shuffle/permute encoding paths.
+- BEARDOG_SOCKET test gap fixed: `discover_security_socket_returns_none_in_clean_env`
+  now guards both `$BTSP_PROVIDER_SOCKET` and deprecated `$BEARDOG_SOCKET`.
+
 ### Wave 157e: Process Leak Fix + Gossip Injection (2026-08-10)
 
 #### Fixed

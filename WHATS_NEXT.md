@@ -6,7 +6,7 @@
 
 **Last completed**: Wave 157f — GEMM Phase 2 IPC wiring: `shader.compile.gemm` now accepts `tiling` parameter (`auto`/`global`/`smem`), routing to Phase 2 shared-memory kernel with `ldmatrix.sync` + `bar.sync` when dimensions are block-aligned. barraCuda P1 unblocked. Wire contract doc updated. 6 new GEMM tiling tests. Previous: Process leak fix, gossip injection points, PLop3 split, SM80 hazard split.
 
-**Tests**: 3,822 total (3,818 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,871 total (3,867 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 10, 2026.
 
