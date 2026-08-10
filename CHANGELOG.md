@@ -10,9 +10,28 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
-### Wave 157d: Deep Debt Evolution (2026-08-09)
+### Wave 157d: GEMM Phase 2 + Coverage Push (2026-08-09)
+
+#### Added (GEMM Phase 2)
+- `compile_gemm_smem()` public API: shared-memory tiled GEMM with `ldmatrix.sync.aligned`
+  + `bar.sync 0` pipeline stages. 4 warps (128 threads) per CTA, BM=64×BN=16 block tile.
+  Reports shared memory bytes and barrier count in `CompilationInfo`.
+- `emit_gemm_ptx_smem()`: f16/f16f32 and TF32 shared-memory kernel generators.
+  Cooperative global→shared loads, warp-cooperative `ldmatrix` fragment loads,
+  2 MMA tiles per warp along N dimension.
+- 10 new Phase 2 GEMM tests: shared memory declarations, `bar.sync`, `ldmatrix`,
+  CTA thread count, MMA instructions, shared memory sizes, multi-K iterations, grid.
+
+#### Added (Coverage)
+- SM70 FP32 encoder tests (`float_tests.rs`, 17 tests): opcode, saturation, FTZ,
+  DNZ, rounding mode, pred dst, swizzle add encoding for all 7 FP32 ops.
+- SM70 FP64 encoder tests (`float64_tests.rs`, 6 tests): opcode, pred dst, dst1
+  clearing for all 4 FP64 ops.
 
 #### Changed (File Structure)
+- `ptx_emit/gemm.rs` (1308 LOC) split into directory module `ptx_emit/gemm/`:
+  `mod.rs` (268), `phase1.rs` (386), `phase2.rs` (669). Previous 1000-line violation
+  eliminated.
 - `transport.rs` (1285 LOC) split into directory module `transport/`:
   `mod.rs` (460), `stream.rs` (318), `sync_stream.rs` (207), `resolve.rs` (359).
   Only file violating the 1000-line standard — now all under 460.

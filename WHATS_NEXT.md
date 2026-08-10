@@ -4,13 +4,13 @@
 
 **Current position**: Phase 10 — Sprint 14 / Wave 157d.
 
-**Last completed**: Wave 157d — Deep debt evolution: `transport.rs` split (1285→4 files, max 460 LOC, only 1000-line violation eliminated), `compile.rs` refactored (834→569 LOC, batch handlers extracted to `compile_batch.rs` 285 LOC), `songBird` hardcoded primal name → capability-based reference, 12 primal-name references in docs/comments → capability-domain references, `placeholder` SSA variable names → `ptr_undef` semantic naming in `naga_translate`. Previous: SM80+ OpRedux scheduler fix, GEMM tiling Phase 1, integer subgroup scan/reduce fix, silicon fold AAR.
+**Last completed**: Wave 157d — GEMM Phase 2 (shared memory tiling + `ldmatrix` + `bar.sync` pipeline), coverage push (sm70 float/float64 encoder tests, 23 new tests), `gemm.rs` split into directory module (1308→3 files: `mod.rs` 268, `phase1.rs` 386, `phase2.rs` 669). Previous: deep debt evolution, SM80+ OpRedux scheduler fix, GEMM tiling Phase 1, integer subgroup fix.
 
-**Tests**: 3,715 total (3,711 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,779 total (3,775 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 9, 2026.
 
-**Next focus**: Coverage push toward 90% (compiler backends are main gap). Vertex/Fragment shader compilation (8-12 weeks — Phase C, NAK heritage exists for SPH/attribute ops/interpolation). Compute gossip integration when swarmVine is ready. Deploy across NUCLEUS gates (depot unified + pruned, 4 arches). GEMM Phase 2: shared memory tiling + `ldmatrix` + `bar.sync` pipeline stages (performance evolution — functional correctness is Phase 1 complete).
+**Next focus**: Vertex/Fragment shader compilation (8-12 weeks — Phase C, NAK heritage exists for SPH/attribute ops/interpolation/encoders; gap is naga→IR translation + IO address mapping + graphics builtins + public API). Coverage push toward 90% (compiler backends are main gap). Compute gossip integration when swarmVine is ready (Phase 4 shipped). Deploy across NUCLEUS gates (depot unified + pruned, 4 arches).
 
 ---
 
@@ -78,13 +78,13 @@ the compute trio (tensor-dispatch GEMM router + fleet-management sovereign dispa
   addressing, strided A/B global loads, and row-major C store with N-stride indexing.
   Grid `(N/8, M/16, 1)` — 1 warp (32 threads) per CTA. M must be multiple of 16, N must
   be multiple of 8. Phase 1 complete: functional for arbitrary aligned `(M,N,K)`.
-  Phase 2 (shared memory + `ldmatrix` + `bar.sync`) will improve performance.
+  ~~Phase 2~~ **DONE** (shared memory + `ldmatrix` + `bar.sync` pipeline, 4 warps/CTA, BM=64×BN=16).
 - **CG inner loop fit**: Fermion CG is **sparse stencil f64** (`dirac_staggered_f64.wgsl`),
   not dense GEMM. Tensor cores don't directly apply without reformulating the solver into
   blocked dense subproblems (preconditioner/multigrid coarse solve) or mixed-precision CG
   (f16/f32 matvec + f64 residual correction). SM86 has **no f64 tensor cores**.
 - **GEMM tiling roadmap**: ~~Phase 1~~ **DONE** (block/warp mapping, fragment addressing,
-  correct indexing) → Phase 2 (shared mem, `ldmatrix`, `bar.sync` pipeline stages) →
+  correct indexing) → ~~Phase 2~~ **DONE** (shared mem, `ldmatrix`, `bar.sync`, 4 warps/CTA) →
   Phase 3 (GEMV/batched APIs for CG) → Phase 4 (hotSpring integration for blocked Dirac
   tiles). f64 tensor cores require SM90+ (Hopper), not the 3090.
 - **Integer subgroup ops**: Fixed — `emit_scan_via_shfl`/`emit_reduce_via_shfl` were
@@ -635,7 +635,7 @@ the full Spring absorption map.
 - [ ] `CoralReefDevice` fully wired — **barraCuda-side**: stub exists, needs to call `shader.compile.wgsl` via IPC instead of direct crate import. coralReef IPC is live.
 - [ ] SovereignCompiler → coralReef routing — **barraCuda-side**: replace PTXAS/NAK calls with `shader.compile.wgsl` IPC dispatch. coralReef IPC is live.
 - [x] ~~GEMM tiling Phase 1~~ — **DONE** (Wave 157d): `emit_gemm_ptx` now generates fully tiled kernels with `%tid`/`%ctaid` thread mapping, per-thread MMA fragment loads, strided A/B addressing, row-major C store. 1 warp per CTA, grid covers full M×N.
-- [ ] GEMM tiling Phase 2 — **coralReef-side**: shared memory tile buffers + `ldmatrix` + `bar.sync` pipeline stages for performance. Functional correctness shipped in Phase 1.
+- [x] ~~GEMM tiling Phase 2~~ — **DONE** (Wave 157d): `emit_gemm_ptx_smem` generates shared-memory tiled kernels with `ldmatrix.sync.aligned`, `bar.sync 0` pipeline, 4 warps (128 threads) per CTA, BM=64 BN=16 block tile. `compile_gemm_smem()` public API reports shared memory bytes and barrier count. `gemm.rs` split into directory module (`mod.rs` 268, `phase1.rs` 386, `phase2.rs` 669). 10 Phase 2 tests.
 
 ### P1 — Debt reduction (Iteration 6)
 - [x] Error types → `Cow<'static, str>` (zero-allocation static error paths)

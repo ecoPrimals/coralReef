@@ -15,3 +15,11 @@ mod misc;
 #[cfg(test)]
 #[path = "conv_tests.rs"]
 mod conv_tests;
+
+#[cfg(test)]
+#[path = "float_tests.rs"]
+mod float_tests;
+
+#[cfg(test)]
+#[path = "float64_tests.rs"]
+mod float64_tests;

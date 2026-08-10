@@ -1,32 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Tensor-core GEMM PTX generation — tiled kernel.
-//!
-//! Emits a complete PTX kernel using `mma.sync.aligned` instructions for
-//! NVIDIA SM80+ (Ampere, Ada, Blackwell). The kernel performs:
-//!   C[M×N] = A[M×K] * B[K×N]
-//!
-//! Each CTA is one warp (32 threads) handling a single MMA output tile:
-//!   - 16×8 for f16/f16f32 (m16n8k16 MMA shape)
-//!   - 16×8 for TF32 (m16n8k8 MMA shape)
-//!
-//! The grid covers the full M×N output: gridDim = (N/8, M/16, 1).
-//!
-//! Layout: A row-major M×K, B column-major K×N, C row-major M×N.
 
 use crate::error::CompileError;
 use crate::gemm::{GemmPrecision, GemmShape};
-
-/// Emit a complete tiled PTX GEMM kernel for tensor-core execution.
-pub fn emit_gemm_ptx(
-    shape: GemmShape,
-    precision: GemmPrecision,
-    sm: u8,
-) -> Result<String, CompileError> {
-    match precision {
-        GemmPrecision::F16 | GemmPrecision::F16F32 => emit_f16_gemm(shape, precision, sm),
-        GemmPrecision::Tf32 => emit_tf32_gemm(shape, sm),
-    }
-}
+use super::{emit_c_store_f32, emit_header, emit_thread_identity};
 
 /// f16/f16f32 GEMM — m16n8k16 MMA shape.
 ///
@@ -47,7 +23,7 @@ pub fn emit_gemm_ptx(
 /// C (row-major, f32): 4 regs (f16f32) or 2 regs (f16)
 ///   f32 layout: reg0=C[gid*2, tid*2], reg1=C[gid*2, tid*2+1],
 ///               reg2=C[gid*2+1, tid*2], reg3=C[gid*2+1, tid*2+1]
-fn emit_f16_gemm(
+pub(super) fn emit_f16_gemm(
     shape: GemmShape,
     precision: GemmPrecision,
     sm: u8,
@@ -271,7 +247,7 @@ fn emit_f16_gemm(
 ///
 /// B (col-major, f32): 2 regs
 ///   reg0 = B[tid, gid], reg1 = B[tid+4, gid]
-fn emit_tf32_gemm(shape: GemmShape, sm: u8) -> Result<String, CompileError> {
+pub(super) fn emit_tf32_gemm(shape: GemmShape, sm: u8) -> Result<String, CompileError> {
     let tile_k: u32 = 8;
     let k_iters = shape.k / tile_k;
     let k_times_4 = shape.k * 4; // stride in bytes (f32 = 4 bytes)
@@ -407,167 +383,4 @@ fn emit_tf32_gemm(shape: GemmShape, sm: u8) -> Result<String, CompileError> {
     writeln_ptx!(ptx, "}}");
 
     Ok(ptx)
-}
-
-fn emit_header(
-    ptx: &mut String,
-    shape: &GemmShape,
-    sm: u8,
-    src_type: &str,
-    acc_type: &str,
-    mma_shape: &str,
-    k_iters: u32,
-) {
-    writeln_ptx!(ptx, ".version 8.7");
-    writeln_ptx!(ptx, ".target sm_{sm}");
-    writeln_ptx!(ptx, ".address_size 64");
-    writeln_ptx!(ptx);
-    writeln_ptx!(
-        ptx,
-        "// GEMM: C[{m}x{n}] = A[{m}x{k}] * B[{k}x{n}]",
-        m = shape.m,
-        n = shape.n,
-        k = shape.k
-    );
-    writeln_ptx!(
-        ptx,
-        "// Precision: {src_type} inputs, {acc_type} accumulate"
-    );
-    writeln_ptx!(ptx, "// MMA tile: {mma_shape}, K iterations: {k_iters}");
-    writeln_ptx!(
-        ptx,
-        "// Grid: ({gx}, {gy}, 1) — 1 warp per CTA, 32 threads",
-        gx = shape.n / 8,
-        gy = shape.m / 16
-    );
-    writeln_ptx!(ptx);
-}
-
-fn emit_thread_identity(ptx: &mut String) {
-    writeln_ptx!(ptx, "    // Load matrix base pointers");
-    writeln_ptx!(ptx, "    ld.param.u64 %rd0, [param_A];");
-    writeln_ptx!(ptx, "    ld.param.u64 %rd1, [param_B];");
-    writeln_ptx!(ptx, "    ld.param.u64 %rd2, [param_C];");
-    writeln_ptx!(ptx);
-    writeln_ptx!(ptx, "    // Thread and block identity");
-    writeln_ptx!(ptx, "    mov.u32 %r10, %tid.x;        // thread ID in CTA");
-    writeln_ptx!(ptx, "    mov.u32 %r11, %ctaid.x;      // block along N");
-    writeln_ptx!(ptx, "    mov.u32 %r12, %ctaid.y;      // block along M");
-    writeln_ptx!(ptx);
-}
-
-fn emit_c_store_f32(ptx: &mut String, n_val: u32, n_row_bytes: u32) {
-    writeln_ptx!(ptx, "    // Store C fragment (f32 accumulator, row-major M*N)");
-    writeln_ptx!(ptx, "    shl.b32 %r28, %r14, 1;       // group_id * 2");
-    writeln_ptx!(ptx, "    add.u32 %r28, %r16, %r28;    // c_row0 = m_start + group_id * 2");
-    writeln_ptx!(ptx, "    shl.b32 %r29, %r15, 1;       // tid_in_group * 2");
-    writeln_ptx!(ptx, "    add.u32 %r29, %r17, %r29;    // c_col0 = n_start + tid_in_group * 2");
-    writeln_ptx!(
-        ptx,
-        "    mul.lo.u32 %r30, %r28, {n_val};    // c_row0 * N"
-    );
-    writeln_ptx!(ptx, "    add.u32 %r30, %r30, %r29;    // c_row0 * N + c_col0");
-    writeln_ptx!(ptx, "    shl.b32 %r30, %r30, 2;       // * sizeof(f32)");
-    writeln_ptx!(ptx, "    cvt.u64.u32 %rd6, %r30;");
-    writeln_ptx!(ptx, "    add.u64 %rd6, %rd2, %rd6;    // C addr for this thread's tile");
-    writeln_ptx!(ptx);
-    writeln_ptx!(ptx, "    st.global.f32 [%rd6], %r0;              // C[row0, col0]");
-    writeln_ptx!(ptx, "    st.global.f32 [%rd6+4], %r1;            // C[row0, col0+1]");
-    writeln_ptx!(
-        ptx,
-        "    st.global.f32 [%rd6+{n_row_bytes}], %r2;   // C[row0+1, col0]"
-    );
-    writeln_ptx!(
-        ptx,
-        "    st.global.f32 [%rd6+{off}], %r3;   // C[row0+1, col0+1]",
-        off = n_row_bytes + 4
-    );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn gemm_ptx_f16f32_has_thread_mapping() {
-        let shape = GemmShape { m: 16, n: 8, k: 16 };
-        let ptx = emit_gemm_ptx(shape, GemmPrecision::F16F32, 80).unwrap();
-        assert!(ptx.contains(".target sm_80"));
-        assert!(ptx.contains("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"));
-        assert!(ptx.contains("gemm_kernel"));
-        assert!(ptx.contains(".reqntid 32"));
-        assert!(ptx.contains("%tid.x"));
-        assert!(ptx.contains("%ctaid.x"));
-        assert!(ptx.contains("%ctaid.y"));
-    }
-
-    #[test]
-    fn gemm_ptx_f16f32_correct_grid_comment() {
-        let shape = GemmShape {
-            m: 128,
-            n: 64,
-            k: 32,
-        };
-        let ptx = emit_gemm_ptx(shape, GemmPrecision::F16F32, 80).unwrap();
-        assert!(ptx.contains("Grid: (8, 8, 1)"));
-        assert!(ptx.contains("K iterations: 2"));
-    }
-
-    #[test]
-    fn gemm_ptx_tf32_basic() {
-        let shape = GemmShape { m: 16, n: 8, k: 32 };
-        let ptx = emit_gemm_ptx(shape, GemmPrecision::Tf32, 80).unwrap();
-        assert!(ptx.contains("mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32"));
-        assert!(ptx.contains(".reqntid 32"));
-        assert!(ptx.contains("%ctaid.y"));
-    }
-
-    #[test]
-    fn gemm_ptx_f16_accumulate() {
-        let shape = GemmShape { m: 16, n: 8, k: 16 };
-        let ptx = emit_gemm_ptx(shape, GemmPrecision::F16, 89).unwrap();
-        assert!(ptx.contains("mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16"));
-        assert!(
-            ptx.contains("{%r0, %r1}"),
-            "f16 accumulate uses 2 regs, not 4"
-        );
-    }
-
-    #[test]
-    fn gemm_ptx_multi_k_iterations() {
-        let shape = GemmShape { m: 16, n: 8, k: 64 };
-        let ptx = emit_gemm_ptx(shape, GemmPrecision::F16F32, 120).unwrap();
-        assert!(ptx.contains("K iteration 0"));
-        assert!(ptx.contains("K iteration 3"));
-        let mma_count = ptx
-            .lines()
-            .filter(|l| l.trim_start().starts_with("mma.sync.aligned"))
-            .count();
-        assert_eq!(mma_count, 4, "should have 4 MMA instructions for K=64/16");
-    }
-
-    #[test]
-    fn gemm_ptx_sm120_blackwell() {
-        let shape = GemmShape { m: 16, n: 8, k: 16 };
-        let ptx = emit_gemm_ptx(shape, GemmPrecision::F16F32, 120).unwrap();
-        assert!(ptx.contains(".target sm_120"));
-    }
-
-    #[test]
-    fn gemm_ptx_c_store_uses_stride() {
-        let shape = GemmShape {
-            m: 32,
-            n: 64,
-            k: 16,
-        };
-        let ptx = emit_gemm_ptx(shape, GemmPrecision::F16F32, 86).unwrap();
-        assert!(
-            ptx.contains("mul.lo.u32 %r30, %r28, 64"),
-            "C store should multiply by N=64"
-        );
-        assert!(
-            ptx.contains("[%rd6+256]"),
-            "next row offset = N * sizeof(f32) = 64 * 4 = 256"
-        );
-    }
 }

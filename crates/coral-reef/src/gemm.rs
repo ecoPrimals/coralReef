@@ -54,6 +54,15 @@ pub enum GemmPrecision {
     Tf32,
 }
 
+/// Block tile M dimension for shared-memory mode (4 warps × 16 MMA rows).
+const SMEM_BLOCK_M: u32 = 64;
+
+/// Block tile N dimension for shared-memory mode (2 MMA tiles × 8 cols).
+const SMEM_BLOCK_N: u32 = 16;
+
+/// Threads per CTA in shared-memory mode (4 warps × 32 threads).
+const SMEM_CTA_THREADS: u32 = 128;
+
 /// Generate a tensor-core GEMM kernel as PTX for NVIDIA SM80+ targets.
 ///
 /// Produces a PTX kernel (`gemm_kernel`) that performs C = A * B + C using
@@ -143,6 +152,101 @@ pub fn compile_gemm(
             shared_mem_bytes: 0,
             barrier_count: 0,
             local_size: [THREADS_PER_WARP, 1, 1],
+            local_mem_bytes: 0,
+        },
+        format: backend::BinaryFormat::Ptx,
+    })
+}
+
+/// Generate a tensor-core GEMM kernel with shared memory tiling (Phase 2).
+///
+/// Uses shared memory tile buffers, `ldmatrix.sync` for warp-cooperative
+/// fragment loads, and `bar.sync` for pipeline synchronization. Each CTA
+/// contains 4 warps (128 threads) processing a 64×16 block tile.
+///
+/// Block tile: `BM=64`, `BN=16`. Grid: `(N/16, M/64, 1)`.
+///
+/// Requires M aligned to 64, N aligned to 16, and K aligned to `tile_k`
+/// (16 for f16, 8 for TF32).
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if the target is not NVIDIA SM80+ or if the
+/// shape is not aligned to block tile boundaries.
+pub fn compile_gemm_smem(
+    shape: GemmShape,
+    precision: GemmPrecision,
+    target: GpuTarget,
+) -> Result<backend::CompiledBinary, CompileError> {
+    let nv = target.as_nvidia().ok_or_else(|| {
+        CompileError::UnsupportedArch("HMMA/tensor-core GEMM requires NVIDIA target".into())
+    })?;
+    if nv.sm() < MIN_HMMA_SM {
+        return Err(CompileError::UnsupportedArch(
+            format!(
+                "tensor-core GEMM requires SM{MIN_HMMA_SM}+, got SM{}",
+                nv.sm()
+            )
+            .into(),
+        ));
+    }
+    if shape.m == 0 || shape.n == 0 || shape.k == 0 {
+        return Err(CompileError::InvalidInput(
+            "GEMM dimensions must be non-zero".into(),
+        ));
+    }
+    if shape.m % SMEM_BLOCK_M != 0 {
+        return Err(CompileError::InvalidInput(
+            format!(
+                "M dimension ({}) must be a multiple of {} for smem GEMM",
+                shape.m, SMEM_BLOCK_M
+            )
+            .into(),
+        ));
+    }
+    if shape.n % SMEM_BLOCK_N != 0 {
+        return Err(CompileError::InvalidInput(
+            format!(
+                "N dimension ({}) must be a multiple of {} for smem GEMM",
+                shape.n, SMEM_BLOCK_N
+            )
+            .into(),
+        ));
+    }
+    let tile_k: u32 = match precision {
+        GemmPrecision::F16 | GemmPrecision::F16F32 => TILE_K_F16,
+        GemmPrecision::Tf32 => TILE_K_TF32,
+    };
+    if shape.k % tile_k != 0 {
+        return Err(CompileError::InvalidInput(
+            format!(
+                "K dimension ({}) must be aligned to tile_k ({tile_k})",
+                shape.k
+            )
+            .into(),
+        ));
+    }
+
+    tracing::info!(
+        m = shape.m,
+        n = shape.n,
+        k = shape.k,
+        ?precision,
+        sm = nv.sm(),
+        "coral-reef compile_gemm_smem (shared memory)"
+    );
+
+    let (ptx, shared_mem_bytes) =
+        codegen::nv::ptx_emit::gemm::emit_gemm_ptx_smem(shape, precision, nv.sm_version())?;
+
+    Ok(backend::CompiledBinary {
+        binary: ptx.into_bytes(),
+        info: backend::CompilationInfo {
+            gpr_count: GEMM_DEFAULT_GPR_COUNT,
+            instr_count: 0,
+            shared_mem_bytes,
+            barrier_count: 1,
+            local_size: [SMEM_CTA_THREADS, 1, 1],
             local_mem_bytes: 0,
         },
         format: backend::BinaryFormat::Ptx,

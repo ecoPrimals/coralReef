@@ -69,7 +69,7 @@ pub use codegen::ir::{Shader, ShaderModel};
 pub use codegen::pipeline::CompiledShader;
 pub use error::CompileError;
 pub use frontend::{Frontend, NagaFrontend};
-pub use gemm::{GemmPrecision, GemmShape, compile_gemm};
+pub use gemm::{GemmPrecision, GemmShape, compile_gemm, compile_gemm_smem};
 pub use gpu_arch::{
     AmdArch, CompileTarget, CpuArch, GpuArch, GpuTarget, IntelArch, NpuTarget, NvArch,
 };
