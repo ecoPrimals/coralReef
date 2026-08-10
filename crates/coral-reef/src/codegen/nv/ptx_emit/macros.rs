@@ -2,7 +2,7 @@
 //! Infallible formatting macros for PTX emission into `String` buffers.
 
 /// Infallible `write!` to a `String` buffer — PTX emission cannot fail.
-#[allow(
+#[expect(
     unused_macros,
     reason = "used by PTX emitter files not yet migrated from writeln!"
 )]

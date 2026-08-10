@@ -200,10 +200,6 @@ pub fn mark_startup() {
 ///
 /// Returns `{status, primal, version, uptime_s}` per ecosystem HEALTH-01 schema.
 #[must_use]
-#[allow(
-    dead_code,
-    reason = "health dispatch handler wired in JSON-RPC dispatch alongside health.check"
-)]
 pub fn handle_health_standard() -> serde_json::Value {
     let uptime_s = STARTUP_INSTANT.get().map_or(0, |t| t.elapsed().as_secs());
     serde_json::json!({

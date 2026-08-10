@@ -45,12 +45,12 @@ pub struct BufferBinding {
 #[derive(Debug)]
 pub struct SharedVar {
     pub(crate) gv_handle: naga::Handle<naga::GlobalVariable>,
-    #[allow(
+    #[expect(
         dead_code,
         reason = "reserved for future shared-memory alignment diagnostics"
     )]
     pub(crate) size_bytes: u32,
-    #[allow(
+    #[expect(
         dead_code,
         reason = "reserved for future shared-memory alignment diagnostics"
     )]

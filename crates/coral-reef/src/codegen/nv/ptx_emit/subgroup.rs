@@ -227,7 +227,7 @@ impl PtxEmitter<'_> {
         }
     }
 
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
         reason = "scan emission needs all parameters"
     )]

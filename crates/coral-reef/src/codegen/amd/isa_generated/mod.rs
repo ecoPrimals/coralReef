@@ -49,7 +49,7 @@ pub mod sopp;
 pub mod vop1;
 #[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod vop2;
-#[allow(dead_code)] // generated ISA tables from amd-isa-gen
+#[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod vop3;
 #[expect(dead_code, reason = "generated ISA tables from amd-isa-gen")]
 pub mod vop3p;

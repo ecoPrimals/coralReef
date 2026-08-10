@@ -101,6 +101,7 @@ pub fn dispatch_jsonrpc(
             let req: service::MultiDeviceCompileRequest = extract_params(params)?;
             handler_result(service::handle_compile_wgsl_multi(req))
         }
+        "health" => to_json(service::handle_health_standard()),
         "health.check" => to_json(service::handle_health_check()),
         "health.liveness" => to_json(service::handle_health_liveness()),
         "health.readiness" => to_json(service::handle_health_readiness()),

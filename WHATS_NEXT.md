@@ -2,9 +2,9 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 157g.
+**Current position**: Phase 10 — Sprint 14 / Wave 157h.
 
-**Last completed**: Wave 157g — BTSP test recovery: 46 orphaned BTSP session tests re-wired into module tree (TransportEndpoint API updated), recovering real BTSP session negotiation coverage. Doc sync pass across 14 stale files. Previous: GEMM Phase 2 IPC wiring, SM20 encoder coverage (+49), BEARDOG_SOCKET guard, process leak fix, gossip injection points.
+**Last completed**: Wave 157h — Deep debt audit + Rust 2024 idiom evolution: `"health"` method wired in JSON-RPC dispatch (was in gate allowlist but had no handler — 19 IPC methods now live). `#[allow]` → `#[expect]` batch migration (7 safe conversions in `coral-reef` + `primal-rpc-client`; reason strings improved on remaining `#[allow]`s). Full codebase audit: zero `.unwrap()` in production, zero hardcoded primal names, zero >800 LOC hand-written files, coverage gaps verified — SM75/SM80 GPR hazards, spiller, and generate_order already have comprehensive tests.
 
 **Tests**: 3,967 total (3,963 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
@@ -708,9 +708,9 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,963 tests (3,963 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157g.
+3,963 tests (3,963 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157h.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
-18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
+19 served IPC methods: `shader.compile.*` + `health` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
 C2 dual-socket convention (`.tarpc.sock`). Binary ops coverage. SPIR-V module extraction.
 Zero hand-written files over 1000 LOC. Zero hardcoded primal names. Zero clippy warnings (pedantic + nursery). Zero fmt drift. Zero test failures.

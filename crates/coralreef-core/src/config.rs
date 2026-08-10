@@ -325,7 +325,7 @@ pub fn btsp_provider_socket() -> Option<PathBuf> {
 ///
 /// Returns `None` when unset or empty.
 #[must_use]
-#[allow(
+#[expect(
     deprecated,
     reason = "intentional backward-compat fallback for $BEARDOG_SOCKET"
 )]

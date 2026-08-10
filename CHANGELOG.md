@@ -4,11 +4,40 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 157g
+**Current status**: Phase 10 — Sprint 14 / Wave 157h
 
 ---
 
 ## [Unreleased]
+
+### Wave 157h: Deep Debt Audit + Rust 2024 Idiom Evolution (2026-08-10)
+
+#### Added
+- `"health"` method wired in JSON-RPC dispatch — was in gate allowlist (`method_gate.rs`)
+  but had no dispatch handler. `handle_health_standard()` no longer dead code.
+  19 IPC methods now live (was 18).
+
+#### Changed
+- `#[allow]` → `#[expect]` batch migration (Rust 2024 idiom):
+  - 7 safe conversions in `coral-reef` + `primal-rpc-client` where lints fire reliably:
+    `unused_macros`, `dead_code` on struct fields, `clippy::too_many_arguments`,
+    `non_camel_case_types` on ISA tables.
+  - `#[expect(deprecated, reason = "...")]` on legacy env key read in `method_gate.rs`.
+  - Improved reason strings on remaining `#[allow]`s in `coralreef-core` (feature-gated
+    items where dead_code status varies by `--all-features`).
+- Removed `#[allow(dead_code)]` from `handle_health_standard()` (now live).
+
+#### Verified
+- Full deep debt audit: zero `.unwrap()` in production code, zero hardcoded primal names,
+  zero >800 LOC hand-written files, zero production `todo!()`/`unimplemented!()`.
+- SM75/SM80 GPR hazard tests, spiller tests, and generate_order tests all already exist
+  and are comprehensive (scanner false positives resolved).
+- 9 EVOLUTION markers catalogued: 1 resolvable (SM32 `.s` peephole), 3 partially
+  resolvable (PrmtSel, dual-CBuf, reserved GPR model), 5 genuinely deferred.
+- `cargo clippy --all-features -- -D warnings`: zero warnings.
+
+#### Tests
+- 3,963 passed, 4 ignored, 0 failures (all features).
 
 ### Wave 157g: G72 Dependency Pandemic + BTSP Test Recovery + Doc Sync (2026-08-10)
 

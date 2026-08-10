@@ -21,7 +21,7 @@
 
 #![allow(
     dead_code,
-    reason = "artifact signing path used by CompileResponse::with_provenance and integration tests"
+    reason = "artifact signing path — dead_code inconsistent across crate/bin boundaries"
 )]
 
 use crate::config;

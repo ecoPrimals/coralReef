@@ -30,12 +30,18 @@ mod capability {
 }
 
 mod local_transport {
-    #[allow(unused_imports)]
+    #[allow(
+        unused_imports,
+        reason = "re-export shim for bin target — lint fires only in lib builds"
+    )]
     pub use coralreef_core::local_transport::*;
 }
 
 mod transport {
-    #[allow(unused_imports)]
+    #[allow(
+        unused_imports,
+        reason = "re-export shim for bin target — lint fires only in lib builds"
+    )]
     pub use coralreef_core::transport::*;
 }
 

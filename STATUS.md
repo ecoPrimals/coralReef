@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 10, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 157g (BTSP test recovery + GEMM Phase 2 IPC wiring + SM20 encoder coverage + BEARDOG_SOCKET guard + doc sync. 18/18 RPC. G68 16/16. 3,963 tests. Zero unsafe, zero clippy warnings.)
+**Version**: 0.2.0 — Sprint 14 / Wave 157h (Deep debt audit + Rust 2024 idiom evolution. `"health"` dispatch wired. `#[allow]`→`#[expect]` batch. 19/19 RPC. G68 16/16. 3,963 tests. Zero unsafe, zero clippy warnings.)
 
 ---
 
@@ -13,7 +13,7 @@
 |----------|-------|-------|
 | Primal lifecycle | A | Standalone `PrimalLifecycle` + `PrimalHealth`, full test coverage |
 | UniBin compliance | A+ | Single binary: clap + --help/--version, standalone startup, signal handling, BIOMEOS_INSECURE guard. `coralreef server`: `--port` + `--bind-mode` (standard envelope), `--socket PATH` (UDS override for NUCLEUS launcher). Diesel binaries excised Sprint 9 |
-| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 18 served methods (`health` + `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 5 consumed (`compute.dispatch`, `capability.register`, `ipc.heartbeat`, `primal.announce`, `crypto.sign`), ecosystem `discovery` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (ecosystem wire-compatible), **zero /tmp** socket paths, **riboCipher signal acceptance** (`[0xEC, 0x01]` prefix strip) |
+| IPC | A+ | JSON-RPC 2.0 + tarpc (bincode), Unix socket + TCP, zero-copy `Bytes` payloads, 19 served methods (`health` + `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `capabilities.list` + `btsp.negotiate` + `auth.*`), 5 consumed (`compute.dispatch`, `capability.register`, `ipc.heartbeat`, `primal.announce`, `crypto.sign`), ecosystem `discovery` registration (wateringHole compliant), **Neural API `primal.announce`** (Wave 43: cost_hints, latency_estimates, signal_tiers), differentiated error codes, newline-delimited TCP (v3.1), capability-domain symlink, Wire Standard L3, **BTSP Phase 3 complete**, **Compute Trio wire contract** (`binary_b64`, `target`, `shader_info`, `wave_size`, `local_memory`, `compile_time_ms`; Gate 1 `targets` array), **JH-0 MethodGate** pre-dispatch authorization, NUCLEUS composition env wired, **TRANSPORT_ENDPOINT** injection (ecosystem wire-compatible), **zero /tmp** socket paths, **riboCipher signal acceptance** (`[0xEC, 0x01]` prefix strip) |
 | NVIDIA pipeline | A+ | WGSL/SPIR-V/GLSL → naga → codegen IR → f64 lower → optimize → legalize → RA → encode |
 | AMD pipeline | A+ | `ShaderModelRdna2` → legalize → RA → encode (memory, control flow, comparisons, integer, type conversion, system values) |
 | Mesa stubs evolved | A+ | All modules evolved to pure Rust (BitSet, CFG, dataflow, fxhash, nvidia_headers) |

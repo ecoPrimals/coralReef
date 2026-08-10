@@ -11,7 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 enum LocalStream {
     #[cfg(unix)]
     Unix(tokio::net::UnixStream),
-    #[allow(dead_code, reason = "variant for non-Unix platforms")]
+    #[expect(dead_code, reason = "variant for non-Unix platforms")]
     Tcp(tokio::net::TcpStream),
 }
 

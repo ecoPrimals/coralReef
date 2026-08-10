@@ -335,7 +335,7 @@ where
 /// Read encrypted frames, dispatch JSON-RPC, write encrypted responses.
 #[allow(
     dead_code,
-    reason = "pub API for tests and e2e Phase 3 encrypted transport"
+    reason = "pub API for tests and e2e Phase 3 encrypted transport — lint fires only in some cfgs"
 )]
 async fn process_encrypted_frames<R, W>(
     lines: &mut tokio::io::Lines<R>,

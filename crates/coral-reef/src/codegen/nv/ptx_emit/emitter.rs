@@ -10,7 +10,7 @@ use super::types::{
 
 #[allow(
     clippy::elidable_lifetime_names,
-    reason = "Shared lifetime ties module + entry point in Self; elided impl body breaks constructor"
+    reason = "shared lifetime ties module + entry point in Self; elided impl body breaks constructor"
 )]
 impl<'a> PtxEmitter<'a> {
     pub(super) fn new(module: &'a naga::Module, ep: &'a naga::EntryPoint, sm: u8) -> Self {

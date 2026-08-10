@@ -207,7 +207,10 @@ fn resolve_auth_env() -> (String, &'static str) {
     if let Ok(v) = std::env::var(env_keys::ECOSYSTEM_AUTH_MODE) {
         return (v, env_keys::ECOSYSTEM_AUTH_MODE);
     }
-    #[allow(deprecated)]
+    #[expect(
+        deprecated,
+        reason = "intentional backward-compat read of legacy env key"
+    )]
     let legacy_key = env_keys::PRIMALSPRING_AUTH_MODE;
     if let Ok(v) = std::env::var(legacy_key) {
         tracing::warn!(
