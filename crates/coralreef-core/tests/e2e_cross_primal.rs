@@ -96,31 +96,43 @@ fn send_sigterm(pid: u32) {
 #[cfg(not(unix))]
 fn send_sigterm(_pid: u32) {}
 
+/// RAII guard that kills an async child process on drop, preventing orphans
+/// when a test panics before reaching its cleanup code.
+struct AsyncChildGuard(tokio::process::Child);
+
+impl Drop for AsyncChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.start_kill();
+    }
+}
+
 #[tokio::test]
 async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
     let bin = env!("CARGO_BIN_EXE_coralreef");
-    let mut child = tokio::process::Command::new(bin)
-        .args([
-            "server",
-            "--rpc-bind",
-            "127.0.0.1:0",
-            "--tarpc-bind",
-            "127.0.0.1:0",
-            "--log-level",
-            "info",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("spawn coralreef server");
+    let mut guard = AsyncChildGuard(
+        tokio::process::Command::new(bin)
+            .args([
+                "server",
+                "--rpc-bind",
+                "127.0.0.1:0",
+                "--tarpc-bind",
+                "127.0.0.1:0",
+                "--log-level",
+                "info",
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn coralreef server"),
+    );
 
-    let pid = child.id().expect("running server child");
+    let pid = guard.0.id().expect("running server child");
 
     let (rpc_addr, tarpc_addr) = match wait_for_discovery_tcp_addrs(pid).await {
         Ok(x) => x,
         Err(e) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+            let _ = guard.0.start_kill();
+            let _ = guard.0.wait().await;
             panic!("failed to discover server addresses: {e}");
         }
     };
@@ -220,7 +232,7 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
 
     send_sigterm(pid);
 
-    match tokio::time::timeout(Duration::from_secs(20), child.wait()).await {
+    match tokio::time::timeout(Duration::from_secs(20), guard.0.wait()).await {
         Ok(Ok(status)) => {
             let code = status.code();
             assert!(
@@ -230,8 +242,8 @@ async fn e2e_spawned_binary_jsonrpc_and_tarpc() {
         }
         Ok(Err(e)) => panic!("wait on coralreef child failed: {e}"),
         Err(_) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+            let _ = guard.0.start_kill();
+            let _ = guard.0.wait().await;
             panic!("coralreef server did not exit within timeout after SIGTERM");
         }
     }

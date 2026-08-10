@@ -4,11 +4,24 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 157d
+**Current status**: Phase 10 — Sprint 14 / Wave 157e
 
 ---
 
 ## [Unreleased]
+
+### Wave 157e: Process Leak Fix + Gossip Injection (2026-08-10)
+
+#### Fixed
+- Test subprocess orphan leak (~36/hr on southGate): added RAII `ChildGuard` to
+  `cmd_server_process.rs` (sync) and `AsyncChildGuard` to `e2e_cross_primal.rs` (async).
+  Guards kill+reap child processes on Drop, preventing orphans when tests panic
+  before reaching cleanup code. Production coralReef spawns zero child processes.
+
+#### Added
+- Gossip injection points documented in `WHATS_NEXT.md`: `shader.compiled`,
+  `silicon.targets`, `compiler.health` events for swarmVine ant colony pattern.
+  Planned — blocked on gossip mesh enmeshment (TCP 7800 cross-gate).
 
 ### Wave 157d: Deep Debt Evolution (2026-08-09)
 

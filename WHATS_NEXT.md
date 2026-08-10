@@ -2,13 +2,13 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 157d.
+**Current position**: Phase 10 — Sprint 14 / Wave 157e.
 
-**Last completed**: Wave 157d — Deep debt evolution: `alu_int.rs` PLop3 module split (827→669 LOC), `sm80_instr_latencies/gpr.rs` hazard table split (766→178 LOC), `BEARDOG_SOCKET` deprecated to capability-based `BTSP_PROVIDER_SOCKET`, 31 new AMD ops encoder tests (control/system/convert/memory). Previous: GEMM Phase 2, coverage push (sm70 float/float64), `gemm.rs` directory module split.
+**Last completed**: Wave 157e — Process leak fix: RAII `ChildGuard` prevents test subprocess orphans (~36/hr on southGate). Gossip injection points documented. Wave 157d — Deep debt evolution: PLop3 split, SM80 hazard split, BEARDOG deprecation, 31 new AMD ops encoder tests. Previous: GEMM Phase 2, coverage push, gemm.rs split, doc sync (15 files).
 
 **Tests**: 3,814 total (3,810 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
-**Last updated**: Aug 9, 2026.
+**Last updated**: Aug 10, 2026.
 
 **Next focus**: Vertex/Fragment shader compilation (8-12 weeks — Phase C, NAK heritage exists for SPH/attribute ops/interpolation/encoders; gap is naga→IR translation + IO address mapping + graphics builtins + public API). Coverage push toward 90% (compiler backends are main gap). Compute gossip integration when swarmVine is ready (Phase 4 shipped). Deploy across NUCLEUS gates (depot unified + pruned, 4 arches).
 
@@ -51,6 +51,18 @@ coralReef is deployed on strandGate (Compute Trio: coralReef + barraCuda + toadS
 1. Cross-gate compute dispatch (heavy compute pipeline → coralReef compilation)
 2. Validate multi-gate `capability.call` routing for `shader.compile.*` methods
 3. Performance profiling under Dual EPYC 7452 (64-core, 256GB ECC)
+
+### Gossip Injection Points (swarmVine — when mesh enmeshed)
+
+coralReef's gossip events for the ant colony pattern (per Wave 157e):
+
+| Event | Trigger | Payload | Consumer |
+|-------|---------|---------|----------|
+| `shader.compiled` | Successful compilation | `{target, compile_time_ms, binary_size, precision}` | Compute gossip — gates learn what this node can compile |
+| `silicon.targets` | Startup / capability change | `{targets: ["sm86", "rdna2", ...], features: [...]}` | Silicon registry — toadStool/barraCuda discover compiler reach |
+| `compiler.health` | Health state transition | `{status, methods_available, uptime_s}` | Mesh health — gates detect compiler availability changes |
+
+These are announced to `swarmVine` via `gossip.spread` when the gossip mesh is enmeshed (TCP 7800 cross-gate reachability required). Currently planned, not implemented — blocked on gossip mesh enmeshment.
 
 ### Medium-Term Horizons (Sprint 14+)
 

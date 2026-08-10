@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 10, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 157d (Deep debt evolution: `alu_int.rs` PLop3 split, SM80 hazard table split, BEARDOG_SOCKET deprecation, 31 new AMD ops encoder tests. Previous: GEMM Phase 2, coverage push. Self-audit: 18/18 RPC. G68 16/16 prod-clean. Zero P0s. 3,810 tests. Zero unsafe, zero clippy warnings.)
+**Version**: 0.2.0 — Sprint 14 / Wave 157e (Process leak fix: RAII `ChildGuard` prevents test subprocess orphans. Gossip injection points documented. Previous: deep debt evolution, PLop3 split, SM80 hazard split, BEARDOG deprecation, 31 new ops encoder tests. 18/18 RPC. G68 16/16. 3,810 tests. Zero unsafe, zero clippy warnings.)
 
 ---
 

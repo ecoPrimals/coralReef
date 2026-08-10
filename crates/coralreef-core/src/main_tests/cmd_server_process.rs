@@ -3,13 +3,24 @@ use std::fs;
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use tempfile::tempdir;
 
 use crate::UniBinExit;
+
+/// RAII guard that kills and reaps a child process on drop, preventing orphans
+/// when a test panics before reaching its cleanup code.
+struct ChildGuard(Child);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
 
 /// `std::env::current_exe()` points at the test harness (`coralreef_core-*`), not the `coralreef`
 /// `UniBin` — use the workspace `target/debug/coralreef` artifact for subprocess server tests.
@@ -49,21 +60,23 @@ fn cmd_server_subprocess_tcp_unix_listen_and_sigterm() {
         exe.display()
     );
 
-    let mut child = Command::new(&exe)
-        .args([
-            "server",
-            "--rpc-bind",
-            "127.0.0.1:0",
-            "--tarpc-bind",
-            "127.0.0.1:0",
-        ])
-        .env("XDG_RUNTIME_DIR", tmp.path())
-        .env("BIOMEOS_FAMILY_ID", &family_id)
-        .env_remove("CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn coralreef server subprocess");
+    let mut guard = ChildGuard(
+        Command::new(&exe)
+            .args([
+                "server",
+                "--rpc-bind",
+                "127.0.0.1:0",
+                "--tarpc-bind",
+                "127.0.0.1:0",
+            ])
+            .env("XDG_RUNTIME_DIR", tmp.path())
+            .env("BIOMEOS_FAMILY_ID", &family_id)
+            .env_remove("CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn coralreef server subprocess"),
+    );
 
     let discovery_path = tmp
         .path()
@@ -97,7 +110,7 @@ fn cmd_server_subprocess_tcp_unix_listen_and_sigterm() {
     );
     UnixStream::connect(&unix_path).expect("Unix JSON-RPC should accept connections");
 
-    let pid = child.id();
+    let pid = guard.0.id();
     let status = Command::new("kill")
         .args(["-TERM", &pid.to_string()])
         .status()
@@ -106,10 +119,9 @@ fn cmd_server_subprocess_tcp_unix_listen_and_sigterm() {
 
     let exit_deadline = Instant::now() + CHILD_EXIT_TIMEOUT;
     let code = loop {
-        match child.try_wait().expect("try_wait") {
+        match guard.0.try_wait().expect("try_wait") {
             Some(st) => break st.code(),
             None if Instant::now() >= exit_deadline => {
-                let _ = child.kill();
                 panic!("child did not exit after SIGTERM within {CHILD_EXIT_TIMEOUT:?}");
             }
             None => thread::sleep(DISCOVERY_POLL_INTERVAL),
@@ -141,21 +153,23 @@ fn cmd_server_subprocess_shutdown_join_timeout_still_exits_on_sigterm() {
         exe.display()
     );
 
-    let mut child = Command::new(&exe)
-        .args([
-            "server",
-            "--rpc-bind",
-            "127.0.0.1:0",
-            "--tarpc-bind",
-            "127.0.0.1:0",
-        ])
-        .env("XDG_RUNTIME_DIR", tmp.path())
-        .env("BIOMEOS_FAMILY_ID", &family_id)
-        .env("CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS", "0")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn coralreef server subprocess");
+    let mut guard = ChildGuard(
+        Command::new(&exe)
+            .args([
+                "server",
+                "--rpc-bind",
+                "127.0.0.1:0",
+                "--tarpc-bind",
+                "127.0.0.1:0",
+            ])
+            .env("XDG_RUNTIME_DIR", tmp.path())
+            .env("BIOMEOS_FAMILY_ID", &family_id)
+            .env("CORALREEF_TEST_SHUTDOWN_JOIN_TIMEOUT_MS", "0")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn coralreef server subprocess"),
+    );
 
     let deadline = Instant::now() + DISCOVERY_POLL_TIMEOUT;
     assert!(
@@ -170,7 +184,7 @@ fn cmd_server_subprocess_shutdown_join_timeout_still_exits_on_sigterm() {
         "discovery file should appear (server ready)"
     );
 
-    let pid = child.id();
+    let pid = guard.0.id();
     let status = Command::new("kill")
         .args(["-TERM", &pid.to_string()])
         .status()
@@ -179,10 +193,9 @@ fn cmd_server_subprocess_shutdown_join_timeout_still_exits_on_sigterm() {
 
     let exit_deadline = Instant::now() + CHILD_EXIT_TIMEOUT;
     let code = loop {
-        match child.try_wait().expect("try_wait") {
+        match guard.0.try_wait().expect("try_wait") {
             Some(st) => break st.code(),
             None if Instant::now() >= exit_deadline => {
-                let _ = child.kill();
                 panic!("child did not exit after SIGTERM within {CHILD_EXIT_TIMEOUT:?}");
             }
             None => thread::sleep(DISCOVERY_POLL_INTERVAL),
