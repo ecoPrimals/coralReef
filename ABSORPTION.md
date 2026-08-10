@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: Aug 10, 2026 (Sprint 14 / Wave 157d: 3,810 tests, ~84% line coverage. Deep debt evolution, PLop3 split, SM80 hazard split, BEARDOG deprecation, 31 new ops encoder tests, GEMM Phase 2, G68 16/16, Node Atomic AAR)
+**Last updated**: Aug 10, 2026 (Sprint 14 / Wave 157g: 3,963 tests, ~84% line coverage. BTSP test recovery, GEMM Phase 2 IPC wiring, SM20 encoder coverage, BEARDOG_SOCKET guard, doc sync, deep debt hygiene)
 
 ---
 
@@ -289,9 +289,9 @@ Status (Iteration 15):
 
 ---
 
-*93/93 cross-spring WGSL shaders compile to native SASS. 3686 tests (3680 passing, 6 ignored; post-excision: diesel stack removed).
+*93/93 cross-spring WGSL shaders compile to native SASS. 3,963 tests (3,963 passing, 4 ignored; post-excision: diesel stack removed).
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 5/5 GLSL compute fixtures pass SM70. 10/10 SPIR-V roundtrip tests pass.
 18 served IPC methods. SM120 Blackwell edge cases resolved (loop control flow, subgroup builtins, reduce correctness).
-Sprint 14 / Wave 156b: quality gates green (fmt, clippy pedantic+nursery zero warnings, doc, all files <1000 LOC, deny.toml enforced).
+Sprint 14 / Wave 157g: quality gates green (fmt, clippy pedantic+nursery zero warnings, doc, all files <1000 LOC, deny.toml enforced).
 Next: coverage ~84%→90%, naga replacement evolution (sovereign WGSL parser), vertex/fragment shader compilation.*

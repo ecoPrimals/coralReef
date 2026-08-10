@@ -132,8 +132,15 @@ impl URegLatencySM80 {
             | Op::HSetP2(_) => vcoupled,
             Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => vdecoupled,
 
-            Op::IMul(_) | Op::I2I(_) | Op::FSwzAdd(_) | Op::FSwz(_) | Op::Bfe(_) | Op::Shl(_)
-            | Op::Shr(_) | Op::Match(_) | Op::DMnMx(_) => vcoupled,
+            Op::IMul(_)
+            | Op::I2I(_)
+            | Op::FSwzAdd(_)
+            | Op::FSwz(_)
+            | Op::Bfe(_)
+            | Op::Shl(_)
+            | Op::Shr(_)
+            | Op::Match(_)
+            | Op::DMnMx(_) => vcoupled,
 
             Op::Ld(_)
             | Op::St(_)
@@ -163,8 +170,16 @@ impl URegLatencySM80 {
 
             Op::Hmma(_) | Op::Imma(_) => vcoupled,
 
-            Op::Bar(_) | Op::CS2R(_) | Op::Nop(_) | Op::Kill(_) | Op::Exit(_) | Op::BSSy(_)
-            | Op::BSync(_) | Op::Bra(_) | Op::BMov(_) | Op::TexDepBar(_) => vcoupled,
+            Op::Bar(_)
+            | Op::CS2R(_)
+            | Op::Nop(_)
+            | Op::Kill(_)
+            | Op::Exit(_)
+            | Op::BSSy(_)
+            | Op::BSync(_)
+            | Op::Bra(_)
+            | Op::BMov(_)
+            | Op::TexDepBar(_) => vcoupled,
 
             _ => {
                 crate::codegen::ice!("Illegal instruction in ureg category {op}");

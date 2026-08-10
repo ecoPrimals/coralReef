@@ -679,3 +679,7 @@ pub enum BtspSessionError {
 #[cfg(test)]
 #[path = "btsp/btsp_guard_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "btsp/tests_btsp.rs"]
+mod tests_btsp;

@@ -16,12 +16,9 @@ mod stream;
 mod sync_stream;
 
 pub use resolve::{
-    ResolvedBind, TransportResolveError, create_local_symlink, resolve_bind,
-    resolve_bind_with_mode,
+    ResolvedBind, TransportResolveError, create_local_symlink, resolve_bind, resolve_bind_with_mode,
 };
-pub use stream::{
-    TransportListener, TransportStream, bind_transport, connect_transport,
-};
+pub use stream::{TransportListener, TransportStream, bind_transport, connect_transport};
 pub use sync_stream::{SyncTransportStream, connect_transport_sync};
 
 use serde::{Deserialize, Serialize};

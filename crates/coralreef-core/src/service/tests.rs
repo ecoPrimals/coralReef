@@ -581,7 +581,10 @@ fn compile_gemm_smem_tiling_succeeds() {
         tiling: "smem".into(),
     };
     let result = super::compile::handle_compile_gemm(&req);
-    assert!(result.is_ok(), "GEMM smem compile should succeed: {result:?}");
+    assert!(
+        result.is_ok(),
+        "GEMM smem compile should succeed: {result:?}"
+    );
     let resp = result.unwrap();
     assert!(resp.size > 0);
     let info = resp.info.expect("smem GEMM should have compilation info");
@@ -599,7 +602,10 @@ fn compile_gemm_smem_tiling_succeeds() {
         "smem GEMM should report barrier usage"
     );
     let ptx = String::from_utf8_lossy(&resp.binary);
-    assert!(ptx.contains("ldmatrix.sync"), "smem GEMM should use ldmatrix");
+    assert!(
+        ptx.contains("ldmatrix.sync"),
+        "smem GEMM should use ldmatrix"
+    );
     assert!(ptx.contains("bar.sync"), "smem GEMM should use bar.sync");
     assert!(ptx.contains("mma.sync"), "smem GEMM should use mma.sync");
 }
@@ -658,7 +664,10 @@ fn compile_gemm_global_tiling_explicit() {
     assert!(result.is_ok());
     let resp = result.unwrap();
     let info = resp.info.expect("global GEMM should have info");
-    assert_eq!(info.shared_mem_bytes, 0, "global tiling has no shared memory");
+    assert_eq!(
+        info.shared_mem_bytes, 0,
+        "global tiling has no shared memory"
+    );
     assert_eq!(info.workgroup_size, [32, 1, 1], "global uses 32 threads");
 }
 

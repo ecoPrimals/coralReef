@@ -39,8 +39,8 @@ runtime — no hardcoded primal names, no shared code imports.
 
 ## Project status (Sprint 14)
 
-- **Tests**: 3,814 workspace tests (3,810 passed, 4 ignored). Zero clippy warnings. Zero unsafe.
-- **Sprint 14 (current)**: Wave 157d — Deep debt evolution: PLop3 module split, SM80 hazard table split, BEARDOG_SOCKET deprecation, 31 new AMD ops encoder tests, GEMM Phase 2, coverage push (sm70 float/float64), gemm.rs directory module split. Previous waves: 157a — G68 16/16, self-audit 18/18 RPC, Node Atomic AAR. 156s — G66 transport abstraction. 156j — C2 dual-socket. 156g — alloc elimination. 155j — NUCLEUS ACHIEVED on strandGate.
+- **Tests**: 3,967 workspace tests (3,963 passed, 4 ignored). Zero clippy warnings. Zero unsafe.
+- **Sprint 14 (current)**: Wave 157g — BTSP test recovery (+46 orphaned tests re-wired), doc sync, deep debt hygiene. Previous: 157f — GEMM Phase 2 IPC wiring (`tiling` parameter), 49 SM20 encoder tests, BEARDOG_SOCKET guard. 157d — PLop3 module split, SM80 hazard table split, BEARDOG_SOCKET deprecation, 31 new AMD ops encoder tests, GEMM Phase 2, coverage push. 157a — G68 16/16, self-audit 18/18 RPC, Node Atomic AAR. 156s — G66 transport abstraction. 156j — C2 dual-socket. 155j — NUCLEUS ACHIEVED on strandGate.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.

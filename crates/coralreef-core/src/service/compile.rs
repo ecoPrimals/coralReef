@@ -377,10 +377,7 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
         "auto" | "" => shape.m % 64 == 0 && shape.n % 16 == 0,
         other => {
             return Err(CompileError::InvalidInput(
-                format!(
-                    "unknown GEMM tiling: {other:?} (expected auto, global, smem)"
-                )
-                .into(),
+                format!("unknown GEMM tiling: {other:?} (expected auto, global, smem)").into(),
             ));
         }
     };

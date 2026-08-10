@@ -95,7 +95,11 @@ fn test_compile_gemm_rejects_misaligned_m() {
 #[test]
 fn test_compile_gemm_rejects_misaligned_n() {
     let target = GpuTarget::Nvidia(NvArch::Sm80);
-    let shape = GemmShape { m: 16, n: 12, k: 16 };
+    let shape = GemmShape {
+        m: 16,
+        n: 12,
+        k: 16,
+    };
     let err = compile_gemm(shape, GemmPrecision::F16F32, target)
         .expect_err("N=12 (not multiple of 8) should be rejected");
     assert!(matches!(err, CompileError::InvalidInput(_)));
@@ -103,17 +107,24 @@ fn test_compile_gemm_rejects_misaligned_n() {
 
 #[test]
 fn test_compile_gemm_tiled_thread_mapping() {
-    let shape = GemmShape { m: 64, n: 32, k: 16 };
+    let shape = GemmShape {
+        m: 64,
+        n: 32,
+        k: 16,
+    };
     let target = GpuTarget::Nvidia(NvArch::Sm86);
-    let compiled = compile_gemm(shape, GemmPrecision::F16F32, target)
-        .expect("64x32x16 f16f32 should succeed");
+    let compiled =
+        compile_gemm(shape, GemmPrecision::F16F32, target).expect("64x32x16 f16f32 should succeed");
     assert_eq!(
         compiled.info.local_size,
         [32, 1, 1],
         "1 warp per CTA = 32 threads"
     );
     let ptx = String::from_utf8(compiled.binary).expect("valid UTF-8");
-    assert!(ptx.contains(".reqntid 32"), "kernel must set required thread count");
+    assert!(
+        ptx.contains(".reqntid 32"),
+        "kernel must set required thread count"
+    );
     assert!(ptx.contains("%ctaid.x"), "must use block ID for N tiling");
     assert!(ptx.contains("%ctaid.y"), "must use block ID for M tiling");
     assert!(
@@ -130,15 +141,18 @@ fn test_compile_gemm_large_shape_128x128x64() {
         k: 64,
     };
     let target = GpuTarget::Nvidia(NvArch::Sm80);
-    let compiled = compile_gemm(shape, GemmPrecision::F16F32, target)
-        .expect("128x128x64 should succeed");
+    let compiled =
+        compile_gemm(shape, GemmPrecision::F16F32, target).expect("128x128x64 should succeed");
     let ptx = String::from_utf8(compiled.binary).expect("valid UTF-8");
     let mma_count = ptx
         .lines()
         .filter(|l| l.trim_start().starts_with("mma.sync.aligned"))
         .count();
     assert_eq!(mma_count, 4, "K=64/16 = 4 MMA instructions");
-    assert!(ptx.contains("Grid: (16, 8, 1)"), "128/8=16 N blocks, 128/16=8 M blocks");
+    assert!(
+        ptx.contains("Grid: (16, 8, 1)"),
+        "128/8=16 N blocks, 128/16=8 M blocks"
+    );
 }
 
 // --- f64 type resolution tests ---

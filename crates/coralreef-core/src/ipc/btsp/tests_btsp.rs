@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Unit tests for the BTSP session negotiation module.
 
-use super::*;
 use super::super::transport::TransportEndpoint;
+use super::*;
 
 /// Test helper: replicate `discover_security_socket` logic with an explicit
 /// directory instead of env-derived `resolve_socket_dir()`.
@@ -405,7 +405,7 @@ fn discover_security_socket_returns_none_in_clean_env() {
         return;
     }
     #[allow(deprecated, reason = "testing backward-compat $BEARDOG_SOCKET guard")]
-    if std::env::var(crate::config::env_keys::BEARDOG_SOCKET).is_ok() {
+    if std::env::var(crate::env_keys::BEARDOG_SOCKET).is_ok() {
         return;
     }
 
@@ -430,7 +430,7 @@ fn discover_security_socket_returns_none_in_clean_env() {
 fn btsp_provider_socket_takes_precedence_over_legacy() {
     let provider_val = std::env::var("BTSP_PROVIDER_SOCKET");
     #[allow(deprecated, reason = "testing backward-compat precedence")]
-    let legacy_val = std::env::var(crate::config::env_keys::BEARDOG_SOCKET);
+    let legacy_val = std::env::var(crate::env_keys::BEARDOG_SOCKET);
 
     if provider_val.is_ok() || legacy_val.is_ok() {
         return;

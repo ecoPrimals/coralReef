@@ -2,11 +2,11 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 157f.
+**Current position**: Phase 10 — Sprint 14 / Wave 157g.
 
-**Last completed**: Wave 157f — GEMM Phase 2 IPC wiring: `shader.compile.gemm` now accepts `tiling` parameter (`auto`/`global`/`smem`), routing to Phase 2 shared-memory kernel with `ldmatrix.sync` + `bar.sync` when dimensions are block-aligned. barraCuda P1 unblocked. Wire contract doc updated. 6 new GEMM tiling tests. Previous: Process leak fix, gossip injection points, PLop3 split, SM80 hazard split.
+**Last completed**: Wave 157g — BTSP test recovery: 46 orphaned BTSP session tests re-wired into module tree (TransportEndpoint API updated), recovering real BTSP session negotiation coverage. Doc sync pass across 14 stale files. Previous: GEMM Phase 2 IPC wiring, SM20 encoder coverage (+49), BEARDOG_SOCKET guard, process leak fix, gossip injection points.
 
-**Tests**: 3,871 total (3,867 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,967 total (3,963 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 10, 2026.
 
@@ -708,7 +708,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,810 tests (3,806 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157d.
+3,963 tests (3,963 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157g.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.

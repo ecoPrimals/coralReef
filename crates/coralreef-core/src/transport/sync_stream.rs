@@ -198,10 +198,7 @@ mod tests {
         if let Ok(stream) = tcp {
             let sts = SyncTransportStream::Tcp(stream);
             let s = format!("{sts:?}");
-            assert!(
-                s.contains("Tcp"),
-                "debug output should mention Tcp: {s}"
-            );
+            assert!(s.contains("Tcp"), "debug output should mention Tcp: {s}");
         }
     }
 }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use super::{BM, BN, CTA_THREADS, emit_smem_header};
 use crate::error::CompileError;
 use crate::gemm::{GemmPrecision, GemmShape};
-use super::{emit_smem_header, BM, BN, CTA_THREADS};
 
 /// Phase 2 f16/f16f32 GEMM with shared memory tiling.
 ///
@@ -39,7 +39,9 @@ pub(super) fn emit_f16_gemm_smem(
 
     let mut ptx = String::with_capacity(16384);
 
-    emit_smem_header(&mut ptx, &shape, sm, src_type, acc_type, "m16n8k16", k_iters);
+    emit_smem_header(
+        &mut ptx, &shape, sm, src_type, acc_type, "m16n8k16", k_iters,
+    );
 
     writeln_ptx!(ptx, ".visible .entry gemm_kernel(");
     writeln_ptx!(ptx, "    .param .u64 param_A,");
@@ -56,14 +58,8 @@ pub(super) fn emit_f16_gemm_smem(
     writeln_ptx!(ptx);
 
     // Shared memory declarations
-    writeln_ptx!(
-        ptx,
-        "    .shared .align 16 .b8 smem_A[{smem_a_bytes}];"
-    );
-    writeln_ptx!(
-        ptx,
-        "    .shared .align 16 .b8 smem_B[{smem_b_bytes}];"
-    );
+    writeln_ptx!(ptx, "    .shared .align 16 .b8 smem_A[{smem_a_bytes}];");
+    writeln_ptx!(ptx, "    .shared .align 16 .b8 smem_B[{smem_b_bytes}];");
     writeln_ptx!(ptx);
 
     // Load params and identity
@@ -78,10 +74,22 @@ pub(super) fn emit_f16_gemm_smem(
 
     // Warp and lane identity
     writeln_ptx!(ptx, "    // Warp and lane decomposition");
-    writeln_ptx!(ptx, "    shr.u32 %r40, %r10, 5;          // warp_id = tid / 32");
-    writeln_ptx!(ptx, "    and.u32 %r41, %r10, 31;         // lane_id = tid & 31");
-    writeln_ptx!(ptx, "    shr.u32 %r14, %r41, 2;          // group_id = lane / 4");
-    writeln_ptx!(ptx, "    and.u32 %r15, %r41, 3;          // tid_in_group = lane & 3");
+    writeln_ptx!(
+        ptx,
+        "    shr.u32 %r40, %r10, 5;          // warp_id = tid / 32"
+    );
+    writeln_ptx!(
+        ptx,
+        "    and.u32 %r41, %r10, 31;         // lane_id = tid & 31"
+    );
+    writeln_ptx!(
+        ptx,
+        "    shr.u32 %r14, %r41, 2;          // group_id = lane / 4"
+    );
+    writeln_ptx!(
+        ptx,
+        "    and.u32 %r15, %r41, 3;          // tid_in_group = lane & 3"
+    );
     writeln_ptx!(ptx);
 
     // Block tile position in output matrix
@@ -100,11 +108,17 @@ pub(super) fn emit_f16_gemm_smem(
 
     // Warp's M offset within block tile
     writeln_ptx!(ptx, "    // Warp M offset within block tile");
-    writeln_ptx!(ptx, "    shl.b32 %r42, %r40, 4;          // warp_m_off = warp_id * 16");
+    writeln_ptx!(
+        ptx,
+        "    shl.b32 %r42, %r40, 4;          // warp_m_off = warp_id * 16"
+    );
     writeln_ptx!(ptx);
 
     // Zero accumulators (2 MMA tiles per warp along N)
-    writeln_ptx!(ptx, "    // Zero accumulator registers (2 MMA tiles x {acc_regs} regs)");
+    writeln_ptx!(
+        ptx,
+        "    // Zero accumulator registers (2 MMA tiles x {acc_regs} regs)"
+    );
     for tile_n in 0..2u32 {
         for r in 0..acc_regs {
             let reg_idx = tile_n * acc_regs + r;
@@ -145,9 +159,18 @@ pub(super) fn emit_f16_gemm_smem(
                 ptx,
                 "    add.u32 %r50, %r10, {linear_base};  // linear = tid + {linear_base}"
             );
-            writeln_ptx!(ptx, "    shr.u32 %r51, %r50, 4;          // a_row = linear / 16");
-            writeln_ptx!(ptx, "    and.u32 %r52, %r50, 15;         // a_col = linear & 15");
-            writeln_ptx!(ptx, "    add.u32 %r51, %r51, %r16;       // global_row = m_block + a_row");
+            writeln_ptx!(
+                ptx,
+                "    shr.u32 %r51, %r50, 4;          // a_row = linear / 16"
+            );
+            writeln_ptx!(
+                ptx,
+                "    and.u32 %r52, %r50, 15;         // a_col = linear & 15"
+            );
+            writeln_ptx!(
+                ptx,
+                "    add.u32 %r51, %r51, %r16;       // global_row = m_block + a_row"
+            );
             writeln_ptx!(
                 ptx,
                 "    add.u32 %r52, %r52, {k_base};       // global_col = k_base + a_col"
@@ -161,7 +184,10 @@ pub(super) fn emit_f16_gemm_smem(
             writeln_ptx!(ptx, "    cvt.u64.u32 %rd10, %r53;");
             writeln_ptx!(ptx, "    add.u64 %rd10, %rd0, %rd10;");
             writeln_ptx!(ptx, "    ld.global.u16 %r55, [%rd10];");
-            writeln_ptx!(ptx, "    shl.b32 %r56, %r50, 1;          // smem offset = linear * 2");
+            writeln_ptx!(
+                ptx,
+                "    shl.b32 %r56, %r50, 1;          // smem offset = linear * 2"
+            );
             writeln_ptx!(ptx, "    mov.u32 %r57, smem_A;");
             writeln_ptx!(ptx, "    add.u32 %r57, %r57, %r56;");
             writeln_ptx!(ptx, "    st.shared.u16 [%r57], %r55;");
@@ -179,13 +205,19 @@ pub(super) fn emit_f16_gemm_smem(
             // b_col = linear % BN = linear & 15
             // global: B + (n_block + b_col) * K * 2 + (k_base + b_row) * 2
             // smem: smem_B + linear * 2
+            writeln_ptx!(ptx, "    add.u32 %r50, %r10, {linear_base};");
             writeln_ptx!(
                 ptx,
-                "    add.u32 %r50, %r10, {linear_base};"
+                "    shr.u32 %r51, %r50, 4;          // b_row = linear / 16"
             );
-            writeln_ptx!(ptx, "    shr.u32 %r51, %r50, 4;          // b_row = linear / 16");
-            writeln_ptx!(ptx, "    and.u32 %r52, %r50, 15;         // b_col = linear & 15");
-            writeln_ptx!(ptx, "    add.u32 %r52, %r52, %r17;       // global_n = n_block + b_col");
+            writeln_ptx!(
+                ptx,
+                "    and.u32 %r52, %r50, 15;         // b_col = linear & 15"
+            );
+            writeln_ptx!(
+                ptx,
+                "    add.u32 %r52, %r52, %r17;       // global_n = n_block + b_col"
+            );
             writeln_ptx!(
                 ptx,
                 "    add.u32 %r51, %r51, {k_base};       // global_k = k_base + b_row"
@@ -236,19 +268,31 @@ pub(super) fn emit_f16_gemm_smem(
             ptx,
             "    shr.u32 %r59, %r41, 4;          // k_half = lane >> 4 (0 or 1)"
         );
-        writeln_ptx!(ptx, "    add.u32 %r58, %r58, %r42;       // smem_row = warp_m_off + row_in_tile");
+        writeln_ptx!(
+            ptx,
+            "    add.u32 %r58, %r58, %r42;       // smem_row = warp_m_off + row_in_tile"
+        );
         writeln_ptx!(
             ptx,
             "    mul.lo.u32 %r58, %r58, {bk_stride}; // smem_row * BK * 2"
         );
-        writeln_ptx!(ptx, "    shl.b32 %r59, %r59, 4;          // k_half * 16 (byte offset for k-half)");
+        writeln_ptx!(
+            ptx,
+            "    shl.b32 %r59, %r59, 4;          // k_half * 16 (byte offset for k-half)"
+        );
         writeln_ptx!(ptx, "    add.u32 %r58, %r58, %r59;");
         writeln_ptx!(ptx, "    mov.u32 %r60, smem_A;");
-        writeln_ptx!(ptx, "    add.u32 %r60, %r60, %r58;       // addr for ldmatrix A");
+        writeln_ptx!(
+            ptx,
+            "    add.u32 %r60, %r60, %r58;       // addr for ldmatrix A"
+        );
         writeln_ptx!(
             ptx,
             "    ldmatrix.sync.aligned.m8n8.x4.shared.b16 {{%r{a0}, %r{a1}, %r{a2}, %r{a3}}}, [%r60];",
-            a0 = 20, a1 = 21, a2 = 22, a3 = 23
+            a0 = 20,
+            a1 = 21,
+            a2 = 22,
+            a3 = 23
         );
         writeln_ptx!(ptx);
 
@@ -271,16 +315,13 @@ pub(super) fn emit_f16_gemm_smem(
                 "    // ldmatrix: load B fragment (N-tile {tile_n}) from shared memory"
             );
             writeln_ptx!(ptx, "    and.u32 %r58, %r41, 15;");
-            writeln_ptx!(
-                ptx,
-                "    mul.lo.u32 %r58, %r58, {bn_stride};"
-            );
-            writeln_ptx!(
-                ptx,
-                "    add.u32 %r58, %r58, {n_byte_off};"
-            );
+            writeln_ptx!(ptx, "    mul.lo.u32 %r58, %r58, {bn_stride};");
+            writeln_ptx!(ptx, "    add.u32 %r58, %r58, {n_byte_off};");
             writeln_ptx!(ptx, "    mov.u32 %r60, smem_B;");
-            writeln_ptx!(ptx, "    add.u32 %r60, %r60, %r58;       // addr for ldmatrix B");
+            writeln_ptx!(
+                ptx,
+                "    add.u32 %r60, %r60, %r58;       // addr for ldmatrix B"
+            );
             writeln_ptx!(
                 ptx,
                 "    ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 {{%r{b0}, %r{b1}}}, [%r60];"
@@ -297,7 +338,10 @@ pub(super) fn emit_f16_gemm_smem(
                 writeln_ptx!(
                     ptx,
                     "        {{%r{c0}, %r{c1}, %r{c2}, %r{c3}}}, {{%r20, %r21, %r22, %r23}}, {{%r{b0}, %r{b1}}}, {{%r{c0}, %r{c1}, %r{c2}, %r{c3}}};",
-                    c0 = c_base, c1 = c_base + 1, c2 = c_base + 2, c3 = c_base + 3
+                    c0 = c_base,
+                    c1 = c_base + 1,
+                    c2 = c_base + 2,
+                    c3 = c_base + 3
                 );
             } else {
                 writeln_ptx!(
@@ -307,7 +351,8 @@ pub(super) fn emit_f16_gemm_smem(
                 writeln_ptx!(
                     ptx,
                     "        {{%r{c0}, %r{c1}}}, {{%r20, %r21, %r22, %r23}}, {{%r{b0}, %r{b1}}}, {{%r{c0}, %r{c1}}};",
-                    c0 = c_base, c1 = c_base + 1
+                    c0 = c_base,
+                    c1 = c_base + 1
                 );
             }
             writeln_ptx!(ptx);
@@ -329,7 +374,10 @@ pub(super) fn emit_f16_gemm_smem(
     let n_row_bytes = n_val * c_elem_bytes;
 
     writeln_ptx!(ptx, "    // Store C fragments (2 MMA tiles per warp)");
-    writeln_ptx!(ptx, "    add.u32 %r42, %r42, %r16;       // warp_m_abs = m_block + warp_m_off");
+    writeln_ptx!(
+        ptx,
+        "    add.u32 %r42, %r42, %r16;       // warp_m_abs = m_block + warp_m_off"
+    );
     writeln_ptx!(ptx);
 
     for tile_n in 0..2u32 {
@@ -338,7 +386,10 @@ pub(super) fn emit_f16_gemm_smem(
 
         writeln_ptx!(ptx, "    // Store C tile (N-tile {tile_n})");
         writeln_ptx!(ptx, "    shl.b32 %r28, %r14, 1;       // group_id * 2");
-        writeln_ptx!(ptx, "    add.u32 %r28, %r42, %r28;    // c_row = warp_m_abs + group_id * 2");
+        writeln_ptx!(
+            ptx,
+            "    add.u32 %r28, %r42, %r28;    // c_row = warp_m_abs + group_id * 2"
+        );
         writeln_ptx!(ptx, "    shl.b32 %r29, %r15, 1;       // tid_in_group * 2");
         writeln_ptx!(
             ptx,
@@ -350,10 +401,7 @@ pub(super) fn emit_f16_gemm_smem(
                 "    add.u32 %r29, %r29, {n_off};    // + N-tile offset"
             );
         }
-        writeln_ptx!(
-            ptx,
-            "    mul.lo.u32 %r30, %r28, {n_val};"
-        );
+        writeln_ptx!(ptx, "    mul.lo.u32 %r30, %r28, {n_val};");
         writeln_ptx!(ptx, "    add.u32 %r30, %r30, %r29;");
         writeln_ptx!(
             ptx,
@@ -425,14 +473,8 @@ pub(super) fn emit_tf32_gemm_smem(shape: GemmShape, sm: u8) -> Result<(String, u
     writeln_ptx!(ptx, "    .reg .pred %p<4>;");
     writeln_ptx!(ptx);
 
-    writeln_ptx!(
-        ptx,
-        "    .shared .align 16 .b8 smem_A[{smem_a_bytes}];"
-    );
-    writeln_ptx!(
-        ptx,
-        "    .shared .align 16 .b8 smem_B[{smem_b_bytes}];"
-    );
+    writeln_ptx!(ptx, "    .shared .align 16 .b8 smem_A[{smem_a_bytes}];");
+    writeln_ptx!(ptx, "    .shared .align 16 .b8 smem_B[{smem_b_bytes}];");
     writeln_ptx!(ptx);
 
     writeln_ptx!(ptx, "    ld.param.u64 %rd0, [param_A];");
@@ -452,17 +494,14 @@ pub(super) fn emit_tf32_gemm_smem(shape: GemmShape, sm: u8) -> Result<(String, u
 
     let bm_val = BM;
     let bn_val = BN;
-    writeln_ptx!(
-        ptx,
-        "    mul.lo.u32 %r16, %r12, {bm_val};"
-    );
-    writeln_ptx!(
-        ptx,
-        "    mul.lo.u32 %r17, %r11, {bn_val};"
-    );
+    writeln_ptx!(ptx, "    mul.lo.u32 %r16, %r12, {bm_val};");
+    writeln_ptx!(ptx, "    mul.lo.u32 %r17, %r11, {bn_val};");
     writeln_ptx!(ptx);
 
-    writeln_ptx!(ptx, "    shl.b32 %r42, %r40, 4;          // warp_m_off = warp_id * 16");
+    writeln_ptx!(
+        ptx,
+        "    shl.b32 %r42, %r40, 4;          // warp_m_off = warp_id * 16"
+    );
     writeln_ptx!(ptx);
 
     // Zero 2 × 4 accumulator regs
@@ -490,27 +529,27 @@ pub(super) fn emit_tf32_gemm_smem(shape: GemmShape, sm: u8) -> Result<(String, u
         writeln_ptx!(ptx, "    // Cooperative load A tile (tf32)");
         for elem in 0..a_elems_per_thread {
             let linear_base = elem * CTA_THREADS;
+            writeln_ptx!(ptx, "    add.u32 %r50, %r10, {linear_base};");
             writeln_ptx!(
                 ptx,
-                "    add.u32 %r50, %r10, {linear_base};"
+                "    shr.u32 %r51, %r50, 3;          // a_row = linear / BK(8)"
             );
-            writeln_ptx!(ptx, "    shr.u32 %r51, %r50, 3;          // a_row = linear / BK(8)");
-            writeln_ptx!(ptx, "    and.u32 %r52, %r50, 7;          // a_col = linear & 7");
+            writeln_ptx!(
+                ptx,
+                "    and.u32 %r52, %r50, 7;          // a_col = linear & 7"
+            );
             writeln_ptx!(ptx, "    add.u32 %r51, %r51, %r16;");
-            writeln_ptx!(
-                ptx,
-                "    add.u32 %r52, %r52, {k_base};"
-            );
-            writeln_ptx!(
-                ptx,
-                "    mul.lo.u32 %r53, %r51, {k_times_4};"
-            );
+            writeln_ptx!(ptx, "    add.u32 %r52, %r52, {k_base};");
+            writeln_ptx!(ptx, "    mul.lo.u32 %r53, %r51, {k_times_4};");
             writeln_ptx!(ptx, "    shl.b32 %r54, %r52, 2;          // * 4 bytes");
             writeln_ptx!(ptx, "    add.u32 %r53, %r53, %r54;");
             writeln_ptx!(ptx, "    cvt.u64.u32 %rd10, %r53;");
             writeln_ptx!(ptx, "    add.u64 %rd10, %rd0, %rd10;");
             writeln_ptx!(ptx, "    ld.global.b32 %r55, [%rd10];");
-            writeln_ptx!(ptx, "    shl.b32 %r56, %r50, 2;          // smem offset * 4");
+            writeln_ptx!(
+                ptx,
+                "    shl.b32 %r56, %r50, 2;          // smem offset * 4"
+            );
             writeln_ptx!(ptx, "    mov.u32 %r57, smem_A;");
             writeln_ptx!(ptx, "    add.u32 %r57, %r57, %r56;");
             writeln_ptx!(ptx, "    st.shared.b32 [%r57], %r55;");
@@ -521,21 +560,18 @@ pub(super) fn emit_tf32_gemm_smem(shape: GemmShape, sm: u8) -> Result<(String, u
         writeln_ptx!(ptx, "    // Cooperative load B tile (tf32)");
         for elem in 0..b_elems_per_thread {
             let linear_base = elem * CTA_THREADS;
+            writeln_ptx!(ptx, "    add.u32 %r50, %r10, {linear_base};");
             writeln_ptx!(
                 ptx,
-                "    add.u32 %r50, %r10, {linear_base};"
+                "    shr.u32 %r51, %r50, 4;          // b_row = linear / BN(16)"
             );
-            writeln_ptx!(ptx, "    shr.u32 %r51, %r50, 4;          // b_row = linear / BN(16)");
-            writeln_ptx!(ptx, "    and.u32 %r52, %r50, 15;         // b_col = linear & 15");
+            writeln_ptx!(
+                ptx,
+                "    and.u32 %r52, %r50, 15;         // b_col = linear & 15"
+            );
             writeln_ptx!(ptx, "    add.u32 %r52, %r52, %r17;");
-            writeln_ptx!(
-                ptx,
-                "    add.u32 %r51, %r51, {k_base};"
-            );
-            writeln_ptx!(
-                ptx,
-                "    mul.lo.u32 %r53, %r52, {k_times_4};"
-            );
+            writeln_ptx!(ptx, "    add.u32 %r51, %r51, {k_base};");
+            writeln_ptx!(ptx, "    mul.lo.u32 %r53, %r52, {k_times_4};");
             writeln_ptx!(ptx, "    shl.b32 %r54, %r51, 2;");
             writeln_ptx!(ptx, "    add.u32 %r53, %r53, %r54;");
             writeln_ptx!(ptx, "    cvt.u64.u32 %rd10, %r53;");
@@ -557,10 +593,7 @@ pub(super) fn emit_tf32_gemm_smem(shape: GemmShape, sm: u8) -> Result<(String, u
         writeln_ptx!(ptx, "    and.u32 %r58, %r41, 15;");
         writeln_ptx!(ptx, "    shr.u32 %r59, %r41, 4;");
         writeln_ptx!(ptx, "    add.u32 %r58, %r58, %r42;");
-        writeln_ptx!(
-            ptx,
-            "    mul.lo.u32 %r58, %r58, {bk_stride_tf32};"
-        );
+        writeln_ptx!(ptx, "    mul.lo.u32 %r58, %r58, {bk_stride_tf32};");
         writeln_ptx!(ptx, "    shl.b32 %r59, %r59, 4;");
         writeln_ptx!(ptx, "    add.u32 %r58, %r58, %r59;");
         writeln_ptx!(ptx, "    mov.u32 %r60, smem_A;");
@@ -580,14 +613,8 @@ pub(super) fn emit_tf32_gemm_smem(shape: GemmShape, sm: u8) -> Result<(String, u
 
             writeln_ptx!(ptx, "    // ldmatrix B + MMA (N-tile {tile_n})");
             writeln_ptx!(ptx, "    and.u32 %r58, %r41, 15;");
-            writeln_ptx!(
-                ptx,
-                "    mul.lo.u32 %r58, %r58, {bn_stride_tf32};"
-            );
-            writeln_ptx!(
-                ptx,
-                "    add.u32 %r58, %r58, {n_byte_off};"
-            );
+            writeln_ptx!(ptx, "    mul.lo.u32 %r58, %r58, {bn_stride_tf32};");
+            writeln_ptx!(ptx, "    add.u32 %r58, %r58, {n_byte_off};");
             writeln_ptx!(ptx, "    mov.u32 %r60, smem_B;");
             writeln_ptx!(ptx, "    add.u32 %r60, %r60, %r58;");
             writeln_ptx!(
@@ -603,7 +630,10 @@ pub(super) fn emit_tf32_gemm_smem(shape: GemmShape, sm: u8) -> Result<(String, u
             writeln_ptx!(
                 ptx,
                 "        {{%r{c0}, %r{c1}, %r{c2}, %r{c3}}}, {{%r20, %r21, %r22, %r23}}, {{%r{b0}, %r{b1}}}, {{%r{c0}, %r{c1}, %r{c2}, %r{c3}}};",
-                c0 = c_base, c1 = c_base + 1, c2 = c_base + 2, c3 = c_base + 3
+                c0 = c_base,
+                c1 = c_base + 1,
+                c2 = c_base + 2,
+                c3 = c_base + 3
             );
             writeln_ptx!(ptx);
         }
@@ -633,15 +663,9 @@ pub(super) fn emit_tf32_gemm_smem(shape: GemmShape, sm: u8) -> Result<(String, u
         writeln_ptx!(ptx, "    shl.b32 %r29, %r15, 1;");
         writeln_ptx!(ptx, "    add.u32 %r29, %r17, %r29;");
         if n_off > 0 {
-            writeln_ptx!(
-                ptx,
-                "    add.u32 %r29, %r29, {n_off};"
-            );
+            writeln_ptx!(ptx, "    add.u32 %r29, %r29, {n_off};");
         }
-        writeln_ptx!(
-            ptx,
-            "    mul.lo.u32 %r30, %r28, {n_val};"
-        );
+        writeln_ptx!(ptx, "    mul.lo.u32 %r30, %r28, {n_val};");
         writeln_ptx!(ptx, "    add.u32 %r30, %r30, %r29;");
         writeln_ptx!(ptx, "    shl.b32 %r30, %r30, 2;");
         writeln_ptx!(ptx, "    cvt.u64.u32 %rd6, %r30;");

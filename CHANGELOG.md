@@ -4,11 +4,31 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 157f
+**Current status**: Phase 10 — Sprint 14 / Wave 157g
 
 ---
 
 ## [Unreleased]
+
+### Wave 157g: BTSP Test Recovery + Doc Sync (2026-08-10)
+
+#### Fixed
+- 46 orphaned BTSP session tests re-wired into module tree (`tests_btsp.rs` and
+  `tests/tests_btsp_session.rs` were disconnected from `btsp.rs` after earlier
+  test extraction). Updated `tests_btsp_session.rs` to use `TransportEndpoint::Uds`
+  (API evolved from raw `&Path`). Fixed `crate::config::env_keys` → `crate::env_keys`
+  import path.
+
+#### Changed
+- Doc sync across 14 files: wave 157d/157f → 157g, test counts 3,810/3,871 → 3,963.
+  Updated README, STATUS, WHATS_NEXT, CHANGELOG, CONTEXT, EVOLUTION, ABSORPTION,
+  CONTRIBUTING, START_HERE, specs/CORALREEF_SPECIFICATION, sporeprint/validation-summary,
+  genomebin/README, genomebin/manifest.toml, docs/SHADER_COMPILE_WIRE_CONTRACT.
+- `genomebin/manifest.toml` test count 3,525 → 3,963 (was 438 behind live count).
+- STATUS.md Checks table test count 3,525 → 3,963.
+
+#### Tests
+- 3,967 total (3,963 passed, 4 ignored). +92 from Wave 157f (BTSP recovery).
 
 ### Wave 157f: GEMM Phase 2 IPC Wiring (2026-08-10)
 

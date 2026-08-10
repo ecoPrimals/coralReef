@@ -11,8 +11,8 @@ use bytes::Bytes;
 use coral_reef::{CompileError, CompileOptions, FmaPolicy, GpuTarget};
 
 use super::compile::{
-    binary_format_for, build_options, handle_compile_spirv, parse_fma_policy, parse_target,
-    wave_size_for, STATUS_SUCCESS,
+    STATUS_SUCCESS, binary_format_for, build_options, handle_compile_spirv, parse_fma_policy,
+    parse_target, wave_size_for,
 };
 use super::types::{
     BatchCompileJobResult, BatchCompileRequest, BatchCompileResponse, CompilationInfoResponse,

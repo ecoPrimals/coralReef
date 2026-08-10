@@ -2,7 +2,7 @@
 
 # Shader Compile Wire Contract
 
-**Last updated**: May 20, 2026 (Sprint 12 — `CompileTarget` generalization: `execution_model` in `dispatch_hints`, `CompileTarget::Cpu`/`Npu` stubs)
+**Last updated**: Aug 10, 2026 (Sprint 14 / Wave 157g — `tiling` parameter for `shader.compile.gemm`, `CompileTarget` generalization)
 **Audience**: Spring teams, barraCuda, neuralSpring, toadStool, primalSpring
 **Transport**: JSON-RPC 2.0 (newline-delimited over UDS/TCP) or tarpc (bincode)
 

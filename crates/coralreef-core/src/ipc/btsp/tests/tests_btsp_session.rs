@@ -3,14 +3,17 @@
 
 use super::*;
 
+fn uds_endpoint(path: &std::path::Path) -> TransportEndpoint {
+    TransportEndpoint::Uds {
+        path: path.to_string_lossy().into_owned(),
+    }
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn create_btsp_session_connect_failure() {
-    let result = create_btsp_session(
-        std::path::Path::new("/nonexistent/btsp.sock"),
-        "test-family",
-    )
-    .await;
+    let ep = uds_endpoint(std::path::Path::new("/nonexistent/btsp.sock"));
+    let result = create_btsp_session(&ep, "test-family").await;
     assert!(result.is_err());
     assert!(
         matches!(result.unwrap_err(), BtspSessionError::Io(_)),
@@ -46,7 +49,7 @@ async fn create_btsp_session_success_with_session_id() {
             .expect("write");
     });
 
-    let result = create_btsp_session(&sock, "test-fam").await;
+    let result = create_btsp_session(&uds_endpoint(&sock), "test-fam").await;
     assert!(result.is_ok(), "should succeed: {result:?}");
     let (sid, key) = result.unwrap();
     assert_eq!(sid, "sess-abc-123");
@@ -84,7 +87,7 @@ async fn create_btsp_session_success_with_handshake_key() {
             .expect("write");
     });
 
-    let result = create_btsp_session(&sock, "test-fam").await;
+    let result = create_btsp_session(&uds_endpoint(&sock), "test-fam").await;
     assert!(result.is_ok(), "should succeed: {result:?}");
     let (sid, key) = result.unwrap();
     assert_eq!(sid, "sess-xyz");
@@ -119,7 +122,7 @@ async fn create_btsp_session_error_response() {
             .expect("write");
     });
 
-    let result = create_btsp_session(&sock, "bad-family").await;
+    let result = create_btsp_session(&uds_endpoint(&sock), "bad-family").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
@@ -153,7 +156,7 @@ async fn create_btsp_session_missing_result() {
             .expect("write");
     });
 
-    let result = create_btsp_session(&sock, "fam").await;
+    let result = create_btsp_session(&uds_endpoint(&sock), "fam").await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("missing result"));
 
@@ -186,7 +189,7 @@ async fn create_btsp_session_missing_session_id() {
             .expect("write");
     });
 
-    let result = create_btsp_session(&sock, "fam").await;
+    let result = create_btsp_session(&uds_endpoint(&sock), "fam").await;
     assert!(result.is_err());
     assert!(
         result
@@ -213,7 +216,7 @@ async fn create_btsp_session_empty_response() {
         w.shutdown().await.expect("shutdown");
     });
 
-    let result = create_btsp_session(&sock, "fam").await;
+    let result = create_btsp_session(&uds_endpoint(&sock), "fam").await;
     assert!(result.is_err(), "empty response should produce an error");
 
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), server).await;
@@ -238,7 +241,7 @@ async fn create_btsp_session_garbage_json() {
         w.write_all(b"not json at all\n").await.expect("write");
     });
 
-    let result = create_btsp_session(&sock, "fam").await;
+    let result = create_btsp_session(&uds_endpoint(&sock), "fam").await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), BtspSessionError::Json(_)));
 
@@ -274,7 +277,7 @@ async fn create_btsp_session_invalid_handshake_key_length() {
             .expect("write");
     });
 
-    let result = create_btsp_session(&sock, "fam").await;
+    let result = create_btsp_session(&uds_endpoint(&sock), "fam").await;
     assert!(result.is_ok());
     let (sid, key) = result.unwrap();
     assert_eq!(sid, "sess-short");

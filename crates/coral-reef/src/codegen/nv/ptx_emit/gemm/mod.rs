@@ -39,9 +39,7 @@ pub fn emit_gemm_ptx(
     sm: u8,
 ) -> Result<String, CompileError> {
     match precision {
-        GemmPrecision::F16 | GemmPrecision::F16F32 => {
-            phase1::emit_f16_gemm(shape, precision, sm)
-        }
+        GemmPrecision::F16 | GemmPrecision::F16F32 => phase1::emit_f16_gemm(shape, precision, sm),
         GemmPrecision::Tf32 => phase1::emit_tf32_gemm(shape, sm),
     }
 }
@@ -152,22 +150,40 @@ fn emit_thread_identity(ptx: &mut String) {
 }
 
 fn emit_c_store_f32(ptx: &mut String, n_val: u32, n_row_bytes: u32) {
-    writeln_ptx!(ptx, "    // Store C fragment (f32 accumulator, row-major M*N)");
-    writeln_ptx!(ptx, "    shl.b32 %r28, %r14, 1;       // group_id * 2");
-    writeln_ptx!(ptx, "    add.u32 %r28, %r16, %r28;    // c_row0 = m_start + group_id * 2");
-    writeln_ptx!(ptx, "    shl.b32 %r29, %r15, 1;       // tid_in_group * 2");
-    writeln_ptx!(ptx, "    add.u32 %r29, %r17, %r29;    // c_col0 = n_start + tid_in_group * 2");
     writeln_ptx!(
         ptx,
-        "    mul.lo.u32 %r30, %r28, {n_val};    // c_row0 * N"
+        "    // Store C fragment (f32 accumulator, row-major M*N)"
     );
-    writeln_ptx!(ptx, "    add.u32 %r30, %r30, %r29;    // c_row0 * N + c_col0");
+    writeln_ptx!(ptx, "    shl.b32 %r28, %r14, 1;       // group_id * 2");
+    writeln_ptx!(
+        ptx,
+        "    add.u32 %r28, %r16, %r28;    // c_row0 = m_start + group_id * 2"
+    );
+    writeln_ptx!(ptx, "    shl.b32 %r29, %r15, 1;       // tid_in_group * 2");
+    writeln_ptx!(
+        ptx,
+        "    add.u32 %r29, %r17, %r29;    // c_col0 = n_start + tid_in_group * 2"
+    );
+    writeln_ptx!(ptx, "    mul.lo.u32 %r30, %r28, {n_val};    // c_row0 * N");
+    writeln_ptx!(
+        ptx,
+        "    add.u32 %r30, %r30, %r29;    // c_row0 * N + c_col0"
+    );
     writeln_ptx!(ptx, "    shl.b32 %r30, %r30, 2;       // * sizeof(f32)");
     writeln_ptx!(ptx, "    cvt.u64.u32 %rd6, %r30;");
-    writeln_ptx!(ptx, "    add.u64 %rd6, %rd2, %rd6;    // C addr for this thread's tile");
+    writeln_ptx!(
+        ptx,
+        "    add.u64 %rd6, %rd2, %rd6;    // C addr for this thread's tile"
+    );
     writeln_ptx!(ptx);
-    writeln_ptx!(ptx, "    st.global.f32 [%rd6], %r0;              // C[row0, col0]");
-    writeln_ptx!(ptx, "    st.global.f32 [%rd6+4], %r1;            // C[row0, col0+1]");
+    writeln_ptx!(
+        ptx,
+        "    st.global.f32 [%rd6], %r0;              // C[row0, col0]"
+    );
+    writeln_ptx!(
+        ptx,
+        "    st.global.f32 [%rd6+4], %r1;            // C[row0, col0+1]"
+    );
     writeln_ptx!(
         ptx,
         "    st.global.f32 [%rd6+{n_row_bytes}], %r2;   // C[row0+1, col0]"
@@ -278,7 +294,10 @@ mod tests {
         let (ptx, smem) = emit_gemm_ptx_smem(shape, GemmPrecision::F16F32, 80).unwrap();
         assert!(ptx.contains("smem_A"), "should declare smem_A");
         assert!(ptx.contains("smem_B"), "should declare smem_B");
-        assert!(ptx.contains(".shared .align 16"), "shared mem must be aligned");
+        assert!(
+            ptx.contains(".shared .align 16"),
+            "shared mem must be aligned"
+        );
         assert!(smem > 0, "shared mem bytes must be non-zero");
     }
 
@@ -334,11 +353,7 @@ mod tests {
 
     #[test]
     fn smem_tf32_basic() {
-        let shape = GemmShape {
-            m: 64,
-            n: 16,
-            k: 8,
-        };
+        let shape = GemmShape { m: 64, n: 16, k: 8 };
         let (ptx, smem) = emit_gemm_ptx_smem(shape, GemmPrecision::Tf32, 80).unwrap();
         assert!(ptx.contains("mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32"));
         assert!(ptx.contains("smem_A"));
@@ -361,11 +376,7 @@ mod tests {
 
     #[test]
     fn smem_shared_mem_size_tf32() {
-        let shape = GemmShape {
-            m: 64,
-            n: 16,
-            k: 8,
-        };
+        let shape = GemmShape { m: 64, n: 16, k: 8 };
         let (_, smem) = emit_gemm_ptx_smem(shape, GemmPrecision::Tf32, 80).unwrap();
         let expected_a = 64 * 8 * 4; // BM * BK * sizeof(f32) = 2048
         let expected_b = 8 * 16 * 4; // BK * BN * sizeof(f32) = 512

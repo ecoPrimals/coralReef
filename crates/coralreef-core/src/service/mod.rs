@@ -8,9 +8,7 @@ mod compile_batch;
 pub mod provenance;
 pub mod types;
 
-pub use compile::{
-    handle_compile, handle_compile_gemm, handle_compile_spirv, handle_compile_wgsl,
-};
+pub use compile::{handle_compile, handle_compile_gemm, handle_compile_spirv, handle_compile_wgsl};
 pub use compile_batch::{handle_compile_multi, handle_compile_wgsl_multi};
 pub use types::{
     BatchCompileRequest, BatchCompileResponse, CapabilityListResponse, CompileCapabilitiesResponse,

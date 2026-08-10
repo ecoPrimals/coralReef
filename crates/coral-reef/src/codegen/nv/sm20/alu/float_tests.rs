@@ -4,7 +4,7 @@ use bitview::BitViewable;
 use coral_reef_stubs::fxhash::FxHashMap;
 
 use crate::codegen::ir::{
-    Dst, FloatCmpOp, FRndMode, FSwzAddOp, FSwzShuffle, Label, OpFAdd, OpFFma, OpFMnMx, OpFMul,
+    Dst, FRndMode, FSwzAddOp, FSwzShuffle, FloatCmpOp, Label, OpFAdd, OpFFma, OpFMnMx, OpFMul,
     OpFSet, OpFSetP, OpFSwz, OpRro, OpTranscendental, PredSetOp, RegFile, RegRef, RroOp, Src,
     SrcMod, SrcSwizzle, TexDerivMode, TranscendentalOp,
 };

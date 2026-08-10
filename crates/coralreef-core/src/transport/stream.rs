@@ -226,8 +226,7 @@ mod tests {
         let err = connect_transport(&ep).await.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
         assert!(
-            err.to_string()
-                .contains("mesh routing capability provider"),
+            err.to_string().contains("mesh routing capability provider"),
             "unexpected error message: {err}"
         );
     }

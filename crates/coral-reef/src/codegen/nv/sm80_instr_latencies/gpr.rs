@@ -170,7 +170,6 @@ impl RegLatencySM80 {
             }
         }
     }
-
 }
 
 #[cfg(test)]

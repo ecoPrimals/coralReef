@@ -2,8 +2,8 @@
 
 # coralReef — Compiler Evolution
 
-**Last updated**: Aug 10, 2026 (Phase 10 — Sprint 14 / Wave 157d)
-**Phase**: 10 — Sprint 14 / Wave 157d: Deep debt evolution — PLop3 module split, SM80 hazard table split, BEARDOG_SOCKET deprecation, 31 new AMD ops encoder tests, GEMM Phase 2, G68 16/16 prod-clean, Node Atomic AAR. 3,814 tests (3,810 passed, 4 ignored), zero failures, zero unsafe, zero clippy warnings.
+**Last updated**: Aug 10, 2026 (Phase 10 — Sprint 14 / Wave 157g)
+**Phase**: 10 — Sprint 14 / Wave 157g: BTSP test recovery (+46 orphaned), doc sync, deep debt hygiene. Previous: GEMM Phase 2 IPC wiring (`tiling` param), 49 SM20 encoder tests, BEARDOG_SOCKET guard, PLop3 split, SM80 hazard split. 3,967 tests (3,963 passed, 4 ignored), zero failures, zero unsafe, zero clippy warnings.
 
 ---
 
@@ -12,7 +12,7 @@
 coralReef is a **pure compiler primal** — WGSL, SPIR-V, and GLSL to native GPU
 binaries for NVIDIA (SM35–SM120, including Blackwell PTX) and AMD (GCN5/RDNA2–RDNA4).
 
-Pure Rust. Zero unsafe. 3,810 tests. Zero clippy warnings.
+Pure Rust. Zero unsafe. 3,963 tests. Zero clippy warnings.
 
 ### What coralReef does
 - Multi-frontend compilation: WGSL, SPIR-V, GLSL → vendor-specific SASS/PTX
@@ -537,7 +537,7 @@ provides pure Rust TLS — eliminates ring/openssl transitive C.
 *The Rust compiler is our DNA synthase. Every evolution pass produces
 strictly better code. No vendor lock-in. No C heritage. Pure Rust.
 
-Sprint 14 / Wave 156p: 3686 tests (3680 passing, 6 ignored). Zero unsafe. Zero clippy warnings.
+Sprint 14 / Wave 157g: 3,963 tests (3,963 passing, 4 ignored). Zero unsafe. Zero clippy warnings.
 Zero doc warnings. Zero files over 1000 LOC. Pure compiler primal.
 
 Zero-copy transport via bytes::Bytes. OrExit\<T\> for zero-panic binary validation.

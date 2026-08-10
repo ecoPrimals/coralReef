@@ -285,8 +285,15 @@ fn op_ureg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> UregLatencySM100
         | Op::HSetP2(_) => coupled,
         Op::DMul(_) | Op::DFma(_) | Op::DAdd(_) | Op::DSetP(_) => decoupled,
 
-        Op::IMul(_) | Op::I2I(_) | Op::FSwzAdd(_) | Op::FSwz(_) | Op::Bfe(_) | Op::Shl(_)
-        | Op::Shr(_) | Op::Match(_) | Op::DMnMx(_) => coupled,
+        Op::IMul(_)
+        | Op::I2I(_)
+        | Op::FSwzAdd(_)
+        | Op::FSwz(_)
+        | Op::Bfe(_)
+        | Op::Shl(_)
+        | Op::Shr(_)
+        | Op::Match(_)
+        | Op::DMnMx(_) => coupled,
 
         Op::Ld(_)
         | Op::St(_)
@@ -312,8 +319,16 @@ fn op_ureg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> UregLatencySM100
 
         Op::Hmma(_) | Op::Imma(_) => coupled,
 
-        Op::Bar(_) | Op::CS2R(_) | Op::Nop(_) | Op::Kill(_) | Op::Exit(_) | Op::BSSy(_)
-        | Op::BSync(_) | Op::Bra(_) | Op::BMov(_) | Op::TexDepBar(_) => coupled,
+        Op::Bar(_)
+        | Op::CS2R(_)
+        | Op::Nop(_)
+        | Op::Kill(_)
+        | Op::Exit(_)
+        | Op::BSSy(_)
+        | Op::BSync(_)
+        | Op::Bra(_)
+        | Op::BMov(_)
+        | Op::TexDepBar(_) => coupled,
 
         _ => {
             crate::codegen::ice!("Illegal instruction in ureg category {op}");

@@ -221,81 +221,75 @@ impl RegLatencySM80 {
                     crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
             },
-            IMMA_88 | MMA_1x_collect => {
-                match writer {
-                    CoupledAlu => 7,
-                    CoupledDisp64 => 7,
-                    CoupledFMA => 7,
-                    IMADWideWriteDL => 7,
-                    IMADWideWriteDH => 7,
-                    FP16 => 7,
-                    FP16_Alu => 7,
-                    FP16_F32 => 7,
-                    HFMA2_MMA => 11,
-                    RedirectedFP64 => 11,
-                    Clmad => 13,
-                    IMMA_88 => 14,
-                    MMA_1x_collect => 16,
-                    MMA_2x_collect => 24,
-                    DMMA => 26,
-                    Cbu => 1,
-                    Decoupled => 1,
-                    DecoupledAgu => 1,
-                    _ => {
-                        crate::codegen::ice!("Illegal writer in sm80 raw");
-                    }
+            IMMA_88 | MMA_1x_collect => match writer {
+                CoupledAlu => 7,
+                CoupledDisp64 => 7,
+                CoupledFMA => 7,
+                IMADWideWriteDL => 7,
+                IMADWideWriteDH => 7,
+                FP16 => 7,
+                FP16_Alu => 7,
+                FP16_F32 => 7,
+                HFMA2_MMA => 11,
+                RedirectedFP64 => 11,
+                Clmad => 13,
+                IMMA_88 => 14,
+                MMA_1x_collect => 16,
+                MMA_2x_collect => 24,
+                DMMA => 26,
+                Cbu => 1,
+                Decoupled => 1,
+                DecoupledAgu => 1,
+                _ => {
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
-            }
-            MMA_2x_collect => {
-                match writer {
-                    CoupledAlu => 7,
-                    CoupledDisp64 => 7,
-                    CoupledFMA => 7,
-                    IMADWideWriteDL => 7,
-                    IMADWideWriteDH => 7,
-                    FP16 => 7,
-                    FP16_Alu => 7,
-                    FP16_F32 => 7,
-                    HFMA2_MMA => 11,
-                    RedirectedFP64 => 11,
-                    Clmad => 13,
-                    IMMA_88 => 14,
-                    MMA_1x_collect => 16,
-                    MMA_2x_collect => 24,
-                    DMMA => 26,
-                    Cbu => 1,
-                    Decoupled => 1,
-                    DecoupledAgu => 1,
-                    _ => {
-                        crate::codegen::ice!("Illegal writer in sm80 raw");
-                    }
+            },
+            MMA_2x_collect => match writer {
+                CoupledAlu => 7,
+                CoupledDisp64 => 7,
+                CoupledFMA => 7,
+                IMADWideWriteDL => 7,
+                IMADWideWriteDH => 7,
+                FP16 => 7,
+                FP16_Alu => 7,
+                FP16_F32 => 7,
+                HFMA2_MMA => 11,
+                RedirectedFP64 => 11,
+                Clmad => 13,
+                IMMA_88 => 14,
+                MMA_1x_collect => 16,
+                MMA_2x_collect => 24,
+                DMMA => 26,
+                Cbu => 1,
+                Decoupled => 1,
+                DecoupledAgu => 1,
+                _ => {
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
-            }
-            DMMA => {
-                match writer {
-                    CoupledAlu => 7,
-                    CoupledDisp64 => 7,
-                    CoupledFMA => 7,
-                    IMADWideWriteDL => 7,
-                    IMADWideWriteDH => 7,
-                    FP16 => 7,
-                    FP16_Alu => 7,
-                    FP16_F32 => 7,
-                    HFMA2_MMA => 11,
-                    RedirectedFP64 => 11,
-                    Clmad => 13,
-                    IMMA_88 => 14,
-                    MMA_1x_collect => 16,
-                    MMA_2x_collect => 24,
-                    DMMA => 26,
-                    Cbu => 1,
-                    Decoupled => 1,
-                    DecoupledAgu => 1,
-                    _ => {
-                        crate::codegen::ice!("Illegal writer in sm80 raw");
-                    }
+            },
+            DMMA => match writer {
+                CoupledAlu => 7,
+                CoupledDisp64 => 7,
+                CoupledFMA => 7,
+                IMADWideWriteDL => 7,
+                IMADWideWriteDH => 7,
+                FP16 => 7,
+                FP16_Alu => 7,
+                FP16_F32 => 7,
+                HFMA2_MMA => 11,
+                RedirectedFP64 => 11,
+                Clmad => 13,
+                IMMA_88 => 14,
+                MMA_1x_collect => 16,
+                MMA_2x_collect => 24,
+                DMMA => 26,
+                Cbu => 1,
+                Decoupled => 1,
+                DecoupledAgu => 1,
+                _ => {
+                    crate::codegen::ice!("Illegal writer in sm80 raw");
                 }
-            }
+            },
             Cbu | Decoupled => match writer {
                 CoupledAlu => 4,
                 CoupledDisp64 => 4,

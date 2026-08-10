@@ -6,8 +6,8 @@ use bitview::BitViewable;
 use coral_reef_stubs::fxhash::FxHashMap;
 
 use crate::codegen::ir::{
-    Dst, FRndMode, FSwzAddOp, FloatCmpOp, Label, OpFAdd, OpFFma, OpFMnMx, OpFMul, OpFSet,
-    OpFSetP, OpFSwzAdd, PredSetOp, RegFile, RegRef, Src, SrcMod, SrcSwizzle, TexDerivMode,
+    Dst, FRndMode, FSwzAddOp, FloatCmpOp, Label, OpFAdd, OpFFma, OpFMnMx, OpFMul, OpFSet, OpFSetP,
+    OpFSwzAdd, PredSetOp, RegFile, RegRef, Src, SrcMod, SrcSwizzle, TexDerivMode,
 };
 
 use super::super::encoder::{SM70Encoder, SM70Op};
