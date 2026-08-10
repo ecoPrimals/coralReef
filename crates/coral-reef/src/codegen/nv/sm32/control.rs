@@ -137,6 +137,8 @@ impl SM32Op for OpSync {
         // Kepler doesn't really have a "sync" instruction, instead
         // every instruction can become a sync if the bit 22 is enabled.
         // EVOLUTION(opt): Add .s modifier to next instruction instead of nop.s.
+        // Requires IR-level `.sync` flag, label recomputation, and scheduler
+        // awareness — not a simple peephole. Deferred to IR extension wave.
         e.set_bit(22, true); // .s
     }
 }

@@ -4,6 +4,7 @@
 //! SM20 instruction encoding and legalization.
 
 mod encoder;
+mod encoder_fields;
 pub use self::encoder::*;
 
 mod alu;

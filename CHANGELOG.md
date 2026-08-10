@@ -4,11 +4,29 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 157h
+**Current status**: Phase 10 — Sprint 14 / Wave 157i
 
 ---
 
 ## [Unreleased]
+
+### Wave 157i: Proactive File Split + EVOLUTION Assessment + Hygiene (2026-08-10)
+
+#### Changed
+- **Proactive split**: `sm20/encoder.rs` (795 LOC → 343+464) into `encoder.rs`
+  (types, struct defs, dispatch) + `encoder_fields.rs` (bit-field packing, form
+  encoding, legalize helpers). Both well under 1000 LOC limit.
+- Bare `unreachable!()` in `builder/mod.rs` test code given descriptive messages.
+- SM32 `.s` peephole EVOLUTION marker clarified: requires IR-level `.sync` flag,
+  label recomputation, and scheduler awareness (deferred to IR extension wave).
+
+#### Verified
+- PTX emitter `.clone()` hot paths assessed: all are borrow-checker workarounds
+  (cached per-expression, single-shot per emit), not performance bottlenecks.
+  Structural `PtxEmitter` split deferred.
+- `.unwrap()` re-audit: zero in production code (all 178 are in `#[cfg(test)]`).
+- `cargo clippy --all-features -- -D warnings`: zero warnings.
+- `cargo test --workspace`: 3,963 passed, 4 ignored, 0 failures.
 
 ### Wave 157h: Deep Debt Audit + Rust 2024 Idiom Evolution (2026-08-10)
 

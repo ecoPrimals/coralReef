@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 10, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 157h (Deep debt audit + Rust 2024 idiom evolution. `"health"` dispatch wired. `#[allow]`→`#[expect]` batch. 19/19 RPC. G68 16/16. 3,963 tests. Zero unsafe, zero clippy warnings.)
+**Version**: 0.2.0 — Sprint 14 / Wave 157i (Proactive file split + EVOLUTION assessment. sm20/encoder.rs split (795→343+464). SM32 `.s` peephole deferred (needs IR extension). 19/19 RPC. 3,963 tests. Zero unsafe, zero clippy warnings.)
 
 ---
 

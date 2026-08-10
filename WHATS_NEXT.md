@@ -2,9 +2,9 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 157h.
+**Current position**: Phase 10 — Sprint 14 / Wave 157i.
 
-**Last completed**: Wave 157h — Deep debt audit + Rust 2024 idiom evolution: `"health"` method wired in JSON-RPC dispatch (was in gate allowlist but had no handler — 19 IPC methods now live). `#[allow]` → `#[expect]` batch migration (7 safe conversions in `coral-reef` + `primal-rpc-client`; reason strings improved on remaining `#[allow]`s). Full codebase audit: zero `.unwrap()` in production, zero hardcoded primal names, zero >800 LOC hand-written files, coverage gaps verified — SM75/SM80 GPR hazards, spiller, and generate_order already have comprehensive tests.
+**Last completed**: Wave 157i — Proactive `sm20/encoder.rs` split (795→343+464 LOC) into `encoder.rs` (types/dispatch) + `encoder_fields.rs` (bit-field packing). EVOLUTION markers re-assessed: SM32 `.s` peephole requires IR extension (deferred), PTX emitter clones are cached/amortized borrow-checker workarounds (deferred). Bare `unreachable!()` in `builder/mod.rs` fixed with messages. Full `.unwrap()` re-audit confirmed zero in production.
 
 **Tests**: 3,967 total (3,963 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 

@@ -413,7 +413,7 @@ mod tests {
         assert_eq!(instrs.len(), 2, "fcos on SM50: rro + transcendental");
         assert!(matches!(instrs[0].op, Op::Rro(_)));
         let Op::Rro(rro) = &instrs[0].op else {
-            unreachable!()
+            unreachable!("matched Op::Rro above")
         };
         assert!(matches!(rro.op, RroOp::SinCos));
         assert!(matches!(instrs[1].op, Op::Transcendental(_)));
@@ -445,7 +445,7 @@ mod tests {
         assert_eq!(instrs.len(), 2, "fexp2 on SM50: rro + transcendental");
         assert!(matches!(instrs[0].op, Op::Rro(_)));
         let Op::Rro(rro) = &instrs[0].op else {
-            unreachable!()
+            unreachable!("matched Op::Rro above")
         };
         assert!(matches!(rro.op, RroOp::Exp2));
     }
