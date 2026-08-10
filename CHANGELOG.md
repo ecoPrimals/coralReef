@@ -4,11 +4,26 @@
 
 All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary) are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Current status**: Phase 10 — Sprint 14 / Wave 157e
+**Current status**: Phase 10 — Sprint 14 / Wave 157f
 
 ---
 
 ## [Unreleased]
+
+### Wave 157f: GEMM Phase 2 IPC Wiring (2026-08-10)
+
+#### Added
+- `tiling` parameter on `shader.compile.gemm` IPC: `"auto"` (default), `"global"`
+  (Phase 1, 32 threads), or `"smem"` (Phase 2, 128 threads with `ldmatrix.sync` +
+  `bar.sync`). Auto-selects Phase 2 when M%64==0 and N%16==0.
+- 6 new GEMM tiling tests: smem success, auto-select smem, auto fallback to global,
+  explicit global, invalid tiling rejection, TF32 smem.
+
+#### Changed
+- Wire contract doc (`SHADER_COMPILE_WIRE_CONTRACT.md`) updated with tiling strategies
+  table, M/N validation enforcement, and Phase 2 smem details.
+- barraCuda P1 unblocked: `dispatch_gemm()` can now call `shader.compile.gemm` with
+  `"tiling": "smem"` to receive high-performance shared-memory HMMA kernels.
 
 ### Wave 157e: Process Leak Fix + Gossip Injection (2026-08-10)
 

@@ -653,6 +653,21 @@ pub struct GemmCompileRequest {
     /// Target GPU architecture (e.g., `sm_80`, `sm_120`).
     #[serde(default = "default_arch")]
     pub arch: String,
+    /// Tiling strategy: "auto" (default), "global" (Phase 1), or "smem" (Phase 2).
+    ///
+    /// - `"auto"`: uses shared-memory tiling when dimensions are aligned to block
+    ///   tile boundaries (M%64==0, N%16==0), otherwise falls back to global memory.
+    /// - `"global"`: single-warp Phase 1 kernel (32 threads, no shared memory).
+    /// - `"smem"`: multi-warp Phase 2 kernel (128 threads, ldmatrix + bar.sync).
+    ///   Requires M%64==0 and N%16==0.
+    #[serde(default = "default_gemm_tiling")]
+    pub tiling: String,
+}
+
+/// Default GEMM tiling strategy for serde deserialization.
+#[must_use]
+fn default_gemm_tiling() -> String {
+    "auto".into()
 }
 
 /// Default GEMM precision for serde deserialization.

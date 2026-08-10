@@ -2,11 +2,11 @@
 
 # coralReef — What's Next
 
-**Current position**: Phase 10 — Sprint 14 / Wave 157e.
+**Current position**: Phase 10 — Sprint 14 / Wave 157f.
 
-**Last completed**: Wave 157e — Process leak fix: RAII `ChildGuard` prevents test subprocess orphans (~36/hr on southGate). Gossip injection points documented. Wave 157d — Deep debt evolution: PLop3 split, SM80 hazard split, BEARDOG deprecation, 31 new AMD ops encoder tests. Previous: GEMM Phase 2, coverage push, gemm.rs split, doc sync (15 files).
+**Last completed**: Wave 157f — GEMM Phase 2 IPC wiring: `shader.compile.gemm` now accepts `tiling` parameter (`auto`/`global`/`smem`), routing to Phase 2 shared-memory kernel with `ldmatrix.sync` + `bar.sync` when dimensions are block-aligned. barraCuda P1 unblocked. Wire contract doc updated. 6 new GEMM tiling tests. Previous: Process leak fix, gossip injection points, PLop3 split, SM80 hazard split.
 
-**Tests**: 3,814 total (3,810 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,822 total (3,818 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 10, 2026.
 
@@ -77,9 +77,11 @@ These are announced to `swarmVine` via `gossip.spread` when the gossip mesh is e
 
 ### HMMA Codegen Status
 
-`compile_gemm()` API is live — generates PTX `mma.sync.aligned` kernels for SM80+ with
-f16, f16→f32 mixed-precision, and TF32 operand modes. This is the HMMA path available to
-the compute trio (tensor-dispatch GEMM router + fleet-management sovereign dispatch).
+`shader.compile.gemm` IPC is live — generates PTX `mma.sync.aligned` kernels for SM80+
+with f16, f16→f32 mixed-precision, and TF32 operand modes. Supports `tiling` parameter:
+`"auto"` (default, selects smem when aligned), `"global"` (Phase 1, 32 threads), or
+`"smem"` (Phase 2, 128 threads, `ldmatrix.sync` + `bar.sync`). barraCuda's `dispatch_gemm()`
+can now request high-performance shared-memory kernels via `"tiling": "smem"`.
 
 **Silicon fold response AAR (Wave 157d)**:
 - **RT cores**: Accessible via wgpu 28 BLAS/TLAS — no coralReef work needed. Our inline
@@ -626,6 +628,7 @@ the full Spring absorption map.
 - [ ] SovereignCompiler → coralReef routing — **barraCuda-side**: replace PTXAS/NAK calls with `shader.compile.wgsl` IPC dispatch. coralReef IPC is live.
 - [x] ~~GEMM tiling Phase 1~~ — **DONE** (Wave 157d): `emit_gemm_ptx` now generates fully tiled kernels with `%tid`/`%ctaid` thread mapping, per-thread MMA fragment loads, strided A/B addressing, row-major C store. 1 warp per CTA, grid covers full M×N.
 - [x] ~~GEMM tiling Phase 2~~ — **DONE** (Wave 157d): `emit_gemm_ptx_smem` generates shared-memory tiled kernels with `ldmatrix.sync.aligned`, `bar.sync 0` pipeline, 4 warps (128 threads) per CTA, BM=64 BN=16 block tile. `compile_gemm_smem()` public API reports shared memory bytes and barrier count. `gemm.rs` split into directory module (`mod.rs` 268, `phase1.rs` 386, `phase2.rs` 669). 10 Phase 2 tests.
+- [x] ~~GEMM Phase 2 IPC wiring~~ — **DONE** (Wave 157f): `shader.compile.gemm` now accepts `tiling` field (`auto`/`global`/`smem`), auto-selecting Phase 2 when M%64==0 and N%16==0. Wire contract doc updated. barraCuda `dispatch_gemm()` can now request smem kernels. 6 new tiling tests.
 
 ### P1 — Debt reduction (Iteration 6)
 - [x] Error types → `Cow<'static, str>` (zero-allocation static error paths)

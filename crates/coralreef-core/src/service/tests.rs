@@ -556,6 +556,7 @@ fn compile_gemm_sm80_succeeds() {
         k: 32,
         precision: "f16f32".into(),
         arch: "sm_80".into(),
+        tiling: "auto".into(),
     };
     let result = super::compile::handle_compile_gemm(&req);
     assert!(result.is_ok(), "GEMM compile should succeed: {result:?}");
@@ -570,6 +571,131 @@ fn compile_gemm_sm80_succeeds() {
 }
 
 #[test]
+fn compile_gemm_smem_tiling_succeeds() {
+    let req = types::GemmCompileRequest {
+        m: 128,
+        n: 128,
+        k: 32,
+        precision: "f16f32".into(),
+        arch: "sm_80".into(),
+        tiling: "smem".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_ok(), "GEMM smem compile should succeed: {result:?}");
+    let resp = result.unwrap();
+    assert!(resp.size > 0);
+    let info = resp.info.expect("smem GEMM should have compilation info");
+    assert!(
+        info.shared_mem_bytes > 0,
+        "smem GEMM should report shared memory usage"
+    );
+    assert_eq!(
+        info.workgroup_size,
+        [128, 1, 1],
+        "smem GEMM uses 128 threads (4 warps)"
+    );
+    assert!(
+        info.barrier_count > 0,
+        "smem GEMM should report barrier usage"
+    );
+    let ptx = String::from_utf8_lossy(&resp.binary);
+    assert!(ptx.contains("ldmatrix.sync"), "smem GEMM should use ldmatrix");
+    assert!(ptx.contains("bar.sync"), "smem GEMM should use bar.sync");
+    assert!(ptx.contains("mma.sync"), "smem GEMM should use mma.sync");
+}
+
+#[test]
+fn compile_gemm_auto_selects_smem_for_aligned() {
+    let req = types::GemmCompileRequest {
+        m: 128,
+        n: 128,
+        k: 32,
+        precision: "f16f32".into(),
+        arch: "sm_80".into(),
+        tiling: "auto".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_ok());
+    let resp = result.unwrap();
+    let info = resp.info.expect("auto-selected GEMM should have info");
+    assert!(
+        info.shared_mem_bytes > 0,
+        "auto should select smem for 128x128 (aligned to 64x16)"
+    );
+}
+
+#[test]
+fn compile_gemm_auto_falls_back_to_global_for_unaligned() {
+    let req = types::GemmCompileRequest {
+        m: 48,
+        n: 24,
+        k: 16,
+        precision: "f16f32".into(),
+        arch: "sm_80".into(),
+        tiling: "auto".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_ok());
+    let resp = result.unwrap();
+    let info = resp.info.expect("global fallback should have info");
+    assert_eq!(
+        info.shared_mem_bytes, 0,
+        "auto should fall back to global for 48x24 (not aligned to 64x16)"
+    );
+}
+
+#[test]
+fn compile_gemm_global_tiling_explicit() {
+    let req = types::GemmCompileRequest {
+        m: 128,
+        n: 128,
+        k: 32,
+        precision: "f16f32".into(),
+        arch: "sm_80".into(),
+        tiling: "global".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_ok());
+    let resp = result.unwrap();
+    let info = resp.info.expect("global GEMM should have info");
+    assert_eq!(info.shared_mem_bytes, 0, "global tiling has no shared memory");
+    assert_eq!(info.workgroup_size, [32, 1, 1], "global uses 32 threads");
+}
+
+#[test]
+fn compile_gemm_invalid_tiling() {
+    let req = types::GemmCompileRequest {
+        m: 128,
+        n: 128,
+        k: 32,
+        precision: "f16f32".into(),
+        arch: "sm_80".into(),
+        tiling: "magic".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("unknown GEMM tiling"));
+}
+
+#[test]
+fn compile_gemm_smem_tf32_succeeds() {
+    let req = types::GemmCompileRequest {
+        m: 128,
+        n: 128,
+        k: 32,
+        precision: "tf32".into(),
+        arch: "sm_80".into(),
+        tiling: "smem".into(),
+    };
+    let result = super::compile::handle_compile_gemm(&req);
+    assert!(result.is_ok(), "TF32 smem GEMM should succeed: {result:?}");
+    let resp = result.unwrap();
+    let ptx = String::from_utf8_lossy(&resp.binary);
+    assert!(ptx.contains("mma.sync"), "TF32 smem should use mma.sync");
+}
+
+#[test]
 fn compile_gemm_invalid_precision() {
     let req = types::GemmCompileRequest {
         m: 64,
@@ -577,6 +703,7 @@ fn compile_gemm_invalid_precision() {
         k: 16,
         precision: "int4".into(),
         arch: "sm_80".into(),
+        tiling: "auto".into(),
     };
     let result = super::compile::handle_compile_gemm(&req);
     assert!(result.is_err());
@@ -592,6 +719,7 @@ fn compile_gemm_unsupported_arch() {
         k: 16,
         precision: "f16".into(),
         arch: "sm_70".into(),
+        tiling: "auto".into(),
     };
     let result = super::compile::handle_compile_gemm(&req);
     assert!(result.is_err(), "GEMM on sm_70 should fail (needs SM80+)");

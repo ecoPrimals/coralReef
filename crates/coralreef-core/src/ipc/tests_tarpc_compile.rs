@@ -371,6 +371,7 @@ async fn test_tarpc_gemm_success() {
         k: 32,
         precision: "f16f32".into(),
         arch: "sm_80".into(),
+        tiling: "auto".into(),
     };
     let result = client
         .gemm(tarpc::context::current(), request)
@@ -403,6 +404,7 @@ async fn test_tarpc_gemm_invalid_precision() {
         k: 16,
         precision: "int4".into(),
         arch: "sm_80".into(),
+        tiling: "auto".into(),
     };
     let result = client
         .gemm(tarpc::context::current(), request)

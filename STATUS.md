@@ -3,7 +3,7 @@
 # coralReef — Status
 
 **Last updated**: Aug 10, 2026  
-**Version**: 0.2.0 — Sprint 14 / Wave 157e (Process leak fix: RAII `ChildGuard` prevents test subprocess orphans. Gossip injection points documented. Previous: deep debt evolution, PLop3 split, SM80 hazard split, BEARDOG deprecation, 31 new ops encoder tests. 18/18 RPC. G68 16/16. 3,810 tests. Zero unsafe, zero clippy warnings.)
+**Version**: 0.2.0 — Sprint 14 / Wave 157f (GEMM Phase 2 IPC wiring: `shader.compile.gemm` accepts `tiling` param, auto/global/smem dispatch. barraCuda P1 unblocked. 18/18 RPC. G68 16/16. 3,822 tests. Zero unsafe, zero clippy warnings.)
 
 ---
 

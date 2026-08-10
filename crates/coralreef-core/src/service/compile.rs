@@ -341,10 +341,18 @@ pub fn handle_compile_wgsl(req: &CompileWgslRequest) -> Result<CompileResponse, 
 
 /// `shader.compile.gemm` — compile a tensor-core GEMM kernel.
 ///
+/// Supports two tiling strategies via the `tiling` request field:
+/// - `"global"` (Phase 1): single-warp, global-memory loads, 32 threads/CTA.
+/// - `"smem"` (Phase 2): shared-memory tiling with `ldmatrix.sync` +
+///   `bar.sync`, 4 warps (128 threads/CTA), BM=64×BN=16 block tile.
+/// - `"auto"` (default): selects smem when dimensions are block-aligned
+///   (M%64==0, N%16==0), otherwise falls back to global.
+///
 /// # Errors
 ///
-/// Returns [`CompileError`] if the target is not NVIDIA SM80+, or if
-/// dimensions are not aligned to tile boundaries.
+/// Returns [`CompileError`] if the target is not NVIDIA SM80+, if
+/// dimensions are not aligned to tile boundaries, or if the tiling
+/// strategy is unknown.
 pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, CompileError> {
     let target = parse_target(&req.arch)?;
     let precision = match req.precision.to_ascii_lowercase().as_str() {
@@ -363,8 +371,26 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
         k: req.k,
     };
 
+    let use_smem = match req.tiling.to_ascii_lowercase().as_str() {
+        "smem" | "shared" => true,
+        "global" => false,
+        "auto" | "" => shape.m % 64 == 0 && shape.n % 16 == 0,
+        other => {
+            return Err(CompileError::InvalidInput(
+                format!(
+                    "unknown GEMM tiling: {other:?} (expected auto, global, smem)"
+                )
+                .into(),
+            ));
+        }
+    };
+
     let t0 = Instant::now();
-    let compiled = coral_reef::gemm::compile_gemm(shape, precision, target)?;
+    let compiled = if use_smem {
+        coral_reef::gemm::compile_gemm_smem(shape, precision, target)?
+    } else {
+        coral_reef::gemm::compile_gemm(shape, precision, target)?
+    };
     let compile_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let size = compiled.binary.len();
 

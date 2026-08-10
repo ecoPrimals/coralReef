@@ -412,6 +412,18 @@ Compiles a tensor-core GEMM kernel using `mma.sync.aligned` HMMA instructions.
 | `k` | `u32` | *(required)* | Inner/reduction dimension (K dimension) |
 | `precision` | `string` | `"f16f32"` | `"f16"`, `"f16f32"`, or `"tf32"` |
 | `arch` | `string` | `"sm_80"` | Target GPU architecture (`sm_80`+) |
+| `tiling` | `string` | `"auto"` | `"auto"`, `"global"`, or `"smem"` |
+
+### Tiling Strategies
+
+| Value | Phase | Threads/CTA | Shared Memory | Requirements |
+|-------|-------|-------------|---------------|--------------|
+| `"global"` | Phase 1 | 32 (1 warp) | None | M%16==0, N%8==0 |
+| `"smem"` | Phase 2 | 128 (4 warps) | ~2.5 KB | M%64==0, N%16==0 |
+| `"auto"` | Auto-select | Depends | Depends | Selects smem when M%64==0 and N%16==0, else global |
+
+Phase 2 (`smem`) uses `ldmatrix.sync.aligned` for warp-cooperative fragment loads
+and `bar.sync` for shared-memory pipeline synchronization. Block tile: BM=64, BN=16.
 
 ### Tensor Layout Constraints
 
@@ -419,13 +431,12 @@ Compiles a tensor-core GEMM kernel using `mma.sync.aligned` HMMA instructions.
 |------------|-------------|
 | **Matrix A** | Row-major (M x K) |
 | **Matrix B** | Column-major (K x N) |
-| **Matrix C** | Row-major (M x N) |
+| **Matrix C** | Row-major (M x N), output-only (accumulators zeroed) |
 | **K alignment** | Multiple of 16 (F16/F16F32) or 8 (TF32) |
 | **Pointer ABI** | `.param .u64` — three bare pointers (A, B, C) |
-| **Shared memory** | None (register-only tiling; `shared_mem_bytes: 0`) |
 | **Minimum SM** | SM80 (Ampere). Rejects SM70 and below |
 | **Tile shape** | 16x8x16 (F16/F16F32) or 16x8x8 (TF32) — warp-level MMA |
-| **M/N** | Not validated by coralReef; caller ensures global tiling |
+| **M/N validation** | Enforced: M%16, N%8 minimum; smem requires M%64, N%16 |
 
 ### Precision Modes
 
@@ -446,7 +457,8 @@ Compiles a tensor-core GEMM kernel using `mma.sync.aligned` HMMA instructions.
     "n": 128,
     "k": 64,
     "precision": "f16f32",
-    "arch": "sm_80"
+    "arch": "sm_80",
+    "tiling": "smem"
   },
   "id": 20
 }
