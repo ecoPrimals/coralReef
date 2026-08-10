@@ -141,7 +141,7 @@ AMD: Native `v_fma_f64` / `v_sqrt_f64` / `v_rcp_f64` emission.
 | Check | Status |
 |-------|--------|
 | `cargo check --workspace` | PASS |
-| `cargo test --all-features` | PASS (3,506 passed, 0 failed, 6 ignored) |
+| `cargo test --all-features` | PASS (3,810 passed, 0 failed, 4 ignored) |
 | `cargo llvm-cov` | Target 90% line coverage |
 | `cargo clippy --all-targets --all-features -- -W clippy::pedantic -W clippy::nursery -D warnings` | PASS (0 warnings) |
 | `cargo fmt --check` | PASS |
@@ -158,8 +158,8 @@ toadStool handles dispatch.
 
 Hardware dispatch is owned by the `compute.dispatch` provider (discovered at runtime).
 coralReef compiles shaders and returns native binaries via IPC — it never
-touches hardware directly. See `infra/wateringHole/handoffs/` for the
-diesel engine migration handoff.
+touches hardware directly. See `ecoPrimals/infra/wateringHole/handoffs/` for
+ecosystem handoffs and AARs.
 
 ## vs CUDA / Kokkos
 
@@ -186,7 +186,7 @@ advantage. See `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` (historical).
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 156g: compile alloc elimination, error reclassification, SM20 test hardening. 3,525 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 157d: deep debt evolution, PLop3 split, SM80 hazard split, BEARDOG deprecation, 31 new ops encoder tests. 3,810 tests, zero debt |
 
 ---
 

@@ -39,8 +39,8 @@ runtime — no hardcoded primal names, no shared code imports.
 
 ## Project status (Sprint 14)
 
-- **Tests**: 3,542 workspace tests (3,536 passed, 6 ignored). Zero clippy warnings. Zero unsafe.
-- **Sprint 14 (current)**: Wave 156j — C2 dual-socket convention (`.tarpc.sock`), unused import cleanup. Wave 156i — SPIR-V module extraction (lib.rs 820→717 LOC), 15 control flow translation tests. Wave 156g — compile-path alloc elimination (`CompileResponse.status` → `Cow`, `GpuDeviceDescriptor.source` → `Cow`), 9 CFG error reclassifications (`NotImplemented` → `Internal`), SM20 f64 test hardening. Wave 156e — capability registry drift fix, fossil cleanup, SM30 latency tests (+13). Wave 156b — deep debt deduplication (ShaderInfo::compute() -220 LOC, adapter alloc fix, duplicate test removal -551 LOC). Wave 156a — test extraction (btsp.rs, types.rs), coverage tests (env_keys.rs, tolerances.rs). Wave 155j — NUCLEUS ACHIEVED on strandGate. Wave 155i — Windows cross-compilation, PTX macros, clone reduction. Wave 152 — deduplication (`require_math_arg()`, test helper consolidation). Wave 151b — BTSP client. Wave 146 — transport abstraction.
+- **Tests**: 3,814 workspace tests (3,810 passed, 4 ignored). Zero clippy warnings. Zero unsafe.
+- **Sprint 14 (current)**: Wave 157d — Deep debt evolution: PLop3 module split, SM80 hazard table split, BEARDOG_SOCKET deprecation, 31 new AMD ops encoder tests, GEMM Phase 2, coverage push (sm70 float/float64), gemm.rs directory module split. Previous waves: 157a — G68 16/16, self-audit 18/18 RPC, Node Atomic AAR. 156s — G66 transport abstraction. 156j — C2 dual-socket. 156g — alloc elimination. 155j — NUCLEUS ACHIEVED on strandGate.
 - **Sprint 9**: Diesel engine excision. coral-ember/coral-glowplug/coral-driver/coral-gpu removed (153K lines). Pure compiler primal. Hardware dispatch delegated to toadStool.
 - **Sprint 8**: Feature freeze + toadStool handoff (E1/E2/E3 documented).
 - **Sprint 7**: FECS/GPCCS cold-silicon stability proof — `boot_gr_falcons_with_recovery()` retries up to 3× with PMC GR reset, structured `GrBootOutcome` enum.

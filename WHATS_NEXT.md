@@ -6,7 +6,7 @@
 
 **Last completed**: Wave 157d — Deep debt evolution: `alu_int.rs` PLop3 module split (827→669 LOC), `sm80_instr_latencies/gpr.rs` hazard table split (766→178 LOC), `BEARDOG_SOCKET` deprecated to capability-based `BTSP_PROVIDER_SOCKET`, 31 new AMD ops encoder tests (control/system/convert/memory). Previous: GEMM Phase 2, coverage push (sm70 float/float64), `gemm.rs` directory module split.
 
-**Tests**: 3,810 total (3,806 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,814 total (3,810 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 9, 2026.
 
@@ -110,43 +110,21 @@ The dedicated `compile_gemm` API is the practical path.
 3. Sovereign WGSL parser evolution (reduce naga dependency)
 4. Vertex/fragment shader compilation (currently compute-only)
 
-### Historical: Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED (Iter 64–71)**
+### Historical: Complexity Debt — Files Over 1000 LOC — **ALL RESOLVED**
 
-All files under 1000 LOC. Wave 143 additionally resolved 3 files >800 LOC (tests_unix, tests_tarpc, op_conv_tests).
+All files under 1000 LOC. Recent splits (Wave 157d): `alu_int.rs` 827→669 (PLop3), `sm80_instr_latencies/gpr.rs` 766→178 (hazards), `compile.rs` 834→569, `transport.rs` 1285→460.
 
-| File | Was | Now | Status |
-|------|-----|-----|--------|
-| `acr_boot.rs` | 4462 | `acr_boot/` (12 submodules) | **Resolved (Iter 64)** |
-| `coralctl.rs` | 1649 | `coralctl/` (main + 5 handlers) | **Resolved (Iter 64)** |
-| `socket.rs` | 1434 | `socket/` (mod + protocol + handlers) | **Resolved (Iter 64)** |
-| `swap.rs` | 1102 | `swap/` (mod + preflight + bind) | **Resolved (Iter 70)** |
-| `vfio_compute/mod.rs` | 1018 | 855 + `gr_engine_status.rs` (173) | **Resolved (Iter 70)** |
-| `observer.rs` | 934 | `observer/` (6 files, per-personality) | **Resolved (Iter 70c)** |
-| `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
-| `transport.rs` | 1285 | `transport/` (4 files, max 460) | **Resolved (Wave 157d)** |
+> Pre-Sprint 9 excised file splits (Iter 64–71): `acr_boot.rs`, `coralctl.rs`, `socket.rs`, `swap.rs`, `vfio_compute/mod.rs`, `observer.rs`, `exp123k_k80_sovereign.rs` — all resolved. Retained as fossil record.
 
-**Approaching 800 (monitor):** `sm20/encoder.rs` (795), `builder/emit.rs` (770) — near threshold, split candidates by instruction/encoding category. `alu_int.rs` 827→669 (PLop3 extracted to `alu_int_plop3.rs`). `sm80_instr_latencies/gpr.rs` 766→178 (hazard tables extracted to `gpr_hazards.rs`). Auto-generated ISA files (`table_arith.rs` 948, `table_cmp_f32_f64.rs` 836, `mimg/table.rs` 801) are acceptable exceptions (generator output). Wave 157d: `compile.rs` 834→569 (batch handlers extracted).
+**Approaching 800 (monitor):** `sm20/encoder.rs` (795), `builder/emit.rs` (770) — near threshold, split candidates by instruction/encoding category. Auto-generated ISA files (`table_arith.rs` 948, `table_cmp_f32_f64.rs` 836, `mimg/table.rs` 801) are acceptable exceptions (generator output).
 
 **Ecosystem registration:** Implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`). Zero hardcoded primal names in production code.
 
-### Sovereign Pipeline — Layer 7 (GR/FECS) Status
-
-7/10 layers proven. Layer 7 (GR engine / FECS context) is the active frontier:
-
-- SEC2 base address corrected, EMEM PIO verified, firmware headers parsed
-- ACR boot solver tries 5 strategies with increasing aggression
-- HS ROM PC is advancing (0x14b9 → 0x1505) but BL has not yet executed
-- `bind_stat` timeout: **IPC compile deadline resolved** (Sprint 5 — 120s default, `CORALREEF_COMPILE_TIMEOUT_SECS`)
-- FECS/GPCCS cold init: **Stability proof shipped** — retry with PMC GR reset, structured `GrBootOutcome`, all paths recovery-aware (Sprint 7). PIO boot wired (Sprint 5)
-- Three parallel paths: system-memory WPR, hybrid WPR, Nouveau warm handoff
-
 ### Immediate Next Steps
 
-1. ~~Resolve `bind_stat` timeout~~ — **RESOLVED** Sprint 5: compile deadline on all IPC handlers
-2. ~~FECS/GPCCS cold silicon init~~ — **RESOLVED** Sprint 5: PIO falcon boot wired
-3. PTX emitter completion for SM120/Blackwell (texture instructions, cooperative groups)
-4. ~~UVM hardware validation~~ — **EXCISED** Sprint 9: hardware dispatch → toadStool
-5. ~~`coral-gpu` sovereign path~~ — **EXCISED** Sprint 9: dispatch → toadStool
+1. PTX emitter completion for SM120/Blackwell (texture instructions, cooperative groups)
+2. Vertex/fragment shader compilation (8–12 weeks — NAK heritage exists)
+3. Coverage push toward 90% (compiler backends are main gap)
 
 ### Untestable Code — Hardware Abstraction Plan
 

@@ -2,7 +2,7 @@
 
 # coralReef — Spring Absorption Tracker
 
-**Last updated**: Aug 6, 2026 (Sprint 14 / Wave 156s: 3,702 tests, ~84% line coverage. G66 transport abstraction, G65 protocol negotiation, C3 health shim verified, C2 dual-socket)
+**Last updated**: Aug 10, 2026 (Sprint 14 / Wave 157d: 3,810 tests, ~84% line coverage. Deep debt evolution, PLop3 split, SM80 hazard split, BEARDOG deprecation, 31 new ops encoder tests, GEMM Phase 2, G68 16/16, Node Atomic AAR)
 
 ---
 

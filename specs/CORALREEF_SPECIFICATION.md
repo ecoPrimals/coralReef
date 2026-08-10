@@ -3,8 +3,8 @@
 # coralReef — Specification
 
 **Version**: 0.2.0
-**Date**: Aug 3, 2026
-**Status**: Phase 10 — Sprint 14 / Wave 156s (Pure compiler primal, 3,702 tests, zero unsafe, G66 transport abstraction, G65 protocol negotiation)
+**Date**: Aug 10, 2026
+**Status**: Phase 10 — Sprint 14 / Wave 157d (Pure compiler primal, 3,810 tests, zero unsafe, deep debt evolution, G68 16/16, Node Atomic AAR)
 
 ---
 
@@ -173,7 +173,7 @@ Adopted from barraCuda's `Fp64Strategy`:
 | 7 | coralDriver — userspace GPU dispatch (AMD + NVIDIA) | **Complete** |
 | 8 | coralGpu — unified Rust GPU abstraction | **Complete** |
 | 9 | Full sovereignty — zero FFI, zero C, all Rust | **Complete** |
-| 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 14 / Wave 156p — 3,686 tests, zero unsafe, G65 protocol negotiation** |
+| 10 | Compiler hardening, Compute Trio, diesel excision, pure compiler evolution | **Sprint 14 / Wave 157d — 3,810 tests, zero unsafe, G68 16/16, Node Atomic AAR** |
 
 ## Full-GPU Silicon Exploitation — Future Horizons
 
@@ -269,4 +269,4 @@ plan, pass definitions, and dependency tracking.
 ---
 
 **Date**: Aug 3, 2026
-**Version**: 0.2.0 — Sprint 14 / Wave 156g
+**Version**: 0.2.0 — Sprint 14 / Wave 157d
