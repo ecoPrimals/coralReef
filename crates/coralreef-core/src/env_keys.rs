@@ -70,7 +70,12 @@ pub const FAMILY_SEED: &str = "FAMILY_SEED";
 /// Security-domain provider socket path (preferred).
 pub const BTSP_PROVIDER_SOCKET: &str = "BTSP_PROVIDER_SOCKET";
 
-/// Composition launcher alias for the security-domain provider socket.
+/// Deprecated composition launcher alias for the security-domain provider socket.
+///
+/// **Removal target: v0.3.0.** Migrate to [`BTSP_PROVIDER_SOCKET`].
+/// Composition launchers should stop setting this after all gates reach
+/// v0.2.x parity and use `$BTSP_PROVIDER_SOCKET` instead.
+#[deprecated(since = "0.2.0", note = "use BTSP_PROVIDER_SOCKET")]
 pub const BEARDOG_SOCKET: &str = "BEARDOG_SOCKET";
 
 /// Tier-1 crypto derivation input set by the composition launcher (BTSP-specific alias).

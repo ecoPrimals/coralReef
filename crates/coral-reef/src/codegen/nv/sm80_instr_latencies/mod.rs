@@ -13,6 +13,7 @@ use crate::codegen::ir::*;
 // scoreboards needs to be provided.
 
 mod gpr;
+mod gpr_hazards;
 mod pred;
 mod uniform;
 

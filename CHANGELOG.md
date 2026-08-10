@@ -10,6 +10,24 @@ All notable changes to coralReef (sovereign Rust GPU compiler — WGSL/SPIR-V/GL
 
 ## [Unreleased]
 
+### Wave 157d: Deep Debt Evolution (2026-08-09)
+
+#### Changed (Refactoring)
+- `ops/alu_int.rs` smart refactored: PLop3 predicate logic (159 LOC) extracted to
+  `alu_int_plop3.rs`. `alu_int.rs` 827→669 lines — zero files over 800 LOC.
+- `sm80_instr_latencies/gpr.rs` smart refactored: RAW/WAW/WAR hazard tables (588 LOC)
+  extracted to `gpr_hazards.rs`, following SM75 precedent. `gpr.rs` 766→178 lines.
+
+#### Changed (Capability Evolution)
+- `BEARDOG_SOCKET` env var deprecated (`#[deprecated(since = "0.2.0")]`) with migration
+  path to `BTSP_PROVIDER_SOCKET`. Legacy fallback preserved in discovery chain with
+  `#[allow(deprecated)]` annotation. Zero hardcoded primal names in production code.
+
+#### Added (Coverage)
+- AMD ops encoder tests: `control_tests.rs` (7 tests), `system_tests.rs` (8 tests),
+  `convert_tests.rs` (7 tests), `memory_tests.rs` (9 tests). Total: 31 new tests
+  covering Exit/Nop/Bar/Bra, Mov/S2R/CS2R, F2F/F2I/I2F/I2I, Ld/St/Copy/MemBar.
+
 ### Wave 157d: GEMM Phase 2 + Coverage Push (2026-08-09)
 
 #### Added (GEMM Phase 2)

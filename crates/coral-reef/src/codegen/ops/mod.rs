@@ -17,6 +17,7 @@
 
 pub mod alu_float;
 pub mod alu_int;
+mod alu_int_plop3;
 pub mod control;
 pub mod convert;
 pub mod memory;
@@ -25,6 +26,19 @@ pub mod system;
 mod amd_dispatch;
 mod encoding_helpers;
 mod gfx9;
+
+#[cfg(test)]
+#[path = "control_tests.rs"]
+mod control_tests;
+#[cfg(test)]
+#[path = "convert_tests.rs"]
+mod convert_tests;
+#[cfg(test)]
+#[path = "memory_tests.rs"]
+mod memory_tests;
+#[cfg(test)]
+#[path = "system_tests.rs"]
+mod system_tests;
 
 pub use amd_dispatch::{AmdOpEncoder, EncodeOp, encode_amd_op};
 pub use encoding_helpers::{

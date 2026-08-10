@@ -2,7 +2,7 @@
 
 # coralReef
 
-**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 157d (GEMM Phase 2 shared-memory tiling, coverage push, deep debt evolution. 3,779 tests, zero unsafe, zero clippy warnings)  
+**Version**: 0.2.0 — Phase 10, Sprint 14 / Wave 157d (deep debt evolution: PLop3 module split, SM80 hazard table split, BEARDOG_SOCKET deprecation, 31 new ops encoder tests. 3,810 tests, zero unsafe, zero clippy warnings)  
 **Purpose**: Sovereign Rust GPU compiler — WGSL/SPIR-V/GLSL → native GPU binary
 
 ---
@@ -29,7 +29,7 @@ Part of the ecoPrimals Sovereign Compute Evolution.
 ```bash
 # Rust 1.85+ required (edition 2024)
 cargo check --workspace
-cargo test --workspace     # 3,711 passed, 0 failed, 4 ignored
+cargo test --workspace     # 3,810 passed, 0 failed, 4 ignored
 cargo clippy --all-features -- -W clippy::pedantic -W clippy::nursery -D warnings
 cargo fmt --check
 ```

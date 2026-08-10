@@ -4,9 +4,9 @@
 
 **Current position**: Phase 10 — Sprint 14 / Wave 157d.
 
-**Last completed**: Wave 157d — GEMM Phase 2 (shared memory tiling + `ldmatrix` + `bar.sync` pipeline), coverage push (sm70 float/float64 encoder tests, 23 new tests), `gemm.rs` split into directory module (1308→3 files: `mod.rs` 268, `phase1.rs` 386, `phase2.rs` 669). Previous: deep debt evolution, SM80+ OpRedux scheduler fix, GEMM tiling Phase 1, integer subgroup fix.
+**Last completed**: Wave 157d — Deep debt evolution: `alu_int.rs` PLop3 module split (827→669 LOC), `sm80_instr_latencies/gpr.rs` hazard table split (766→178 LOC), `BEARDOG_SOCKET` deprecated to capability-based `BTSP_PROVIDER_SOCKET`, 31 new AMD ops encoder tests (control/system/convert/memory). Previous: GEMM Phase 2, coverage push (sm70 float/float64), `gemm.rs` directory module split.
 
-**Tests**: 3,779 total (3,775 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
+**Tests**: 3,810 total (3,806 passed, 4 ignored). Zero clippy warnings (pedantic+nursery). Zero unsafe.
 
 **Last updated**: Aug 9, 2026.
 
@@ -125,7 +125,7 @@ All files under 1000 LOC. Wave 143 additionally resolved 3 files >800 LOC (tests
 | `exp123k_k80_sovereign.rs` | 1665 | `exp123k_k80_sovereign/` (7 files, max 457) | **Resolved (Iter 71)** |
 | `transport.rs` | 1285 | `transport/` (4 files, max 460) | **Resolved (Wave 157d)** |
 
-**Approaching 800 (monitor):** `sm20/encoder.rs` (795), `alu_int.rs` (827) — near threshold, split candidates by instruction/encoding category. Auto-generated ISA files (`table_arith.rs` 948, `table_cmp_f32_f64.rs` 836, `mimg/table.rs` 801) are acceptable exceptions (generator output). Wave 157d: `compile.rs` 834→569 (batch handlers extracted).
+**Approaching 800 (monitor):** `sm20/encoder.rs` (795), `builder/emit.rs` (770) — near threshold, split candidates by instruction/encoding category. `alu_int.rs` 827→669 (PLop3 extracted to `alu_int_plop3.rs`). `sm80_instr_latencies/gpr.rs` 766→178 (hazard tables extracted to `gpr_hazards.rs`). Auto-generated ISA files (`table_arith.rs` 948, `table_cmp_f32_f64.rs` 836, `mimg/table.rs` 801) are acceptable exceptions (generator output). Wave 157d: `compile.rs` 834→569 (batch handlers extracted).
 
 **Ecosystem registration:** Implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`). Zero hardcoded primal names in production code.
 
@@ -715,7 +715,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,715 tests (3,711 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157d.
+3,810 tests (3,806 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157d.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 18 served IPC methods: `shader.compile.*` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
