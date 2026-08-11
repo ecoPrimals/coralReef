@@ -186,10 +186,10 @@ advantage. See `docs/archive/SOVEREIGN_MULTI_GPU_EVOLUTION.md` (historical).
 | 7 | GPU driver (migrated to toadStool) | **Excised** (Sprint 9) |
 | 8 | Unified GPU abstraction (migrated to toadStool) | **Excised** (Sprint 9) |
 | 9 | Full sovereignty (zero FFI, zero C, zero unsafe) | **Complete** |
-| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 157g: BTSP test recovery (+46 orphaned), GEMM Phase 2 IPC wiring, SM20 encoder coverage (+49), BEARDOG_SOCKET guard, doc cleanup. 3,963 tests, zero debt |
+| 10 | Spring absorption, compiler hardening, Compute Trio, deep debt | **Active** — Sprint 14 / Wave 157i: sm20/encoder split, EVOLUTION assessment, deep debt audit, Rust 2024 idiom migration, `health` dispatch wired. 3,963 tests, zero debt |
 
 ---
 
 **License**: AGPL-3.0-or-later (upstream-derived files retain original attribution)
 **Standalone primal** — zero-knowledge startup, capability-based discovery, no hardcoded primals  
-**IPC**: 18 served methods (JSON-RPC 2.0 + tarpc): `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.multi`, `shader.compile.wgsl.multi`, `shader.compile.gemm`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `health.version`, `identity.get`, `capability.list`, `capabilities.list`, `btsp.negotiate`, `auth.check`, `auth.mode`, `auth.peer_info` — 5 consumed: `compute.dispatch`, `capability.register`, `ipc.heartbeat`, `primal.announce`, `crypto.sign`
+**IPC**: 19 served methods (JSON-RPC 2.0 + tarpc): `health`, `shader.compile.wgsl`, `shader.compile.spirv`, `shader.compile.multi`, `shader.compile.wgsl.multi`, `shader.compile.gemm`, `shader.compile.status`, `shader.compile.capabilities`, `health.check`, `health.liveness`, `health.readiness`, `health.version`, `identity.get`, `capability.list`, `capabilities.list`, `btsp.negotiate`, `auth.check`, `auth.mode`, `auth.peer_info` — 5 consumed: `compute.dispatch`, `capability.register`, `ipc.heartbeat`, `primal.announce`, `crypto.sign`

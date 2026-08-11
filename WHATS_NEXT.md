@@ -130,7 +130,7 @@ All files under 1000 LOC. Recent splits (Wave 157d): `alu_int.rs` 827→669 (PLo
 
 > Pre-Sprint 9 excised file splits (Iter 64–71): `acr_boot.rs`, `coralctl.rs`, `socket.rs`, `swap.rs`, `vfio_compute/mod.rs`, `observer.rs`, `exp123k_k80_sovereign.rs` — all resolved. Retained as fossil record.
 
-**Approaching 800 (monitor):** `sm20/encoder.rs` (795), `builder/emit.rs` (770) — near threshold, split candidates by instruction/encoding category. Auto-generated ISA files (`table_arith.rs` 948, `table_cmp_f32_f64.rs` 836, `mimg/table.rs` 801) are acceptable exceptions (generator output).
+**Approaching 800 (monitor):** `builder/emit.rs` (770) — near threshold, split candidate by instruction category. `sm20/encoder.rs` resolved Wave 157i (795→343+464 split). Auto-generated ISA files (`table_arith.rs` 948, `table_cmp_f32_f64.rs` 836, `mimg/table.rs` 801) are acceptable exceptions (generator output).
 
 **Ecosystem registration:** Implemented (`coralreef-core` `ecosystem.rs`, `identity.get`, `capability.register`, `ipc.heartbeat`). Zero hardcoded primal names in production code.
 
@@ -708,7 +708,7 @@ the full Spring absorption map.
 ---
 
 *The compiler evolves. Compute Trio established — coralReef = HOW (compiler), toadStool = WHERE (hardware), barraCuda = WHAT (math/physics).
-3,963 tests (3,963 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157h.
+3,963 tests (3,963 passing, 4 ignored), zero failures. ~84% workspace coverage. Wave 157i.
 Three input languages: WGSL (primary), SPIR-V (binary), GLSL 450 (compute absorption).
 19 served IPC methods: `shader.compile.*` + `health` + `health.*` + `identity.get` + `capability.list` + `btsp.negotiate` + `auth.*` — JSON-RPC 2.0 + tarpc + Unix socket; BTSP Phase 3; JH-0 MethodGate.
 SM120 Blackwell edge cases resolved: loop control flow, subgroup builtins, reduce correctness.
