@@ -100,6 +100,7 @@ pub const SERVED_METHODS: &[&str] = &[
     "shader.compile.wgsl.multi",
     "shader.compile.multi",
     "shader.compile.gemm",
+    "shader.compile.wgsl_to_spirv",
     "health.check",
     "health.liveness",
     "health.readiness",

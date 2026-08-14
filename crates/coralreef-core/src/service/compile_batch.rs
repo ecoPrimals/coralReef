@@ -61,7 +61,7 @@ pub fn handle_compile_wgsl_multi(
                 opt_level: req.opt_level,
                 debug_info: false,
                 fp64_software: fp64_sw,
-                fma_policy: fma,
+                fma_policy: fma.clone(),
                 ..CompileOptions::default()
             };
             let compiled = coral_reef::compile_wgsl_full(req.wgsl_source.as_ref(), &options)?;

@@ -104,7 +104,7 @@ const SU3_PREAMBLE: &str = include_str!("su3_f64_preamble.wgsl");
 /// SPIR-V `NoContraction` and WGSL `@fma_control` decorations map to this.
 /// Controls whether the compiler may fuse `a*b + c` into a single FMA
 /// instruction, which changes rounding behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum FmaPolicy {
     /// Allow FMA contractions (fastest).
     Fused,
@@ -113,6 +113,48 @@ pub enum FmaPolicy {
     /// Let the compiler decide based on architecture.
     #[default]
     Auto,
+    /// Skip FMA fusion in functions matching DF64 naming patterns.
+    ///
+    /// Allows FMA in regular math (fastest) while protecting Dekker 2-sum
+    /// and two-product helpers from fusion that breaks their error accumulation.
+    /// Detected patterns: `df64_*`, `two_sum`, `two_prod`, `split_f32`,
+    /// `dekker_*`, `knuth_*`, `error_free_*`.
+    ///
+    /// Additional function names can be specified in the `extra_names` field.
+    SkipDf64Functions {
+        /// Additional function names to exclude from FMA fusion beyond
+        /// the built-in DF64 pattern set.
+        extra_names: Vec<String>,
+    },
+}
+
+/// Built-in DF64 function name prefixes that must never be FMA-fused.
+///
+/// Dekker arithmetic requires that each multiply and add rounds independently.
+/// FMA fusion combines them into a single rounding step, destroying the
+/// error term that accumulates in the `lo` component of a DF64 pair.
+pub const DF64_NO_FUSE_PREFIXES: &[&str] = &[
+    "df64_", "two_sum", "two_prod", "split_f32", "dekker_", "knuth_", "error_free_",
+];
+
+/// Check if a function name matches the DF64 no-fuse pattern set.
+#[must_use]
+pub fn is_df64_function(name: &str) -> bool {
+    DF64_NO_FUSE_PREFIXES
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+}
+
+/// Check if a function name should skip FMA fusion under the given policy.
+#[must_use]
+pub fn should_skip_fma(name: &str, policy: &FmaPolicy) -> bool {
+    match policy {
+        FmaPolicy::Separate => true,
+        FmaPolicy::SkipDf64Functions { extra_names } => {
+            is_df64_function(name) || extra_names.iter().any(|n| name.starts_with(n.as_str()))
+        }
+        _ => false,
+    }
 }
 
 /// Three-tier f64 precision strategy.
@@ -298,7 +340,7 @@ pub fn compile_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_spirv(spirv, sm.as_ref())?;
-    shader.fma_policy = options.fma_policy;
+    shader.fma_policy = options.fma_policy.clone();
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, options.target))
 }
@@ -372,7 +414,7 @@ pub fn compile_wgsl_full_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_wgsl(&prepared, sm.as_ref())?;
-    shader.fma_policy = options.fma_policy;
+    shader.fma_policy = options.fma_policy.clone();
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
 }
@@ -404,7 +446,7 @@ pub fn compile_naga_module_full(
         .first()
         .ok_or_else(|| CompileError::InvalidInput("no entry points in module".into()))?;
     let mut shader = codegen::naga_translate::translate(module, sm.as_ref(), &ep.name)?;
-    shader.fma_policy = options.fma_policy;
+    shader.fma_policy = options.fma_policy.clone();
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
 }
@@ -440,7 +482,7 @@ pub fn compile_wgsl_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_wgsl(&prepared, sm.as_ref())?;
-    shader.fma_policy = options.fma_policy;
+    shader.fma_policy = options.fma_policy.clone();
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, options.target))
 }
@@ -516,7 +558,7 @@ pub fn compile_module_full(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = codegen::naga_translate::translate(module, sm.as_ref(), &ep.name)?;
-    shader.fma_policy = options.fma_policy;
+    shader.fma_policy = options.fma_policy.clone();
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
 }
@@ -625,7 +667,7 @@ pub fn compile_glsl_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_glsl(glsl, sm.as_ref())?;
-    shader.fma_policy = options.fma_policy;
+    shader.fma_policy = options.fma_policy.clone();
     let compiled = compile_ir(&mut shader)?;
     Ok(emit_binary(&compiled, options.target))
 }
@@ -663,7 +705,7 @@ pub fn compile_glsl_full_with(
 
     let sm = shader_model_for(options.target)?;
     let mut shader = frontend.compile_glsl(glsl, sm.as_ref())?;
-    shader.fma_policy = options.fma_policy;
+    shader.fma_policy = options.fma_policy.clone();
     let backend = backend::backend_for(options.target)?;
     backend.compile(&mut shader)
 }

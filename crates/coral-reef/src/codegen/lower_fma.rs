@@ -87,11 +87,20 @@ fn lower_fma_instr(instr: Instr, alloc: &mut SSAValueAllocator) -> MappedInstrs 
 }
 
 impl Shader<'_> {
-    /// Lower FMA instructions to separate mul + add when `FmaPolicy::Separate`.
+    /// Lower FMA instructions to separate mul + add based on `FmaPolicy`.
     ///
-    /// `FmaPolicy::Fused` and `FmaPolicy::Auto` leave FMA instructions intact.
+    /// - `Separate` / `SkipDf64Functions`: splits all FMA in this shader.
+    ///   (In native codegen, naga inlines all called functions into the entry
+    ///   point, so function-level granularity maps to whole-shader splitting
+    ///   when the shader contains ANY DF64 helper patterns.)
+    /// - `Fused` / `Auto`: leave FMA instructions intact.
     pub fn lower_fma_contractions(&mut self) {
-        if self.fma_policy != FmaPolicy::Separate {
+        let should_split = match &self.fma_policy {
+            FmaPolicy::Separate => true,
+            FmaPolicy::SkipDf64Functions { .. } => true,
+            FmaPolicy::Fused | FmaPolicy::Auto => false,
+        };
+        if !should_split {
             return;
         }
         for func in &mut self.functions {

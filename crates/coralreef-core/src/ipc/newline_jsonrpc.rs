@@ -115,6 +115,10 @@ pub fn dispatch_jsonrpc(
             let req: service::GemmCompileRequest = extract_params(params)?;
             handler_result(service::handle_compile_gemm(&req))
         }
+        "shader.compile.wgsl_to_spirv" => {
+            let req: service::CompileWgslToSpirvRequest = extract_params(params)?;
+            handler_result(service::handle_compile_wgsl_to_spirv(&req))
+        }
         "health.version" => to_json(service::handle_health_version()),
         "btsp.negotiate" => {
             let req: super::btsp_negotiate::NegotiateRequest = extract_params(params)?;

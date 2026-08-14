@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use super::types::{
     CompilationInfoResponse, CompileRequest, CompileResponse, CompileWgslRequest,
-    GemmCompileRequest,
+    CompileWgslToSpirvRequest, CompileWgslToSpirvResponse, GemmCompileRequest,
 };
 use bytes::Bytes;
 use coral_reef::gemm::{GemmPrecision, GemmShape};
@@ -247,7 +247,10 @@ pub fn handle_compile(req: &CompileRequest) -> Result<CompileResponse, CompileEr
 pub fn parse_fma_policy(s: Option<&str>) -> FmaPolicy {
     match s {
         Some("fused") => FmaPolicy::Fused,
-        Some("separate") => FmaPolicy::Separate,
+        Some("separate") | Some("never_fuse") => FmaPolicy::Separate,
+        Some("skip_df64_functions") | Some("skip_df64") => FmaPolicy::SkipDf64Functions {
+            extra_names: Vec::new(),
+        },
         _ => FmaPolicy::Auto,
     }
 }
@@ -413,6 +416,96 @@ pub fn handle_compile_gemm(req: &GemmCompileRequest) -> Result<CompileResponse, 
         }),
         spirv_binary: None,
         provenance: None,
+    })
+}
+
+/// `shader.compile.wgsl_to_spirv` — DF64-safe WGSL → SPIR-V emission.
+///
+/// Dedicated endpoint that produces ONLY portable SPIR-V (no native binary).
+/// The FMA policy parameter controls whether Mul+Add patterns are fused,
+/// which is critical for DF64 (f32-pair) arithmetic where Dekker 2-sum
+/// requires independent rounding at each operation.
+///
+/// # Errors
+///
+/// Returns [`CompileError`] if WGSL parsing, validation, or SPIR-V emission fails.
+#[must_use = "contains SPIR-V words or an error"]
+pub fn handle_compile_wgsl_to_spirv(
+    req: &CompileWgslToSpirvRequest,
+) -> Result<CompileWgslToSpirvResponse, CompileError> {
+    let t0 = Instant::now();
+
+    let applied_policy_str = match req.fma_policy.as_str() {
+        "allow_all" | "fused" => "allow_all",
+        "skip_df64_functions" => "skip_df64_functions",
+        _ => "never_fuse",
+    };
+
+    let fma_policy = match req.fma_policy.as_str() {
+        "allow_all" | "fused" => FmaPolicy::Fused,
+        "skip_df64_functions" => FmaPolicy::SkipDf64Functions {
+            extra_names: req.no_fuse_functions.clone(),
+        },
+        _ => FmaPolicy::Separate,
+    };
+
+    let mut fma_skipped_functions = 0u32;
+    if let FmaPolicy::SkipDf64Functions { ref extra_names } = fma_policy {
+        for func in std::iter::once(req.wgsl_source.as_ref()) {
+            for name in coral_reef::DF64_NO_FUSE_PREFIXES {
+                if func.contains(name) {
+                    fma_skipped_functions += 1;
+                }
+            }
+            for name in extra_names {
+                if func.contains(name.as_str()) {
+                    fma_skipped_functions += 1;
+                }
+            }
+        }
+    }
+
+    let spv_version = req.spirv_version.unwrap_or([1, 3]);
+    let options = CompileOptions {
+        target: GpuTarget::default(),
+        opt_level: 2,
+        debug_info: false,
+        fp64_strategy: if req.fp64_software {
+            coral_reef::Fp64Strategy::Native
+        } else {
+            coral_reef::Fp64Strategy::default()
+        },
+        fp64_software: req.fp64_software,
+        fma_policy,
+        entry_point: None,
+        validate: true,
+        spirv: Some(coral_reef::SpirVOptions {
+            version: (spv_version[0], spv_version[1]),
+            zero_init_workgroup_memory: true,
+            force_loop_bounding: false,
+        }),
+    };
+
+    let module = coral_reef::parse_wgsl_to_naga(req.wgsl_source.as_ref(), &options)?;
+
+    let entry_points: Vec<String> = module.entry_points.iter().map(|ep| ep.name.clone()).collect();
+
+    let spirv_bytes = coral_reef::module_to_spirv(&module, &options)?;
+
+    let spirv_words: Vec<u32> = spirv_bytes
+        .chunks_exact(4)
+        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect();
+
+    let elapsed = t0.elapsed();
+
+    Ok(CompileWgslToSpirvResponse {
+        spirv_words,
+        status: Cow::Borrowed(STATUS_SUCCESS),
+        compile_time_ms: Some(elapsed.as_secs_f64() * 1000.0),
+        entry_points,
+        applied_fma_policy: applied_policy_str.to_owned(),
+        fma_skipped_functions,
     })
 }
 

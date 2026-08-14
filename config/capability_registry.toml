@@ -15,7 +15,7 @@ transport = ["uds", "tcp", "tarpc"]
 
 [domains.shader]
 description = "GPU shader compilation (WGSL, SPIR-V, GLSL → native binary + portable SPIR-V)"
-methods = ["compile.spirv", "compile.wgsl", "compile.wgsl.multi", "compile.multi", "compile.gemm", "compile.status", "compile.capabilities"]
+methods = ["compile.spirv", "compile.wgsl", "compile.wgsl.multi", "compile.multi", "compile.gemm", "compile.wgsl_to_spirv", "compile.status", "compile.capabilities"]
 
 [domains.health]
 description = "Health, liveness, readiness, and version probes"
@@ -79,6 +79,12 @@ depends_on = []
 cost = "high"
 stability = "stable"
 description = "Compile shader source to multiple GPU targets in a single request"
+
+[operations."shader.compile.wgsl_to_spirv"]
+depends_on = []
+cost = "medium"
+stability = "stable"
+description = "Compile WGSL to portable SPIR-V only (no native binary) with DF64-safe FMA policy"
 
 [operations."shader.compile.gemm"]
 depends_on = []

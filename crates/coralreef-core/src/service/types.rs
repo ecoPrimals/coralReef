@@ -102,6 +102,68 @@ pub struct CompileWgslRequest {
     pub spirv_version: Option<[u8; 2]>,
 }
 
+/// Request to compile WGSL source directly to SPIR-V binary (no native ISA).
+///
+/// Dedicated endpoint for consumers that need portable SPIR-V for driver
+/// passthrough (e.g. barracuda's DF64 streaming pipelines). Unlike
+/// `CompileWgslRequest` with `emit_spirv: true`, this skips native binary
+/// compilation entirely — lower latency when only SPIR-V is needed.
+///
+/// The `fma_policy` field is critical for DF64 consumers: `"never_fuse"`
+/// preserves Dekker 2-sum arithmetic integrity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileWgslToSpirvRequest {
+    /// WGSL source code.
+    #[serde(alias = "source", deserialize_with = "deserialize_arc_str")]
+    pub wgsl_source: Arc<str>,
+    /// FMA fusion policy: `"allow_all"`, `"never_fuse"`, `"skip_df64_functions"`.
+    ///
+    /// - `"allow_all"`: FMA fusion enabled (fastest, not DF64-safe).
+    /// - `"never_fuse"`: No FMA fusion anywhere (safest for DF64).
+    /// - `"skip_df64_functions"`: Skip fusion in functions matching DF64 naming
+    ///   patterns (`df64_*`, `two_sum`, `two_prod`, `split_f32`, etc.).
+    #[serde(default = "default_fma_policy_spirv")]
+    pub fma_policy: String,
+    /// Function names to explicitly exclude from FMA fusion.
+    /// Augments pattern-based detection when `fma_policy` is `"skip_df64_functions"`.
+    #[serde(default)]
+    pub no_fuse_functions: Vec<String>,
+    /// SPIR-V version to target as `[major, minor]`. Defaults to `[1, 3]`.
+    #[serde(default)]
+    pub spirv_version: Option<[u8; 2]>,
+    /// Enable f64 software transcendentals in the emitted SPIR-V.
+    #[serde(default)]
+    pub fp64_software: bool,
+}
+
+fn default_fma_policy_spirv() -> String {
+    "never_fuse".into()
+}
+
+/// Response from WGSL-to-SPIR-V compilation.
+///
+/// Contains the SPIR-V binary as `Vec<u32>` words (not bytes) for direct
+/// consumption by `create_shader_module_passthrough`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileWgslToSpirvResponse {
+    /// SPIR-V words (u32 array). Feed directly to Vulkan's
+    /// `VkShaderModuleCreateInfo::pCode`.
+    pub spirv_words: Vec<u32>,
+    /// Compilation status.
+    pub status: Cow<'static, str>,
+    /// Wall-clock compilation time in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compile_time_ms: Option<f64>,
+    /// Entry point names found in the module.
+    #[serde(default)]
+    pub entry_points: Vec<String>,
+    /// FMA policy that was actually applied.
+    pub applied_fma_policy: String,
+    /// Number of functions where FMA fusion was skipped.
+    #[serde(default)]
+    pub fma_skipped_functions: u32,
+}
+
 /// Precision routing advice carried in compile requests.
 ///
 /// Enables the compiler to make informed decisions about hardware unit
