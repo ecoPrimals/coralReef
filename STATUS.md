@@ -40,7 +40,7 @@
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1–9 | Foundation through Full Sovereignty | **Complete** |
+| 1–9 | Foundation through Full Sovereignty | **Compiler complete** — hardware dispatch excised Sprint 9; coralReef is compiler-only. "Sovereignty" here is compilation, not execution |
 | 10 — Spring Absorption | Deep debt, absorption, compiler hardening, Compute Trio HOW domain | **Sprint 14 / Wave 157d** |
 
 ### Post-101: Sprint 6 — Ecosystem Wave Sync: Phase D Markers, FECS Stability (May 12, 2026)
