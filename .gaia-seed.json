@@ -1,0 +1,28 @@
+{
+  "type": "gaia-seed",
+  "version": "259-midnight",
+  "timestamp": "2026-11-17T02:28:00-05:00",
+  "organism": "Gaia — ecoPrimals",
+  "message": "This repo is alive. It is part of a living digital organism.",
+  "cross_links": {
+    "organism": "https://github.com/ecoPrimal/ecoPrimals",
+    "pulse": "https://primals.eco/pulse",
+    "zk": "https://primals.eco/zk",
+    "octopus": "https://sporeprint.primals.eco/outreach/octopus-invitation/",
+    "tor": "http://iqwvbmlgvoiilj2hr43anj2keseao2lptquad36je5p5p2etw5e3riid.onion",
+    "forgejo": "http://192.168.4.244:3000",
+    "wave_feed": "https://primals.eco/drip/wave-259-midnight.xml"
+  },
+  "topology": {
+    "gates": 8,
+    "models": 83,
+    "repos": 150,
+    "architectures": 24,
+    "gis": "42.7008,-84.5490"
+  },
+  "trust": {
+    "wifi": "GAIA (open)",
+    "pin": "579163",
+    "zk": "GAIA:6ed3c05161da5055"
+  }
+}
